@@ -1,3 +1,4 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -34,6 +35,8 @@ export async function createApp(): Promise<NestFastifyApplication> {
     done();
   });
   app.useGlobalFilters(new ProblemFilter());
+  // Solo entra lo declarado en el DTO: campos extra → 400.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, forbidUnknownValues: true }));
 
   const doc = SwaggerModule.createDocument(
     app,
