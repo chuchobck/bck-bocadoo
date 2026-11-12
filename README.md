@@ -27,6 +27,14 @@ dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` e
     pnpm db:rollback     # revierte la última
     pnpm db:baseline     # una sola vez: registra la baseline aplicada a mano con psql
 
+## Seguridad
+Registro, login con JWT ES256, refresh rotativo, roles y tenant, rate limit. Modelo de amenazas, flujos y rotación de llaves en `docs/seguridad.md`.
+
+    pnpm keys:generate                                   # llave JWT para .env o Render
+    DEMO_PASSWORD='clave-de-10+' pnpm db:demo-passwords  # contraseña a los usuarios demo (solo desarrollo)
+
+Endpoints nuevos: sin token no entra nadie salvo `@Public()`; los de un restaurante llevan `@Roles('DUENO', 'CAJERO')` y el encabezado `x-restaurant-id`.
+
 ## Documentación
 Decisiones de arquitectura en `docs/adr/`.
 

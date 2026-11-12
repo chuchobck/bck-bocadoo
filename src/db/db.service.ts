@@ -73,8 +73,13 @@ export class DbService implements OnModuleDestroy {
   }
 
   /** Rol bck_servicio (se salta RLS). Solo para login, cron y facturación; nunca para endpoints de negocio. */
-  service<T>(fn: (db: Queryable) => Promise<T>): Promise<T> {
-    return this.transaction(this.servicePool, false, fn);
+  async service<T>(fn: (db: Queryable) => Promise<T>, options: { actorUserId?: string } = {}): Promise<T> {
+    const actor = assertScopeId(options.actorUserId, 'actorUserId');
+    // El actor llega a la auditoría de la base (log_actividad) aunque la operación corra con el rol de servicio.
+    const setup = actor
+      ? async (client: PoolClient) => { await client.query("SELECT set_config('app.current_user_id', $1, true)", [actor]); }
+      : undefined;
+    return this.transaction(this.servicePool, false, fn, setup);
   }
 
   /** Verifica que ambos roles conectan. */

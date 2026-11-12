@@ -8,6 +8,25 @@ const schema = z.object({
   DATABASE_URL: z.string().url(),
   DATABASE_SERVICE_URL: z.string().url(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
+  // Autenticación
+  JWT_PRIVATE_KEY: z.string().min(1).optional(), // PEM PKCS8 de una llave EC P-256; se admiten \n literales
+  JWT_KEY_ID: z.string().min(1).max(64).default('k1'),
+  JWT_PREVIOUS_PUBLIC_KEYS: z.string().optional(), // JSON {"kid":"PEM público"} para rotar sin cortar sesiones
+  JWT_ISSUER: z.string().min(1).default('bocadoo'),
+  JWT_AUDIENCE: z.string().min(1).default('bocadoo-api'),
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(900),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  // Abuso
+  BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).default(102_400),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120), // por IP y minuto, todos los endpoints
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5), // logins por IP+cuenta en la ventana
+  AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
+  SIGNUP_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10), // registros por IP y hora
+  SWAGGER_ENABLED: z.enum(['true', 'false']).optional(), // por defecto: encendido salvo en producción
+}).superRefine((env, ctx) => {
+  if (env.NODE_ENV === 'production' && !env.JWT_PRIVATE_KEY) {
+    ctx.addIssue({ code: 'custom', path: ['JWT_PRIVATE_KEY'], message: 'es obligatoria en producción' });
+  }
 });
 
 export type Env = z.infer<typeof schema>;

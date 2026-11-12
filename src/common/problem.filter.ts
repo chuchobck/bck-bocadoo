@@ -18,7 +18,10 @@ export class ProblemFilter implements ExceptionFilter {
     let detail = 'Solicitud inválida.';
     if (status >= 500) detail = 'Error interno del servidor.';
     else if (typeof body === 'string') detail = body;
-    else if (body && typeof body === 'object' && 'message' in body) detail = String((body as { message: unknown }).message);
+    else if (body && typeof body === 'object' && 'message' in body) {
+      const m = (body as { message: unknown }).message;
+      detail = Array.isArray(m) ? m.join('; ') : String(m);
+    }
     else if (exception instanceof Error) detail = exception.message;
 
     if (status >= 500) this.logger.error({ err: exception, requestId: req.id }, 'Excepción no controlada');
