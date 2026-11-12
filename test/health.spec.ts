@@ -18,6 +18,13 @@ describe('API base', () => {
     expect(res.headers['x-request-id']).toBeTruthy();
   });
 
+  it('GET /health/ready devuelve 503 problem+json si la base no responde', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health/ready' });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['content-type']).toContain('application/problem+json');
+    expect(res.json()).toMatchObject({ status: 503, title: 'SERVICE UNAVAILABLE' });
+  });
+
   it('ruta inexistente devuelve problem+json (RFC 9457)', async () => {
     const res = await app.inject({ method: 'GET', url: '/nada' });
     expect(res.statusCode).toBe(404);

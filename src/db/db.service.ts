@@ -56,7 +56,7 @@ export class DbService implements OnModuleDestroy {
    * Transacción con rol bck_api y contexto RLS. set_config(..., true) vale solo dentro de
    * esta transacción, así que una conexión reutilizada nunca arrastra el tenant anterior.
    */
-  scope<T>(options: ScopeOptions, fn: (db: Queryable) => Promise<T>): Promise<T> {
+  async scope<T>(options: ScopeOptions, fn: (db: Queryable) => Promise<T>): Promise<T> {
     const tenantId = assertScopeId(options.tenantId, 'tenantId');
     const userId = assertScopeId(options.userId, 'userId');
     return this.transaction(this.appPool, options.readOnly === true, fn, async (client) => {
