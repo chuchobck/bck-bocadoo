@@ -4,6 +4,7 @@ import type { FastifyRequest } from 'fastify';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Public } from '../authz/public.decorator';
 import { DbService } from '../db/db.service';
+import { RateLimit } from '../security/rate-limit';
 import { AuthService } from './auth.service';
 import { LoginDto, RefreshDto, RegisterDto, RegisterOwnerDto, RegisterResponseDto, TokenResponseDto } from './dto';
 import { SessionsService } from './sessions.service';
@@ -19,19 +20,19 @@ export class AuthController {
     private readonly db: DbService,
   ) {}
 
-  @Public() @Post('register') @HttpCode(201)
+  @Public() @RateLimit('signup') @Post('register') @HttpCode(201)
   @ApiOperation({ summary: 'Registrar una cuenta de comensal' })
   register(@Body() dto: RegisterDto, @Req() req: FastifyRequest): Promise<RegisterResponseDto> {
     return this.auth.register(dto, info(req));
   }
 
-  @Public() @Post('register-owner') @HttpCode(201)
+  @Public() @RateLimit('signup') @Post('register-owner') @HttpCode(201)
   @ApiOperation({ summary: 'Registrar una cuenta de dueño con su restaurante (en borrador)' })
   registerOwner(@Body() dto: RegisterOwnerDto, @Req() req: FastifyRequest): Promise<RegisterResponseDto> {
     return this.auth.registerOwner(dto, info(req));
   }
 
-  @Public() @Post('login') @HttpCode(200)
+  @Public() @RateLimit('auth') @Post('login') @HttpCode(200)
   @ApiOperation({ summary: 'Iniciar sesión con correo o nombre de usuario' })
   login(@Body() dto: LoginDto, @Req() req: FastifyRequest): Promise<TokenResponseDto> {
     return this.auth.login(dto, info(req));

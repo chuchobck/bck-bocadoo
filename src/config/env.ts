@@ -16,6 +16,13 @@ const schema = z.object({
   JWT_AUDIENCE: z.string().min(1).default('bocadoo-api'),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  // Abuso
+  BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).default(102_400),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120), // por IP y minuto, todos los endpoints
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5), // logins por IP+cuenta en la ventana
+  AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
+  SIGNUP_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10), // registros por IP y hora
+  SWAGGER_ENABLED: z.enum(['true', 'false']).optional(), // por defecto: encendido salvo en producción
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && !env.JWT_PRIVATE_KEY) {
     ctx.addIssue({ code: 'custom', path: ['JWT_PRIVATE_KEY'], message: 'es obligatoria en producción' });
