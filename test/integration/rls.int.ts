@@ -125,3 +125,33 @@ describe('Readiness por HTTP contra base real', () => {
     expect(res.json().db).toMatchObject({ app: expect.any(String), service: expect.any(String) });
   });
 });
+
+describe('Auditoría con el actor real', () => {
+  const env = loadEnv();
+  let db: DbService;
+  beforeAll(() => { db = new DbService(env); });
+  afterAll(() => db.onModuleDestroy());
+
+  const lastLog = (entidad: string, id: string) =>
+    db.service((c) => c.query<{ ejecutado_por_usuario_id: string | null; tenant_restaurante_id: string | null; accion: string }>(
+      `SELECT ejecutado_por_usuario_id, tenant_restaurante_id, accion FROM log_actividad WHERE entidad_afectada = $1 AND entidad_registro_id = $2 ORDER BY log_id DESC LIMIT 1`, [entidad, id]));
+
+  it('un cambio hecho por la API (bck_api) queda con el usuario y el tenant de la sesión', async () => {
+    await db.scope({ tenantId: '1', userId: '1' }, (c) => c.query("UPDATE restaurante SET descripcion_corta = 'auditado por la API' WHERE restaurante_id = 1"));
+    expect((await lastLog('restaurante', '1')).rows[0]).toMatchObject({ ejecutado_por_usuario_id: '1', tenant_restaurante_id: '1', accion: 'EDITAR' });
+  });
+
+  it('un cambio hecho por el rol de servicio con actor explícito también registra al usuario real', async () => {
+    await db.service((c) => c.query("UPDATE restaurante SET descripcion_corta = 'auditado por servicio' WHERE restaurante_id = 2"), { actorUserId: '3' });
+    expect((await lastLog('restaurante', '2')).rows[0]).toMatchObject({ ejecutado_por_usuario_id: '3' });
+  });
+
+  it('sin actor, el cambio queda como proceso del sistema (NULL), no con un usuario inventado', async () => {
+    await db.service((c) => c.query("UPDATE restaurante SET descripcion_corta = 'auditado sin actor' WHERE restaurante_id = 3"));
+    expect((await lastLog('restaurante', '3')).rows[0]!.ejecutado_por_usuario_id).toBeNull();
+  });
+
+  it('un actorUserId inválido se rechaza', async () => {
+    await expect(db.service((c) => c.query('SELECT 1'), { actorUserId: '1; DROP' })).rejects.toThrow(/inválido/);
+  });
+});
