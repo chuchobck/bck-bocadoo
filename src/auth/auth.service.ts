@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { DbService } from '../db/db.service';
 import { ClientInfo, SecurityEventsService } from '../security/security-events.service';
-import { RegisterDto, RegisterOwnerDto, RegisterResponseDto } from './dto';
+import { LoginDto, RegisterDto, RegisterOwnerDto, RegisterResponseDto, TokenResponseDto } from './dto';
 import { PasswordService } from './password.service';
+import { SessionsService } from './sessions.service';
+import { TokenService } from './token.service';
 
 const slugify = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'local';
@@ -16,7 +18,51 @@ export class AuthService {
     private readonly db: DbService,
     private readonly passwords: PasswordService,
     private readonly events: SecurityEventsService,
+    private readonly tokens: TokenService,
+    private readonly sessions: SessionsService,
   ) {}
+
+  /** Mismo 401 y mismo trabajo (un argon2) exista o no el usuario: no se puede enumerar cuentas. */
+  async login(dto: LoginDto, info: ClientInfo): Promise<TokenResponseDto> {
+    const found = await this.db.service((q) =>
+      q.query<{ usuario_id: string; public_id: string; nombre: string; activo: boolean; password_hash: string }>(
+        `SELECT u.usuario_id, u.public_id, u.nombre, u.activo, ui.password_hash
+           FROM usuario u JOIN usuario_identidad ui ON ui.usuario_id = u.usuario_id AND ui.proveedor = 'PASSWORD'
+          WHERE u.correo = $1 OR u.nombre_usuario = $1 LIMIT 1`,
+        [dto.identificador],
+      ),
+    );
+    const user = found.rows[0];
+    const ok = user ? await this.passwords.verify(user.password_hash, dto.password) : await this.passwords.verifyDummy(dto.password);
+    if (!user || !ok || !user.activo) {
+      const motivo = !user ? 'USUARIO_INEXISTENTE' : !ok ? 'PASSWORD' : 'INACTIVO';
+      await this.events.record('LOGIN_FALLIDO', { ...info, usuarioId: user ? String(user.usuario_id) : undefined, detalle: { motivo } });
+      throw new UnauthorizedException('Credenciales inválidas.');
+    }
+    const usuarioId = String(user.usuario_id);
+    const refreshToken = await this.db.service(async (q) => {
+      await q.query('UPDATE usuario_identidad SET ultimo_acceso_en = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND proveedor = $2', [usuarioId, 'PASSWORD']);
+      return this.sessions.issue(q, usuarioId, info);
+    });
+    await this.events.record('LOGIN_OK', { ...info, usuarioId });
+    return this.response(usuarioId, user.public_id, user.nombre, refreshToken);
+  }
+
+  async refresh(raw: string, info: ClientInfo): Promise<TokenResponseDto> {
+    const s = await this.sessions.rotate(raw, info);
+    const u = await this.db.service((q) => q.query<{ nombre: string }>('SELECT nombre FROM usuario WHERE usuario_id = $1', [s.usuarioId]));
+    return this.response(s.usuarioId, s.publicId, u.rows[0]?.nombre ?? '', s.refreshToken);
+  }
+
+  private async response(usuarioId: string, publicId: string, nombre: string, refreshToken: string): Promise<TokenResponseDto> {
+    return {
+      accessToken: await this.tokens.signAccess({ sub: publicId, uid: usuarioId }),
+      refreshToken,
+      tokenType: 'Bearer',
+      expiresIn: this.tokens.accessTtlSeconds,
+      usuario: { id: publicId, nombre },
+    };
+  }
 
   register(dto: RegisterDto, info: ClientInfo): Promise<RegisterResponseDto> {
     return this.create(dto, undefined, info);

@@ -22,6 +22,24 @@ export class RegisterOwnerDto extends RegisterDto {
   @ApiProperty({ type: RestauranteNuevoDto }) @ValidateNested() @Type(() => RestauranteNuevoDto) restaurante!: RestauranteNuevoDto;
 }
 
+export class LoginDto {
+  @ApiProperty({ description: 'Correo o nombre de usuario', example: 'maria@correo.com' }) @Email() @IsString() @Length(3, 254) identificador!: string;
+  @ApiProperty() @IsString() @Length(1, 128) password!: string;
+}
+
+export class RefreshDto {
+  @ApiProperty({ description: 'Refresh token opaco recibido en el login o en el refresh anterior' })
+  @IsString() @Length(43, 43) refreshToken!: string;
+}
+
+export class TokenResponseDto {
+  @ApiProperty({ description: 'JWT ES256 de vida corta (15 min)' }) accessToken!: string;
+  @ApiProperty({ description: 'Opaco y rotativo: úsalo una sola vez en /v1/auth/refresh' }) refreshToken!: string;
+  @ApiProperty({ example: 'Bearer' }) tokenType!: 'Bearer';
+  @ApiProperty({ description: 'Segundos de vida del access token', example: 900 }) expiresIn!: number;
+  @ApiProperty() usuario!: { id: string; nombre: string };
+}
+
 export class RegisterResponseDto {
   @ApiProperty() usuario!: { id: string; nombre: string; correo: string };
   @ApiPropertyOptional() restaurante?: { id: string; nombre: string; slug: string; estado: string };

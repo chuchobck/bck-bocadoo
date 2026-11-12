@@ -16,7 +16,8 @@
     "db:status": "node scripts/db.mjs status",
     "db:rollback": "node scripts/db.mjs rollback",
     "db:new": "node scripts/db.mjs new",
-    "db:baseline": "node scripts/db.mjs baseline"
+    "db:baseline": "node scripts/db.mjs baseline",
+    "keys:generate": "node scripts/gen-jwt-key.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",

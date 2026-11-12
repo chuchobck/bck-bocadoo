@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
 import { AuthModule } from './auth/auth.module';
+import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
 import { SecurityModule } from './security/security.module';
 import { HealthController } from './health/health.controller';
@@ -14,6 +15,7 @@ import { HealthController } from './health/health.controller';
     DbModule,
     SecurityModule,
     AuthModule,
+    AuthzModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
