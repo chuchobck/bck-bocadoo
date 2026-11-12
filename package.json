@@ -11,7 +11,12 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:db": "vitest run --config vitest.db.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node scripts/db.mjs up",
+    "db:status": "node scripts/db.mjs status",
+    "db:rollback": "node scripts/db.mjs rollback",
+    "db:new": "node scripts/db.mjs new",
+    "db:baseline": "node scripts/db.mjs baseline"
   },
   "dependencies": {
     "@fastify/static": "^10.1.10",
@@ -34,6 +39,7 @@
     "@swc/core": "^1.16.22",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
+    "dbmate": "^2.38.1",
     "pino-pretty": "^13.2.0",
     "typescript": "^5.9.3",
     "unplugin-swc": "^2.0.0",

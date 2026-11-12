@@ -18,6 +18,15 @@ Roles: `bck_api` (RLS, pooler), `bck_servicio` (BYPASSRLS), `neondb_owner` (solo
 `pnpm test:db` necesita las tres URLs de `.env` y los roles `bck_api` (sujeto a RLS) y `bck_servicio` (BYPASSRLS) con el esquema y el seed aplicados.
 Con pnpm 11, si pide aprobar scripts de build: `pnpm approve-builds`.
 
+## Migraciones
+dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` en `.env`, sin `-pooler`).
+
+    pnpm db:status       # qué está aplicado y qué falta
+    pnpm db:migrate      # aplica las pendientes
+    pnpm db:new nombre   # crea una migración nueva
+    pnpm db:rollback     # revierte la última
+    pnpm db:baseline     # una sola vez: registra la baseline aplicada a mano con psql
+
 ## Documentación
 Decisiones de arquitectura en `docs/adr/`.
 
