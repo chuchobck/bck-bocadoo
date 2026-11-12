@@ -3,11 +3,13 @@ import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
+import { DbModule } from './db/db.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
     ConfigModule,
+    DbModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
