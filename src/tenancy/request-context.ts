@@ -7,6 +7,8 @@ export interface RequestContext {
   userId?: string;
   /** Restaurante activo (restaurante_id interno): el tenant de RLS. */
   tenantId?: string;
+  /** Rol del usuario en el restaurante activo (lo fija TenantGuard). */
+  role?: 'DUENO' | 'CAJERO';
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

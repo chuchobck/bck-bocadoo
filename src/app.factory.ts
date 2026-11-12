@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Module, Type, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -8,9 +8,16 @@ import { AppModule } from './app.module';
 import { ProblemFilter } from './common/problem.filter';
 import { RequestContextStore } from './tenancy/request-context';
 
-export async function createApp(): Promise<NestFastifyApplication> {
+/** `controllers` extra solo para pruebas (endpoints de ensayo para guards). */
+export async function createApp(opts: { controllers?: Type<unknown>[] } = {}): Promise<NestFastifyApplication> {
+  let root: Type<unknown> = AppModule;
+  if (opts.controllers?.length) {
+    class TestRoot {}
+    Module({ imports: [AppModule], controllers: opts.controllers })(TestRoot);
+    root = TestRoot;
+  }
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
+    root,
     new FastifyAdapter({ trustProxy: true, requestIdHeader: 'x-request-id', genReqId: () => randomUUID() }),
     { bufferLogs: true },
   );
