@@ -17,7 +17,8 @@
     "db:rollback": "node scripts/db.mjs rollback",
     "db:new": "node scripts/db.mjs new",
     "db:baseline": "node scripts/db.mjs baseline",
-    "keys:generate": "node scripts/gen-jwt-key.mjs"
+    "keys:generate": "node scripts/gen-jwt-key.mjs",
+    "db:demo-passwords": "node scripts/set-demo-passwords.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",
