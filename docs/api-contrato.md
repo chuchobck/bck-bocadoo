@@ -4513,6 +4513,49 @@ Response `200`:
 }
 ```
 
+#### `GET /v1/reportes/clientes-a-contactar`
+
+**Clientes a quienes escribirles**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Los clientes con los que conviene hablar hoy, con su motivo:
+
+| `motivos`      | Cuándo                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `POR_VENCER`   | Tiene un plan vigente con almuerzos sin usar que vence en `diasVencer` días o menos      |
+| `SIN_VENIR`    | Tiene un plan vigente pero lleva `diasSinVenir` días o más sin actividad                 |
+| `PARA_RENOVAR` | No tiene plan vigente y su último plan se acabó o venció hace `diasRenovar` días o menos |
+
+La **actividad** de un cliente es lo más reciente entre su último almuerzo servido (los devueltos no cuentan) y la compra de su último plan; todas las fechas son del día local del restaurante. Un cliente trae todos sus motivos (el primero es el más urgente). No aparecen los clientes desactivados, los que nunca compraron un plan ni los que solo tienen planes anulados.
+
+Query (todos opcionales): `limit` (1–100, por defecto 20), `diasVencer` (1–30, por defecto 3), `diasSinVenir` (3–90, por defecto 7), `diasRenovar` (1–90, por defecto 30). Sin paginación: va primero lo más urgente (`POR_VENCER`, por vencimiento; luego `SIN_VENIR`, por más tiempo sin venir; luego `PARA_RENOVAR`, el que se quedó sin plan más recién) y `total` cuenta todos los que cumplen aunque `limit` recorte.
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "total": 5,
+  "items": [
+    {
+      "clienteId": "42",
+      "nombre": "Carla Mena",
+      "telefono": "+593990000123",
+      "motivos": ["POR_VENCER", "SIN_VENIR"],
+      "almuerzosRestantes": 4,
+      "venceEl": "2026-11-14",
+      "ultimaVisita": "2026-11-05",
+      "diasSinActividad": 8
+    }
+  ]
+}
+```
+
+`clienteId` es el id del cliente dentro del local, el mismo que usan `/v1/clientes/{id}` y `/v1/clientes/{id}/sellos` (ver "Limitaciones conocidas"). `venceEl` y `ultimaVisita` son `null` si no aplican; `almuerzosRestantes` es 0 sin plan vigente. Errores: los comunes (400 de validación, 401, 403, 429).
+
 ### Salud
 
 #### `GET /health`

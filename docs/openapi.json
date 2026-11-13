@@ -4497,6 +4497,92 @@
         "summary": "Almuerzos pendientes (lo que debes)",
         "tags": ["reportes"]
       }
+    },
+    "/v1/reportes/clientes-a-contactar": {
+      "get": {
+        "description": "`POR_VENCER`: plan vigente que vence pronto con almuerzos sin usar. `SIN_VENIR`: pagó un plan vigente pero hace días que no viene. `PARA_RENOVAR`: se le acabó o venció el plan hace poco y no tiene otro. Un cliente trae todos sus motivos; los umbrales se ajustan por query. Sin paginación: el más urgente primero y `total` dice cuántos hay.",
+        "operationId": "FollowUpController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasVencer",
+            "required": false,
+            "in": "query",
+            "description": "POR_VENCER: el plan vence en este número de días o menos",
+            "schema": {
+              "minimum": 1,
+              "maximum": 30,
+              "default": 3,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasSinVenir",
+            "required": false,
+            "in": "query",
+            "description": "SIN_VENIR: con plan vigente, sin actividad en estos días o más",
+            "schema": {
+              "minimum": 3,
+              "maximum": 90,
+              "default": 7,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasRenovar",
+            "required": false,
+            "in": "query",
+            "description": "PARA_RENOVAR: se le acabó el plan hace este número de días o menos",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30,
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeguimientoResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clientes a quienes escribirles",
+        "tags": ["reportes"]
+      }
     }
   },
   "info": {
@@ -6974,6 +7060,74 @@
           }
         },
         "required": ["fecha", "zonaHoraria", "moneda", "total", "porPlan", "porVencimiento"]
+      },
+      "ClienteSeguimiento": {
+        "type": "object",
+        "properties": {
+          "clienteId": {
+            "type": "string",
+            "example": "12",
+            "description": "Id del cliente dentro del local (el mismo de /v1/clientes)"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "telefono": {
+            "type": "object",
+            "example": "+593990000123"
+          },
+          "motivos": {
+            "type": "array",
+            "description": "Por qué aparece; puede tener más de uno. El primero es el más urgente.",
+            "items": {
+              "type": "string",
+              "enum": ["POR_VENCER", "SIN_VENIR", "PARA_RENOVAR"]
+            }
+          },
+          "almuerzosRestantes": {
+            "type": "number",
+            "description": "Almuerzos que le quedan en planes vigentes (0 si no tiene)"
+          },
+          "venceEl": {
+            "type": "object",
+            "example": "2026-11-15",
+            "description": "Vencimiento más próximo entre sus planes vigentes"
+          },
+          "ultimaVisita": {
+            "type": "object",
+            "example": "2026-11-06",
+            "description": "Último almuerzo servido (día local); null si nunca"
+          },
+          "diasSinActividad": {
+            "type": "number",
+            "description": "Días desde su última actividad (último almuerzo o última compra de plan)"
+          }
+        },
+        "required": ["clienteId", "nombre", "motivos", "almuerzosRestantes", "diasSinActividad"]
+      },
+      "SeguimientoResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "description": "Hoy, en la zona del local"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number",
+            "description": "Cuántos cumplen algún criterio (puede ser más que los devueltos por `limit`)"
+          },
+          "items": {
+            "description": "POR_VENCER primero (vence antes, antes), luego SIN_VENIR (más días sin venir, antes) y PARA_RENOVAR (el que se quedó sin plan más recién, antes)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClienteSeguimiento"
+            }
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "total", "items"]
       }
     }
   }
