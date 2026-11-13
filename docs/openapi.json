@@ -4322,6 +4322,181 @@
         "summary": "Ventas de planes",
         "tags": ["reportes"]
       }
+    },
+    "/v1/reportes/horas-pico": {
+      "get": {
+        "description": "Almuerzos servidos y tickets de venta por hora local (0–23) en un rango de días. Los almuerzos devueltos y los tickets deshechos no cuentan, así un reverso no mueve la hora.",
+        "operationId": "OperationsController_peak",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HorasPicoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Horas pico",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/ranking-platos": {
+      "get": {
+        "description": "Platos más pedidos en un rango: vendidos sueltos en caja (netos de deshechos) y dentro de pedidos de comensales ya canjeados. Un plato de un pedido que además se cobra en caja cuenta en las dos fuentes, que se muestran por separado.",
+        "operationId": "OperationsController_ranking",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Cuántos platos devolver",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ranking de platos",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/almuerzos-pendientes": {
+      "get": {
+        "description": "Almuerzos prepagados que quedan en planes activos y no vencidos, con su valor en centavos (precio unitario de cada plan), por plan y por cercanía al vencimiento.",
+        "operationId": "OperationsController_outstanding",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendientesResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Almuerzos pendientes (lo que debes)",
+        "tags": ["reportes"]
+      }
     }
   },
   "info": {
@@ -6608,6 +6783,197 @@
           }
         },
         "required": ["desde", "hasta", "zonaHoraria", "moneda", "total", "porPlan", "porDia"]
+      },
+      "HoraPico": {
+        "type": "object",
+        "properties": {
+          "hora": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 23,
+            "description": "Hora local del restaurante (0 = 00:00–00:59)"
+          },
+          "almuerzos": {
+            "type": "number",
+            "description": "Almuerzos de planes servidos esa hora (los devueltos no cuentan)"
+          },
+          "ventas": {
+            "type": "number",
+            "description": "Tickets de ventas sueltas de esa hora (los deshechos no cuentan)"
+          },
+          "total": {
+            "type": "number",
+            "description": "almuerzos + ventas"
+          }
+        },
+        "required": ["hora", "almuerzos", "ventas", "total"]
+      },
+      "HorasPicoResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "porHora": {
+            "description": "Siempre 24 filas, de la hora 0 a la 23",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HoraPico"
+            }
+          },
+          "horaPico": {
+            "type": "object",
+            "description": "Hora con más movimiento (la más temprana si hay empate); null si no hubo nada"
+          },
+          "totalAlmuerzos": {
+            "type": "number"
+          },
+          "totalVentas": {
+            "type": "number"
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas"]
+      },
+      "PlatoRanking": {
+        "type": "object",
+        "properties": {
+          "posicion": {
+            "type": "number",
+            "example": 1
+          },
+          "plato": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Seco de pollo"
+            },
+            "description": "id = public_id del plato"
+          },
+          "unidades": {
+            "type": "number",
+            "description": "unidadesVentas + unidadesPedidos"
+          },
+          "unidadesVentas": {
+            "type": "number",
+            "description": "Vendidas sueltas en caja (netas de tickets deshechos)"
+          },
+          "unidadesPedidos": {
+            "type": "number",
+            "description": "Incluidas en pedidos de comensales ya canjeados"
+          },
+          "ingresoCentavos": {
+            "type": "number",
+            "description": "Lo cobrado por ese plato (centavos); los platos dentro del almuerzo cuestan 0"
+          }
+        },
+        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "ingresoCentavos"]
+      },
+      "RankingResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatoRanking"
+            }
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "moneda", "items"]
+      },
+      "PlanPendiente": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "planes": {
+            "type": "number"
+          },
+          "almuerzos": {
+            "type": "number"
+          },
+          "pasivoCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["nombre", "planes", "almuerzos", "pasivoCentavos"]
+      },
+      "BloqueVencimiento": {
+        "type": "object",
+        "properties": {
+          "rango": {
+            "type": "string",
+            "enum": ["HOY", "EN_1_A_3_DIAS", "EN_4_A_7_DIAS", "EN_MAS_DE_7_DIAS"]
+          },
+          "planes": {
+            "type": "number"
+          },
+          "almuerzos": {
+            "type": "number"
+          },
+          "pasivoCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["rango", "planes", "almuerzos", "pasivoCentavos"]
+      },
+      "PendientesResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "description": "Hoy, en la zona del local"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "total": {
+            "type": "object",
+            "example": {
+              "clientes": 12,
+              "planes": 14,
+              "almuerzos": 60,
+              "pasivoCentavos": 18000
+            },
+            "description": "Lo que el local todavía debe en almuerzos prepagados"
+          },
+          "porPlan": {
+            "description": "Por nombre de plan, de más a menos pasivo",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanPendiente"
+            }
+          },
+          "porVencimiento": {
+            "description": "Siempre los 4 bloques, en este orden",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloqueVencimiento"
+            }
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "moneda", "total", "porPlan", "porVencimiento"]
       }
     }
   }

@@ -4422,6 +4422,97 @@ Response `200`:
 
 `vendidos` no cuenta los planes anulados (van en `anulados`); `ingresoCentavos` es el precio pagado de los vendidos. `porDia` solo trae los días con ventas.
 
+#### `GET /v1/reportes/horas-pico`
+
+**Horas pico**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde`, `hasta` (días locales; por defecto los últimos 30 días). Siempre devuelve las 24 horas locales (0–23). Los almuerzos devueltos y los tickets deshechos **no cuentan**, así un reverso no mueve la hora. La suma de `almuerzos` de todas las horas es igual a `almuerzos.servidos` de los resúmenes diarios del mismo rango.
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-11-13",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "porHora": [
+    { "hora": 0, "almuerzos": 0, "ventas": 0, "total": 0 },
+    { "hora": 12, "almuerzos": 3, "ventas": 2, "total": 5 },
+    { "hora": 13, "almuerzos": 2, "ventas": 0, "total": 2 }
+  ],
+  "horaPico": 12,
+  "totalAlmuerzos": 7,
+  "totalVentas": 3
+}
+```
+
+(El ejemplo omite las demás horas.) `horaPico` es la hora con más `total` (la más temprana si hay empate) y `null` si no hubo movimiento.
+
+#### `GET /v1/reportes/ranking-platos`
+
+**Ranking de platos**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde`, `hasta`, `limit` (1–50, por defecto 10). Cuenta los platos **vendidos sueltos** en caja (netos de tickets deshechos) y los incluidos en **pedidos de comensales ya canjeados o servidos**; las dos fuentes se muestran por separado porque un plato de un pedido que además se cobra en caja cuenta en ambas. Orden: más unidades primero, empate por nombre.
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-10-15",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "items": [
+    {
+      "posicion": 1,
+      "plato": { "id": "7d1c…", "nombre": "Huevo frito" },
+      "unidades": 5,
+      "unidadesVentas": 3,
+      "unidadesPedidos": 2,
+      "ingresoCentavos": 375
+    }
+  ]
+}
+```
+
+`plato.id` es el `public_id` del plato. Los platos dentro del almuerzo cuestan 0 (los cubre el plan o el precio del almuerzo), por eso su `ingresoCentavos` es 0.
+
+#### `GET /v1/reportes/almuerzos-pendientes`
+
+**Almuerzos pendientes (lo que debes)**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Foto de hoy (sin parámetros): los almuerzos prepagados que quedan en planes `ACTIVA` que todavía no vencieron en hora local. Un plan que venció ayer y espera al job de expiración no se puede consumir, así que no cuenta como deuda. El valor es `almuerzos restantes × precio unitario` de cada plan.
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "total": { "clientes": 4, "planes": 4, "almuerzos": 49, "pasivoCentavos": 7700 },
+  "porPlan": [
+    { "nombre": "Mensual", "planes": 2, "almuerzos": 40, "pasivoCentavos": 5000 },
+    { "nombre": "Semanal", "planes": 2, "almuerzos": 9, "pasivoCentavos": 2700 }
+  ],
+  "porVencimiento": [
+    { "rango": "HOY", "planes": 1, "almuerzos": 4, "pasivoCentavos": 1200 },
+    { "rango": "EN_1_A_3_DIAS", "planes": 1, "almuerzos": 5, "pasivoCentavos": 1500 },
+    { "rango": "EN_4_A_7_DIAS", "planes": 1, "almuerzos": 20, "pasivoCentavos": 2500 },
+    { "rango": "EN_MAS_DE_7_DIAS", "planes": 1, "almuerzos": 20, "pasivoCentavos": 2500 }
+  ]
+}
+```
+
 ### Salud
 
 #### `GET /health`

@@ -44,3 +44,14 @@ export async function planTemplate(k: DinerKit, o: Actor, nombre: string, almuer
 export async function moveSubscription(k: DinerKit, planVendidoId: string, sql: string) {
   await k.probe.sql(`UPDATE suscripcion_plan SET ${sql} WHERE public_id = $1`, [planVendidoId]);
 }
+
+/** Pone la hora de creación de un consumo o de una venta a una hora LOCAL de hoy (libros de solo inserción: solo con el superusuario del probe). */
+export async function setLocalTime(k: DinerKit, table: 'consumo_almuerzo' | 'venta_pos_cabecera', publicId: string, hhmm: string) {
+  await k.probe.sql('SET LOCAL session_replication_role = replica');
+  await k.probe.sql(
+    `UPDATE ${table} t SET creado_en = ((t.fecha_local + $2::time) AT TIME ZONE r.zona_horaria)
+       FROM restaurante r WHERE r.restaurante_id = t.restaurante_id AND t.public_id = $1`,
+    [publicId, hhmm],
+  );
+  await k.probe.sql('SET LOCAL session_replication_role = origin');
+}
