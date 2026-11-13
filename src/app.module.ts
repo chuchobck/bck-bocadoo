@@ -13,6 +13,7 @@ import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
 import { DinerModule } from './diner/diner.module';
 import { FeedbackModule } from './feedback/feedback';
+import { LoyaltyModule } from './loyalty/loyalty';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders';
 import { RestaurantModule } from './restaurant/restaurant.module';
@@ -40,6 +41,7 @@ import { HealthController } from './health/health.controller';
     OrdersModule,
     TablesModule,
     FeedbackModule,
+    LoyaltyModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,

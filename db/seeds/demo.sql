@@ -440,13 +440,8 @@ SELECT c.restaurante_id, c.consumo_id, c.cliente_id, 'Me descontaron el almuerzo
   JOIN usuario u ON u.usuario_id = cl.usuario_id AND u.nombre_usuario = 'carlos.mejia'
  ORDER BY c.creado_en DESC LIMIT 1;
 
--- Sellos: un sello por almuerzo consumido; cada 10 sellos, un premio disponible.
-INSERT INTO movimiento_sello (restaurante_id, cliente_id, tipo, sellos, consumo_id, creado_en)
-SELECT c.restaurante_id, c.cliente_id, 'GANADO', 1, c.consumo_id, c.creado_en FROM consumo_almuerzo c;
-
-INSERT INTO tarjeta_sellos_cliente (restaurante_id, cliente_id, sellos, premios_disponibles)
-SELECT m.restaurante_id, m.cliente_id, SUM(m.sellos) % 10, SUM(m.sellos) / 10
-  FROM movimiento_sello m GROUP BY m.restaurante_id, m.cliente_id;
+-- Sellos: los suma la base sola (trigger trg_sellos_por_consumo, migración 20261117000500) al insertar cada
+-- consumo: un sello por almuerzo y, cada 10, un premio disponible. Por eso aquí ya no se insertan.
 
 -- -----------------------------------------------------------------------------
 -- 9. Lo que está pasando "ahora" (para las pantallas en vivo)
