@@ -11,6 +11,7 @@ import { PlansModule } from './plans/plans';
 import { SalesModule } from './sales/sales';
 import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
+import { DinerModule } from './diner/diner.module';
 import { MenuModule } from './menu/menu.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { SecurityModule } from './security/security.module';
@@ -32,6 +33,7 @@ import { HealthController } from './health/health.controller';
     CustomersModule,
     SalesModule,
     CheckoutModule,
+    DinerModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,

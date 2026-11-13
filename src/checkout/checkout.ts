@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { QrSecretService } from '../auth/qr-secret.service';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
+import { notFound } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
@@ -101,7 +102,7 @@ export class CheckoutService {
       const r = await this.db.scope({ readOnly: true }, (q) =>
         q.query(`SELECT 1 FROM restaurante WHERE public_id = $1 AND estado <> 'BAJA'`, [restaurantPublicId]),
       );
-      if (!r.rowCount) throw new NotFoundException('Restaurante no encontrado.');
+      if (!r.rowCount) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
     }
     const secret = await this.secrets.getOrCreate(user.userId);
     const now = Date.now();

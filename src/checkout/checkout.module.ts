@@ -9,5 +9,6 @@ import { PosController, PosService } from './pos';
   imports: [AuthModule],
   controllers: [PassController, CheckoutController, PosController, CashController, ClaimsController],
   providers: [CheckoutService, PosService, CashService, ClaimsService],
+  exports: [CheckoutService],
 })
 export class CheckoutModule {}

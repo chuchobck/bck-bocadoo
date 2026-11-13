@@ -1,4 +1,4 @@
-import { Module, Type, ValidationPipe } from '@nestjs/common';
+import { Global, Module, Type, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -9,14 +9,25 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { ProblemFilter } from './common/problem.filter';
 import { loadEnv } from './config/env';
+import { POOL_FACTORY, type PoolFactory } from './db/db.service';
 import { RequestContextStore } from './tenancy/request-context';
 
-/** `controllers` extra solo para pruebas (endpoints de ensayo para guards). */
-export async function createApp(opts: { controllers?: Type<unknown>[] } = {}): Promise<NestFastifyApplication> {
+/**
+ * Opciones solo para pruebas: `controllers` extra (endpoints de ensayo para guards) y `poolFactory` (conexiones del
+ * patrón probe, que terminan en ROLLBACK).
+ */
+export async function createApp(opts: { controllers?: Type<unknown>[]; poolFactory?: PoolFactory } = {}): Promise<NestFastifyApplication> {
   let root: Type<unknown> = AppModule;
-  if (opts.controllers?.length) {
+  if (opts.controllers?.length || opts.poolFactory) {
+    const imports: Type<unknown>[] = [AppModule];
+    if (opts.poolFactory) {
+      class ProbePools {}
+      Global()(ProbePools);
+      Module({ providers: [{ provide: POOL_FACTORY, useValue: opts.poolFactory }], exports: [POOL_FACTORY] })(ProbePools);
+      imports.push(ProbePools);
+    }
     class TestRoot {}
-    Module({ imports: [AppModule], controllers: opts.controllers })(TestRoot);
+    Module({ imports, controllers: opts.controllers ?? [] })(TestRoot);
     root = TestRoot;
   }
   const env = loadEnv();
