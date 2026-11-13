@@ -25,7 +25,10 @@ export class PageQuery {
   cursor?: string;
 }
 
-export const encodeCursor = (t: Date, id: string) => Buffer.from(JSON.stringify({ t: t.toISOString(), p: id })).toString('base64url');
+/** Marca de tiempo con microsegundos, para cursores (un Date de JS los perdería). */
+export const CURSOR_TS = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+export const encodeCursor = (t: string, id: string) => Buffer.from(JSON.stringify({ t, p: id })).toString('base64url');
 
 export function decodeCursor(cursor: string): { t: string; p: string } {
   try {
