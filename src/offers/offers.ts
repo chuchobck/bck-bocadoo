@@ -4,7 +4,7 @@ import { IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Max, Min } from 'cla
 import { Public } from '../authz/public.decorator';
 import { Roles } from '../authz/roles.decorator';
 import { PERSONAL_ACTUAL } from '../checkout/checkout';
-import { ApiProblems, notFound, unprocessable } from '../common/errors';
+import { ApiProblems, conflict, notFound, unprocessable } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
@@ -71,6 +71,49 @@ class OfertasPage {
 }
 class OfertasPublicas {
   @ApiProperty({ type: [OfertaResponse], description: 'Solo vigentes con stock' }) items!: OfertaResponse[];
+}
+
+const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
+
+class CanjearOfertaDto {
+  @ApiPropertyOptional({ example: 1, minimum: 1, maximum: 10, default: 1, description: 'Unidades que se llevan en este canje' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  cantidad?: number;
+  @ApiProperty({ enum: METODOS, description: 'Con qué paga en caja. El cobro queda confirmado: el canje se entrega al pagar.' })
+  @IsIn(METODOS)
+  metodoPago!: (typeof METODOS)[number];
+  @ApiPropertyOptional({ description: 'Comensal con cuenta (public_id), si lo identifican. Sin él, es un canje de mostrador.' })
+  @IsOptional()
+  @IsUUID()
+  comensalId?: string;
+}
+
+class CanjeResponse {
+  @ApiProperty({ description: 'public_id del canje' }) id!: string;
+  @ApiProperty() cantidad!: number;
+  @ApiProperty({ description: 'Precio de la oferta × cantidad, en centavos. Es todo lo que cobra el local: sin comisión.' })
+  montoCentavos!: number;
+  @ApiProperty({ example: 'USD' }) moneda!: string;
+  @ApiProperty({ enum: METODOS }) metodoPago!: string;
+  @ApiPropertyOptional({ description: 'public_id del comensal, si se identificó' }) comensalId!: string | null;
+  @ApiProperty() creadoEn!: Date;
+  @ApiProperty({ type: OfertaResponse, description: 'La oferta tal como quedó después del canje (stock actualizado)' })
+  oferta!: OfertaResponse;
+}
+
+interface CanjeRow {
+  canje_id: string;
+  public_id: string;
+  oferta_public_id: string;
+  cantidad: number;
+  monto_centavos: string;
+  moneda_codigo: string;
+  metodo: string;
+  comensal_public_id: string | null;
+  creado_en: Date;
 }
 
 interface OfertaRow {
@@ -232,6 +275,123 @@ export class OffersService {
     });
   }
 
+  /**
+   * Canje en caja. El stock se descuenta con un UPDATE condicional (`stock_restante >= cantidad`): Postgres bloquea la
+   * fila de la oferta, así que dos canjes a la vez se turnan y el segundo ve el stock ya descontado. Si la oferta no
+   * alcanza, ese UPDATE no toca ninguna fila y nada se cobra; el CHECK de la tabla es la última barrera.
+   */
+  async redeem(offerId: string, dto: CanjearOfertaDto, key: string): Promise<CanjeResponse> {
+    const cantidad = dto.cantidad ?? 1;
+    try {
+      return await this.db.forRequest(async (q) => {
+        const prev = await this.canjeByKey(q, key);
+        if (prev) {
+          if (prev.oferta_public_id !== offerId)
+            throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra oferta.');
+          return this.renderCanje(q, prev);
+        }
+        let usuarioId: string | null = null;
+        if (dto.comensalId) {
+          const u = await q.query<{ usuario_id: string }>('SELECT usuario_id FROM usuario WHERE public_id = $1 AND activo', [
+            dto.comensalId,
+          ]);
+          if (!u.rows[0]) throw notFound('COMENSAL_NO_ENCONTRADO', 'Comensal no encontrado.');
+          usuarioId = u.rows[0].usuario_id;
+        }
+        const metodo = await q.query<{ metodo_pago_id: string }>(
+          `SELECT metodo_pago_id FROM metodo_pago WHERE codigo = $1 AND activo
+              AND (pais_codigo IS NULL OR pais_codigo = (SELECT pais_codigo FROM restaurante WHERE restaurante_id = app_tenant_id()))`,
+          [dto.metodoPago],
+        );
+        if (!metodo.rows[0]) throw unprocessable('METODO_PAGO_NO_DISPONIBLE', 'Método de pago no disponible en este local.');
+
+        const take = await q.query<{ oferta_flash_id: string; precio_centavos: string }>(
+          `UPDATE oferta_flash SET stock_restante = stock_restante - $2
+            WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND activa
+              AND inicia_en <= CURRENT_TIMESTAMP AND expira_en > CURRENT_TIMESTAMP AND stock_restante >= $2
+            RETURNING oferta_flash_id, precio_centavos`,
+          [offerId, cantidad],
+        );
+        if (!take.rows[0]) throw await this.whyNotRedeemable(q, offerId, cantidad);
+        const o = take.rows[0];
+        const monto = Number(o.precio_centavos) * cantidad;
+
+        const canje = await q.query<{ canje_id: string }>(
+          `INSERT INTO canje_oferta_flash (restaurante_id, oferta_flash_id, usuario_id, personal_id, cantidad, monto_centavos, clave_idempotencia)
+           VALUES (app_tenant_id(), $1, $2, ${PERSONAL_ACTUAL}, $3, $4, $5) RETURNING canje_id`,
+          [o.oferta_flash_id, usuarioId, cantidad, monto, key],
+        );
+        await q.query(
+          `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, canje_oferta_id,
+                                         cobrado_por_personal_id, fecha_local, clave_idempotencia)
+           SELECT app_tenant_id(), $1, $2, r.moneda_codigo, 'CONFIRMADO', $3, ${PERSONAL_ACTUAL},
+                  (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date, $4
+             FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
+          [metodo.rows[0].metodo_pago_id, monto, canje.rows[0]!.canje_id, key],
+        );
+        return this.renderCanje(q, (await this.canjeByKey(q, key))!);
+      });
+    } catch (err) {
+      // La misma llave en dos peticiones simultáneas: gana una (la otra se revierte, con su descuento de stock) y la
+      // perdedora devuelve el canje de la ganadora.
+      const e = err as { code?: string; constraint?: string };
+      if (e.code === '23505' && e.constraint?.includes('clave_idempotencia')) {
+        return this.db.forRequest(async (q) => {
+          const prev = await this.canjeByKey(q, key);
+          if (!prev || prev.oferta_public_id !== offerId)
+            throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra operación.');
+          return this.renderCanje(q, prev);
+        });
+      }
+      throw err;
+    }
+  }
+
+  private async canjeByKey(q: Queryable, key: string): Promise<CanjeRow | undefined> {
+    const r = await q.query<CanjeRow>(
+      `SELECT c.canje_id, c.public_id, o.public_id AS oferta_public_id, c.cantidad, c.monto_centavos, o.moneda_codigo,
+              m.codigo AS metodo, u.public_id AS comensal_public_id, c.creado_en
+         FROM canje_oferta_flash c
+         JOIN oferta_flash o ON o.restaurante_id = c.restaurante_id AND o.oferta_flash_id = c.oferta_flash_id
+         JOIN transaccion_pago p ON p.restaurante_id = c.restaurante_id AND p.canje_oferta_id = c.canje_id
+         JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+         LEFT JOIN usuario u ON u.usuario_id = c.usuario_id
+        WHERE c.restaurante_id = app_tenant_id() AND c.clave_idempotencia = $1`,
+      [key],
+    );
+    return r.rows[0];
+  }
+
+  private async renderCanje(q: Queryable, c: CanjeRow): Promise<CanjeResponse> {
+    return {
+      id: c.public_id,
+      cantidad: c.cantidad,
+      montoCentavos: Number(c.monto_centavos),
+      moneda: c.moneda_codigo,
+      metodoPago: c.metodo,
+      comensalId: c.comensal_public_id,
+      creadoEn: c.creado_en,
+      oferta: await offerOf(q, c.oferta_public_id),
+    };
+  }
+
+  /** El UPDATE no tocó nada: dice por qué, con un código que el cajero pueda mostrar. */
+  private async whyNotRedeemable(q: Queryable, offerId: string, cantidad: number) {
+    const o = await offerOf(q, offerId); // 404 OFERTA_NO_ENCONTRADA si no existe o es de otro local
+    switch (o.estado) {
+      case 'CERRADA':
+        return conflict('OFERTA_CERRADA', 'La oferta fue cerrada por el local.');
+      case 'EXPIRADA':
+        return conflict('OFERTA_EXPIRADA', 'La oferta ya terminó.');
+      case 'PROGRAMADA':
+        return conflict('OFERTA_NO_INICIADA', 'La oferta todavía no empieza.');
+      case 'AGOTADA':
+        return conflict('OFERTA_AGOTADA', 'Ya no quedan unidades.');
+      default:
+        return conflict('STOCK_INSUFICIENTE', `Solo quedan ${o.stockRestante} unidades y se pidieron ${cantidad}.`);
+    }
+  }
+
   /** Vitrina: lo que el comensal puede canjear ahora mismo en un local activo. */
   async publicList(slug: string): Promise<OfertasPublicas> {
     return this.db.scope({ readOnly: true }, async (q) => {
@@ -283,6 +443,24 @@ export class OffersController {
   @ApiProblems({ 404: ['OFERTA_NO_ENCONTRADA'] })
   close(@Param('id', UuidPipe) id: string) {
     return this.svc.close(id);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Post(':id/canjear')
+  @ApiIdempotent()
+  @ApiOperation({
+    summary: 'Canjear una oferta en caja',
+    description:
+      'Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.',
+  })
+  @ApiCreatedResponse({ type: CanjeResponse })
+  @ApiProblems({
+    404: ['OFERTA_NO_ENCONTRADA', 'COMENSAL_NO_ENCONTRADO'],
+    409: ['OFERTA_AGOTADA', 'STOCK_INSUFICIENTE', 'OFERTA_CERRADA', 'OFERTA_EXPIRADA', 'OFERTA_NO_INICIADA', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    422: ['METODO_PAGO_NO_DISPONIBLE'],
+  })
+  redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearOfertaDto, @IdempotencyKey() key: string) {
+    return this.svc.redeem(id, dto, key);
   }
 }
 

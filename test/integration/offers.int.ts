@@ -1,19 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DinerKit, expectOnlyPublicIds } from './diner-kit';
+import { offer } from './offers-kit';
 import { Probe } from './probe';
 
 const probe = Probe.fromEnv();
-
-export const offer = (extra: object = {}) => ({
-  titulo: 'Churrasco a mitad de tarde',
-  descripcion: 'Últimos churrascos del día',
-  precioCentavos: 450,
-  precioOriginalCentavos: 650,
-  stock: 5,
-  duracionMinutos: 60,
-  ...extra,
-});
 
 describe.skipIf(!probe)('Fase 9: ofertas flash (publicar, listar, cerrar)', () => {
   const k = new DinerKit(probe!, 91);

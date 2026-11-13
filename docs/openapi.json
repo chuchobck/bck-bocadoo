@@ -4101,6 +4101,81 @@
         "tags": ["ofertas"]
       }
     },
+    "/v1/ofertas/{id}/canjear": {
+      "post": {
+        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.",
+        "operationId": "OffersController_redeem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanjearOfertaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanjeResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `OFERTA_NO_ENCONTRADA`, `COMENSAL_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Canjear una oferta en caja",
+        "tags": ["ofertas"]
+      }
+    },
     "/v1/restaurantes/{slug}/ofertas": {
       "get": {
         "description": "Sin token. Solo las que están vigentes y con stock.",
@@ -5496,29 +5571,43 @@
       "CanjeResponse": {
         "type": "object",
         "properties": {
-          "pedido": {
-            "$ref": "#/components/schemas/PedidoCaja"
+          "id": {
+            "type": "string",
+            "description": "public_id del canje"
           },
-          "yaCanjeado": {
-            "type": "boolean",
-            "description": "El pedido ya estaba canjeado: no se descontó nada esta vez"
+          "cantidad": {
+            "type": "number"
           },
-          "almuerzo": {
-            "type": "object",
-            "description": "null si el pedido no lleva almuerzo. `resultado` es null al repetir un canje ya hecho.",
-            "example": {
-              "resultado": "OK",
-              "mensaje": "Almuerzo descontado.",
-              "descontado": true,
-              "consumoId": "uuid"
-            }
-          },
-          "porCobrarCentavos": {
+          "montoCentavos": {
             "type": "number",
-            "description": "Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió"
+            "description": "Precio de la oferta × cantidad, en centavos. Es todo lo que cobra el local: sin comisión."
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "comensalId": {
+            "type": "object",
+            "description": "public_id del comensal, si se identificó"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "oferta": {
+            "description": "La oferta tal como quedó después del canje (stock actualizado)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OfertaResponse"
+              }
+            ]
           }
         },
-        "required": ["pedido", "yaCanjeado", "porCobrarCentavos"]
+        "required": ["id", "cantidad", "montoCentavos", "moneda", "metodoPago", "creadoEn", "oferta"]
       },
       "CrearMesaCompartidaDto": {
         "type": "object",
@@ -6146,6 +6235,29 @@
           }
         },
         "required": ["items"]
+      },
+      "CanjearOfertaDto": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Unidades que se llevan en este canje"
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"],
+            "description": "Con qué paga en caja. El cobro queda confirmado: el canje se entrega al pagar."
+          },
+          "comensalId": {
+            "type": "string",
+            "description": "Comensal con cuenta (public_id), si lo identifican. Sin él, es un canje de mostrador."
+          }
+        },
+        "required": ["metodoPago"]
       },
       "OfertasPublicas": {
         "type": "object",

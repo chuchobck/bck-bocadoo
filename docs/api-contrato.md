@@ -4292,6 +4292,54 @@ Más recientes primero. Query: `limit` (1–50, por defecto 20), `cursor` (el `n
 
 Deja de aceptar canjes. No necesita `Idempotency-Key`: repetirlo devuelve la misma oferta ya `CERRADA`. Response `200`: la oferta. Error: 404 `OFERTA_NO_ENCONTRADA` (también si es de otro local).
 
+#### `POST /v1/ofertas/{id}/canjear`
+
+**Canjear una oferta en caja**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave → mismo canje, sin descontar otra vez; la llave de otra oferta → 409.
+
+Descuenta el stock y registra el cobro (siempre `CONFIRMADO`: la oferta se entrega al pagar) en una sola transacción. **El stock nunca queda negativo**, tampoco con canjes simultáneos: el descuento es un `UPDATE` condicional (`stock_restante >= cantidad`) y los canjes que no alcanzan reciben 409 sin cobro. El cobro cuenta en el arqueo de caja del día. Sin comisión: el local cobra el 100 % del precio de la oferta.
+
+Request:
+
+```json
+{ "cantidad": 2, "metodoPago": "EFECTIVO", "comensalId": "uuid (opcional)" }
+```
+
+`cantidad` 1–10 (por defecto 1); `metodoPago`: `EFECTIVO`, `TRANSFERENCIA` o `DEUNA`; `comensalId` es el `public_id` de un comensal con cuenta (si no se manda, es un canje de mostrador).
+
+Response `201`:
+
+```json
+{
+  "id": "0c9f0a52-5d3b-4f3c-8f64-6a3a0e0b7b11",
+  "cantidad": 2,
+  "montoCentavos": 900,
+  "moneda": "USD",
+  "metodoPago": "EFECTIVO",
+  "comensalId": null,
+  "creadoEn": "2026-11-18T15:20:00.000Z",
+  "oferta": { "id": "…", "stockTotal": 3, "stockRestante": 1, "canjeadas": 2, "estado": "VIGENTE", "…": "…" }
+}
+```
+
+Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx):
+
+| HTTP | `code`                        | Cuándo                                                 |
+| ---- | ----------------------------- | ------------------------------------------------------ |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA`    | Falta la llave o no es UUID                            |
+| 404  | `OFERTA_NO_ENCONTRADA`        | No existe o es de otro local                           |
+| 404  | `COMENSAL_NO_ENCONTRADO`      | `comensalId` inexistente                               |
+| 409  | `OFERTA_AGOTADA`              | No quedan unidades                                     |
+| 409  | `STOCK_INSUFICIENTE`          | Pidió más de las que quedan (el `detail` dice cuántas) |
+| 409  | `OFERTA_CERRADA`              | El dueño la cerró                                      |
+| 409  | `OFERTA_EXPIRADA`             | Ya pasó `expiraEn`                                     |
+| 409  | `OFERTA_NO_INICIADA`          | Aún no empieza                                         |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya se usó con otra oferta                     |
+| 422  | `METODO_PAGO_NO_DISPONIBLE`   | El método no existe en el país del local               |
+
 #### `GET /v1/restaurantes/{slug}/ofertas`
 
 **Ofertas flash vigentes de un local (vitrina)**
