@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-13 (fase 7). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-12 (fase 8). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -13,9 +13,68 @@
 | 5   | Restaurante, menú y vitrina  | ✅     | `v0.5.0`      | ver abajo                                                                                |
 | 6   | Clientes y planes            | ✅     | `v0.6.0`      | ver abajo                                                                                |
 | 7   | Caja                         | ✅     | `v0.7.0`      | ver abajo; carga en `docs/carga.md`                                                      |
-| 8   | Comensal                     | ⬜     | `v0.8.0`      |                                                                                          |
+| 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; faltan las 6 migraciones en Neon (esperan confirmación) y el tag              |
 | 9   | Ofertas, reportes y SaaS     | ⬜     | `v0.9.0`      |                                                                                          |
 | 10  | Documentación viva y Swagger | ⬜     | `v1.0.0-rc.1` |                                                                                          |
+
+## Fase 8: checklist
+
+- [x] El comensal solo ve lo suyo: el servicio usa `DbService.scope({ userId })` sin tenant y RLS lo repite en la base. Probado por ambos lados: por la API (otro comensal recibe 404) y directo en SQL como `bck_api` (lecturas vacías, inserciones ajenas rechazadas con `42501`)
+- [x] El personal entra con `@Roles(...)` + `x-restaurant-id` y `DbService.forRequest()`; ningún endpoint de negocio usa `service()` (regla de ESLint)
+- [x] Hacia afuera solo `public_id` (pruebas con `expectOnlyPublicIds`); `plato` ganó `public_id` para poder pedir platos sin ids internos
+- [x] Entradas con DTO y whitelist; errores `application/problem+json` con `code` de negocio estable (`PEDIDO_NO_ENCONTRADO`, `MESA_LLENA`, `OPINION_VENCIDA`…)
+- [x] `Idempotency-Key` obligatoria en los POST que crean recursos (pedidos, mesas, opiniones, reclamos, canje en caja y de sellos); misma llave → misma respuesta; repetir con otra llave → 409 (`OPINION_YA_ENVIADA`, `RECLAMO_YA_EXISTE`, `PEDIDO_ACTIVO`); en pedidos, mesas y sellos, la llave usada para otro recurso → `IDEMPOTENCY_KEY_REUTILIZADA`
+- [x] Pre-pedidos: vencen a los 30 min; el QR del pedido es su `public_id`; un pedido activo por local
+- [x] Mesa compartida: el link (`public_id` de la mesa) se valida antes de unirse (vencida, llena, cancelada, ya miembro)
+- [x] Opiniones: solo sobre consumos propios no revertidos, una por almuerzo, desde 25 min hasta 24 h; descartar cuenta como la única
+- [x] Reclamos: sobre consumos propios, uno por almuerzo, dentro de 7 días
+- [x] Tarjeta de sellos: la suma un trigger en `consumo_almuerzo` (ningún camino de la caja se la salta) y el reverso la descuenta
+- [x] Todo documentado en Swagger (`/docs`); una prueba revisa en `/docs-json` cada ruta de la fase y su parámetro `Idempotency-Key`
+- [x] Las pruebas que escriben hacen rollback (patrón _probe_) y no dejan filas: conteos idénticos antes y después
+
+### Endpoints de la fase 8
+
+| Ruta                                                             | Quién               | Para qué                                                    |
+| ---------------------------------------------------------------- | ------------------- | ----------------------------------------------------------- |
+| `GET /v1/pase`                                                   | comensal            | Pase con QR rotativo, planes vigentes y almuerzos restantes |
+| `GET /v1/mis/consumos`, `GET …/:id`                              | comensal            | Historial de almuerzos (cursor)                             |
+| `GET·POST /v1/mis/pedidos`, `GET …/:id`, `POST …/:id/cancelar`   | comensal            | Pre-pedidos (vencen a los 30 min)                           |
+| `GET /v1/caja/pedidos`, `GET …/:id`, `POST …/:id/canjear·servir` | dueño, cajero       | Pedidos de comensales; canjear descuenta el almuerzo        |
+| `GET·POST /v1/mis/mesas`, `GET …/:id`, `POST …/:id/cancelar`     | comensal            | Mesas compartidas que creo o donde estoy                    |
+| `GET /v1/mesas/invitacion/:id`, `POST …/:id/unirse`              | comensal            | Ver el link de invitación y unirse                          |
+| `GET /v1/mis/opiniones`, `…/pendientes`                          | comensal            | Opiniones dadas y almuerzos por opinar                      |
+| `POST /v1/mis/consumos/:id/opinion`, `…/opinion/descartar`       | comensal            | "¿Qué tal hoy?"                                             |
+| `GET /v1/opiniones`, `POST …/:id/responder`                      | dueño               | Bandeja de opiniones y respuesta                            |
+| `GET /v1/mis/reclamos`, `POST /v1/mis/consumos/:id/reclamo`      | comensal            | Reclamos del comensal (la caja los resuelve, fase 7)        |
+| `GET /v1/mis/sellos`                                             | comensal            | Mis tarjetas de sellos                                      |
+| `GET·PUT /v1/sellos/config`                                      | dueño (GET: cajero) | Configurar la tarjeta                                       |
+| `GET /v1/clientes/:id/sellos`, `POST …/sellos/canjear`           | dueño, cajero       | Ver la tarjeta de un cliente y canjear un premio            |
+
+### Decisiones de la fase
+
+- `DbService` no tiene `withScope`/`withRequestScope`/`withService`: sus métodos son `scope()`, `forRequest()` y `service()`. Se usaron con el mismo sentido (comensal: `scope({ userId })`; personal: `forRequest()`).
+- Precio del pedido calculado en el servidor: el almuerzo cuesta 0 si un plan lo cubre, si no `precio_suelto`; extras y recargo para llevar con precios del menú.
+- La invitación a una mesa es su `public_id`; vence una hora después de la llegada; capacidad por defecto 12. Unirse pasa por `fn_unirse_mesa` (SECURITY DEFINER) que valida todo en una sola transacción.
+- Las etiquetas de opinión son una lista cerrada: `RICO`, `BUENA_PORCION`, `RAPIDO`, `BUENA_ATENCION`, `LIMPIO`, `FRIO`, `SALADO`, `PORCION_PEQUENA`, `DEMORA`, `MALA_ATENCION`. El id de una opinión hacia afuera es el `public_id` del consumo.
+- Los sellos solo cuentan almuerzos (`cuenta = ALMUERZO`); `PLATO` queda para después. Cambiar la meta no toca los premios ya ganados. El seed demo dejó de insertar sellos a mano: los crea el trigger.
+- El pase reutiliza `QrSecretService` de la fase 7 (usa el rol de servicio porque es parte de la autenticación del QR).
+- Se mantienen ids numéricos dentro del tenant en `/v1/clientes/:id/sellos` (como el resto de `/v1/clientes`).
+- Migraciones nuevas (aplicadas y probadas up/down/up **solo en la base local**; **no** en Neon hasta que se confirme):
+  `20261117000000_preordenes_comensal`, `20261117000100_mesas_compartidas_comensal`, `20261117000200_opiniones_comensal`,
+  `20261117000300_opiniones_respuesta`, `20261117000400_reclamos_comensal`, `20261117000500_tarjeta_sellos`.
+  Además de columnas e índices, endurecen las políticas `comensal_crea` para que la base exija lo mismo que la API.
+
+### Patrón _probe_ (pruebas que no dejan basura)
+
+`test/integration/probe.ts`: con `PROBE_DATABASE_URL` (una conexión privilegiada), cada transacción de `DbService`
+se convierte en un `SAVEPOINT` con `SET LOCAL ROLE` al rol de la URL del pool (`bck_api` o `bck_servicio`), así RLS
+se aplica igual que en producción, y al final de cada prueba todo vuelve atrás. Sin `PROBE_DATABASE_URL` las suites de
+la fase 8 se saltan. En Neon no se puede usar todavía: `neondb_owner` no puede hacer `SET ROLE` a `bck_api` ni a
+`bck_servicio`. Para correrlas en local: Postgres 16 en Docker con las migraciones aplicadas (como en CI) y
+`PROBE_DATABASE_URL` apuntando al superusuario.
+
+Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm test` (42 pruebas) y `pnpm test:db`
+(176 pruebas en 21 archivos) en verde.
 
 ## Fase 7: checklist
 
@@ -126,4 +185,9 @@ Los endpoints del personal llevan `Authorization: Bearer …` y `x-restaurant-id
 - ⬜ Correr en Neon las pruebas que escriben datos (registro, auth, menú…) usando una **rama de Neon** de prueba; hoy solo se corrieron ahí las de aislamiento y readiness.
 - ⬜ Prueba de carga contra Neon (ver `docs/carga.md`), con una rama de prueba.
 - ⬜ `QR_SECRET_KEY` y `JWT_PRIVATE_KEY` (`pnpm keys:generate`) en las variables de Render al desplegar.
+- ⬜ **Aplicar en Neon las 6 migraciones de la fase 8** (esperan confirmación del dueño del proyecto).
+- ⬜ CI: definir `PROBE_DATABASE_URL` (el superusuario `postgres` del servicio) para que las suites de la fase 8 corran y no se salten.
+- ⬜ Pasar al patrón _probe_ las suites de las fases 1–7 que hoy dejan datos (por eso no se corren contra Neon).
+- ⬜ Revisar en Neon el aumento de filas del 2026-11-12 entre 02:30 y 03:04 UTC (≈66 restaurantes y ≈100 usuarios con prefijos de correo de las pruebas de integración); no vino de las corridas de la fase 8, que fueron contra la base local.
+- ⬜ Ids numéricos dentro del tenant en `/v1/clientes`, reclamos y plantillas de plan: evaluar pasarlos a `public_id`.
 - ⬜ Rate limit en memoria: si la API escala a varias instancias, moverlo a un almacén compartido.
