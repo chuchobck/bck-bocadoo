@@ -47,7 +47,7 @@ Vencer planes y crear las particiones mensuales: `node dist/jobs/cli.js all` (Cr
 
 ## Estado y API
 
-Estado de las fases, checklist y tabla de endpoints en `docs/estado.md`. Swagger en `/docs` (apagado en producción).
+Estado de las fases, checklist y tabla de endpoints en `docs/estado.md`. Guía paso a paso de Swagger con cuentas demo en `docs/swagger-guia.md`. Swagger en `/docs` (apagado en producción).
 
 ## Documentación
 
