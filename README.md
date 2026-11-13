@@ -1,17 +1,21 @@
 # bck-bocadoo
+
 Backend de Bocadoo.
 
 ## Base de datos
+
 Postgres 16 en Neon. Esquema en `db/migrations`, datos demo en `db/seeds/demo.sql`.
 Roles: `bck_api` (RLS, pooler), `bck_servicio` (BYPASSRLS), `neondb_owner` (solo migraciones).
 
 ## API (fase 2)
+
     pnpm install
     cp .env.example .env     # en esta fase las URLs de BD pueden ser de ejemplo
     pnpm dev                 # http://localhost:3000/health  y  /docs (Swagger)
     pnpm test
 
 ## Pruebas
+
     pnpm test        # unitarias y e2e, sin base de datos
     pnpm test:db     # integración (RLS, multi-tenant) contra la base de .env: Neon o un Postgres 16 local
 
@@ -19,6 +23,7 @@ Roles: `bck_api` (RLS, pooler), `bck_servicio` (BYPASSRLS), `neondb_owner` (solo
 Con pnpm 11, si pide aprobar scripts de build: `pnpm approve-builds`.
 
 ## Migraciones
+
 dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` en `.env`, sin `-pooler`).
 
     pnpm db:status       # qué está aplicado y qué falta
@@ -28,6 +33,7 @@ dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` e
     pnpm db:baseline     # una sola vez: registra la baseline aplicada a mano con psql
 
 ## Seguridad
+
 Registro, login con JWT ES256, refresh rotativo, roles y tenant, rate limit. Modelo de amenazas, flujos y rotación de llaves en `docs/seguridad.md`.
 
     pnpm keys:generate                                   # llave JWT para .env o Render
@@ -36,5 +42,5 @@ Registro, login con JWT ES256, refresh rotativo, roles y tenant, rate limit. Mod
 Endpoints nuevos: sin token no entra nadie salvo `@Public()`; los de un restaurante llevan `@Roles('DUENO', 'CAJERO')` y el encabezado `x-restaurant-id`.
 
 ## Documentación
-Decisiones de arquitectura en `docs/adr/`.
 
+Decisiones de arquitectura en `docs/adr/`.

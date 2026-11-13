@@ -13,16 +13,16 @@ export class SecurityEventsService {
 
   constructor(private readonly db: DbService) {}
 
-  async record(
-    tipo: string,
-    info: ClientInfo & { usuarioId?: string; detalle?: Record<string, unknown> } = {},
-  ): Promise<void> {
+  async record(tipo: string, info: ClientInfo & { usuarioId?: string; detalle?: Record<string, unknown> } = {}): Promise<void> {
     try {
       await this.db.service((q) =>
-        q.query(
-          'INSERT INTO evento_seguridad (tipo, usuario_id, ip, user_agent, detalle) VALUES ($1, $2, $3::inet, $4, $5::jsonb)',
-          [tipo, info.usuarioId ?? null, info.ip ?? null, info.userAgent?.slice(0, 300) ?? null, JSON.stringify(info.detalle ?? {})],
-        ),
+        q.query('INSERT INTO evento_seguridad (tipo, usuario_id, ip, user_agent, detalle) VALUES ($1, $2, $3::inet, $4, $5::jsonb)', [
+          tipo,
+          info.usuarioId ?? null,
+          info.ip ?? null,
+          info.userAgent?.slice(0, 300) ?? null,
+          JSON.stringify(info.detalle ?? {}),
+        ]),
       );
     } catch (err) {
       this.logger.error({ err, tipo }, 'No se pudo registrar el evento de seguridad');

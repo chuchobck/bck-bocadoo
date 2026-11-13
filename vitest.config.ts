@@ -3,9 +3,12 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    globals: true, root: '.', include: ['test/**/*.spec.ts'],
+    globals: true,
+    root: '.',
+    include: ['test/**/*.spec.ts'],
     env: {
-      NODE_ENV: 'test', LOG_LEVEL: 'silent',
+      NODE_ENV: 'test',
+      LOG_LEVEL: 'silent',
       DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
       DATABASE_SERVICE_URL: 'postgresql://u:p@localhost:5432/db',
     },

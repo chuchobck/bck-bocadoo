@@ -5,11 +5,20 @@ import 'dotenv/config';
 import { Algorithm, hash } from '@node-rs/argon2';
 import pg from 'pg';
 
-if (process.env.NODE_ENV === 'production') { console.error('No se ejecuta con NODE_ENV=production.'); process.exit(1); }
+if (process.env.NODE_ENV === 'production') {
+  console.error('No se ejecuta con NODE_ENV=production.');
+  process.exit(1);
+}
 const password = process.env.DEMO_PASSWORD;
-if (!password || password.length < 10) { console.error('Define DEMO_PASSWORD (mínimo 10 caracteres).'); process.exit(1); }
+if (!password || password.length < 10) {
+  console.error('Define DEMO_PASSWORD (mínimo 10 caracteres).');
+  process.exit(1);
+}
 const url = process.env.DATABASE_SERVICE_URL;
-if (!url) { console.error('Falta DATABASE_SERVICE_URL en .env'); process.exit(1); }
+if (!url) {
+  console.error('Falta DATABASE_SERVICE_URL en .env');
+  process.exit(1);
+}
 
 const passwordHash = await hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 });
 const c = new pg.Client({ connectionString: url });
@@ -22,4 +31,6 @@ try {
     [passwordHash],
   );
   console.log(`Contraseña asignada a ${r.rowCount} usuarios demo (correo: usuario@demo.bocadoo.test).`);
-} finally { await c.end(); }
+} finally {
+  await c.end();
+}

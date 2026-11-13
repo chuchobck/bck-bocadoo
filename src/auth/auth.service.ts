@@ -8,7 +8,13 @@ import { SessionsService } from './sessions.service';
 import { TokenService } from './token.service';
 
 const slugify = (s: string) =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'local';
+  s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'local';
 
 const TERMINOS_VERSION = 'v1';
 
@@ -41,7 +47,10 @@ export class AuthService {
     }
     const usuarioId = String(user.usuario_id);
     const refreshToken = await this.db.service(async (q) => {
-      await q.query('UPDATE usuario_identidad SET ultimo_acceso_en = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND proveedor = $2', [usuarioId, 'PASSWORD']);
+      await q.query('UPDATE usuario_identidad SET ultimo_acceso_en = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND proveedor = $2', [
+        usuarioId,
+        'PASSWORD',
+      ]);
       return this.sessions.issue(q, usuarioId, info);
     });
     await this.events.record('LOGIN_OK', { ...info, usuarioId });
@@ -72,7 +81,11 @@ export class AuthService {
     return this.create(dto, dto.restaurante, info);
   }
 
-  private async create(dto: RegisterDto, rest: RegisterOwnerDto['restaurante'] | undefined, info: ClientInfo): Promise<RegisterResponseDto> {
+  private async create(
+    dto: RegisterDto,
+    rest: RegisterOwnerDto['restaurante'] | undefined,
+    info: ClientInfo,
+  ): Promise<RegisterResponseDto> {
     const passwordHash = await this.passwords.hash(dto.password);
     try {
       const out = await this.db.service(async (q) => {
@@ -85,7 +98,9 @@ export class AuthService {
         // Desde aquí la auditoría de la base registra a este usuario como autor.
         await q.query("SELECT set_config('app.current_user_id', $1, true)", [String(usuarioId)]);
         await q.query(`INSERT INTO usuario_identidad (usuario_id, proveedor, sujeto, password_hash) VALUES ($1, 'PASSWORD', $2, $3)`, [
-          usuarioId, dto.correo, passwordHash,
+          usuarioId,
+          dto.correo,
+          passwordHash,
         ]);
         let restaurante: RegisterResponseDto['restaurante'];
         if (rest) {
@@ -99,14 +114,19 @@ export class AuthService {
           );
           const row = r.rows[0]!;
           await q.query(`INSERT INTO personal_restaurante (restaurante_id, usuario_id, rol, nombre_visible) VALUES ($1, $2, 'DUENO', $3)`, [
-            row.restaurante_id, usuarioId, dto.nombre,
+            row.restaurante_id,
+            usuarioId,
+            dto.nombre,
           ]);
           restaurante = { id: row.public_id, nombre: rest.nombre, slug, estado: row.estado };
         }
         return { usuarioId: String(usuarioId), publicId, restaurante };
       });
       await this.events.record('REGISTRO', { ...info, usuarioId: out.usuarioId, detalle: { dueno: Boolean(rest) } });
-      return { usuario: { id: out.publicId, nombre: dto.nombre, correo: dto.correo }, ...(out.restaurante && { restaurante: out.restaurante }) };
+      return {
+        usuario: { id: out.publicId, nombre: dto.nombre, correo: dto.correo },
+        ...(out.restaurante && { restaurante: out.restaurante }),
+      };
     } catch (err) {
       if ((err as { code?: string }).code === '23505') {
         // Mensaje genérico: no confirma cuál dato ya existía.

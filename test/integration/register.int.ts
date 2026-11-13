@@ -18,7 +18,11 @@ describe('Registro', () => {
 
   const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload: payload as object });
   const body = (over: Record<string, unknown> = {}) => ({
-    nombre: '  María  Guamán ', correo: `Reg_${unique()}@Correo.com`, password: 'una-clave-larga-123', aceptaTerminos: true, ...over,
+    nombre: '  María  Guamán ',
+    correo: `Reg_${unique()}@Correo.com`,
+    password: 'una-clave-larga-123',
+    aceptaTerminos: true,
+    ...over,
   });
 
   it('registra un comensal: normaliza el correo, no devuelve hashes ni ids internos', async () => {
@@ -29,10 +33,18 @@ describe('Registro', () => {
     expect(json.usuario).toMatchObject({ nombre: 'María  Guamán', correo: b.correo.toLowerCase() });
     expect(json.usuario.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.stringify(json)).not.toMatch(/password|hash|\$argon2/i);
-    const stored = await db.service((q) => q.query<{ password_hash: string }>(
-      `SELECT ui.password_hash FROM usuario_identidad ui JOIN usuario u USING (usuario_id) WHERE u.correo = $1`, [b.correo.toLowerCase()]));
+    const stored = await db.service((q) =>
+      q.query<{ password_hash: string }>(
+        `SELECT ui.password_hash FROM usuario_identidad ui JOIN usuario u USING (usuario_id) WHERE u.correo = $1`,
+        [b.correo.toLowerCase()],
+      ),
+    );
     expect(stored.rows[0]!.password_hash).toMatch(/^\$argon2id\$/);
-    const ev = await db.service((q) => q.query(`SELECT 1 FROM evento_seguridad WHERE tipo = 'REGISTRO' AND detalle->>'dueno' = 'false' AND ocurrido_en > now() - interval '1 minute'`));
+    const ev = await db.service((q) =>
+      q.query(
+        `SELECT 1 FROM evento_seguridad WHERE tipo = 'REGISTRO' AND detalle->>'dueno' = 'false' AND ocurrido_en > now() - interval '1 minute'`,
+      ),
+    );
     expect(ev.rowCount).toBeGreaterThan(0);
   });
 
@@ -42,8 +54,9 @@ describe('Registro', () => {
     expect(res.statusCode).toBe(201);
     expect(res.json().restaurante).toMatchObject({ nombre: 'Café Ñandú', estado: 'BORRADOR' });
     expect(res.json().restaurante.slug).toMatch(/^cafe-nandu-[0-9a-f]{6}$/);
-    const r = await db.service((q) => q.query(
-      `SELECT p.rol FROM personal_restaurante p JOIN usuario u USING (usuario_id) WHERE u.correo = $1`, [b.correo.toLowerCase()]));
+    const r = await db.service((q) =>
+      q.query(`SELECT p.rol FROM personal_restaurante p JOIN usuario u USING (usuario_id) WHERE u.correo = $1`, [b.correo.toLowerCase()]),
+    );
     expect(r.rows[0]).toMatchObject({ rol: 'DUENO' });
   });
 
