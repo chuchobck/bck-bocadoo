@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
 import { AuthModule } from './auth/auth.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
 import { MenuModule } from './menu/menu.module';
@@ -22,6 +23,7 @@ import { HealthController } from './health/health.controller';
     RestaurantModule,
     StaffModule,
     MenuModule,
+    CatalogModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
