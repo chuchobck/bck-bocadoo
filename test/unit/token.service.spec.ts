@@ -63,6 +63,9 @@ describe('TokenService', () => {
 
   it('en producción la llave es obligatoria', () => {
     expect(() => loadEnv({ ...base, NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(/JWT_PRIVATE_KEY/);
-    expect(loadEnv({ ...base, NODE_ENV: 'production', JWT_PRIVATE_KEY: 'x' } as NodeJS.ProcessEnv).NODE_ENV).toBe('production');
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', JWT_PRIVATE_KEY: 'x' } as NodeJS.ProcessEnv)).toThrow(/QR_SECRET_KEY/);
+    expect(loadEnv({ ...base, NODE_ENV: 'production', JWT_PRIVATE_KEY: 'x', QR_SECRET_KEY: 'y' } as NodeJS.ProcessEnv).NODE_ENV).toBe(
+      'production',
+    );
   });
 });

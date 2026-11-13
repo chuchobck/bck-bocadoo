@@ -15,6 +15,7 @@ const schema = z
     JWT_PREVIOUS_PUBLIC_KEYS: z.string().optional(), // JSON {"kid":"PEM público"} para rotar sin cortar sesiones
     JWT_ISSUER: z.string().min(1).default('bocadoo'),
     JWT_AUDIENCE: z.string().min(1).default('bocadoo-api'),
+    QR_SECRET_KEY: z.string().min(1).optional(), // 32 bytes en base64: cifra los secretos del QR de cada usuario
     ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(900),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
     // Abuso
@@ -29,6 +30,9 @@ const schema = z
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && !env.JWT_PRIVATE_KEY) {
       ctx.addIssue({ code: 'custom', path: ['JWT_PRIVATE_KEY'], message: 'es obligatoria en producción' });
+    }
+    if (env.NODE_ENV === 'production' && !env.QR_SECRET_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['QR_SECRET_KEY'], message: 'es obligatoria en producción' });
     }
   });
 

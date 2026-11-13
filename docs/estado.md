@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-13 (fase 6). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-13 (fase 7). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -12,10 +12,44 @@
 | —   | Calidad automática           | ✅     | —             | ESLint con reglas de arquitectura, Prettier, husky + commitlint, CI (4 jobs), Dockerfile |
 | 5   | Restaurante, menú y vitrina  | ✅     | `v0.5.0`      | ver abajo                                                                                |
 | 6   | Clientes y planes            | ✅     | `v0.6.0`      | ver abajo                                                                                |
-| 7   | Caja                         | ⬜     | `v0.7.0`      | requiere Fable 5.2                                                                       |
+| 7   | Caja                         | ✅     | `v0.7.0`      | ver abajo; carga en `docs/carga.md`                                                      |
 | 8   | Comensal                     | ⬜     | `v0.8.0`      |                                                                                          |
 | 9   | Ofertas, reportes y SaaS     | ⬜     | `v0.9.0`      |                                                                                          |
 | 10  | Documentación viva y Swagger | ⬜     | `v1.0.0-rc.1` |                                                                                          |
+
+## Fase 7: checklist
+
+- [x] El QR se firma con HMAC-SHA256 y un secreto por usuario cifrado (AES-256-GCM); vence a los 30 s (±1 paso)
+- [x] QR de otro local → `OTRO_LOCAL`; QR vencido → `QR_EXPIRADO`; falso o alterado → `QR_INVALIDO`; todos quedan en `intento_escaneo`
+- [x] El mismo comensal escaneado en dos cajas a la vez → un solo descuento (prueba concurrente con 6 peticiones)
+- [x] Deshacer pasados 10 s → 409; dentro de 10 s devuelve el almuerzo una sola vez aunque se pida tres veces a la vez
+- [x] Validar almuerzo: p95 = 23 ms a 50 req/s y 42 ms a 100 req/s (k6, base local). Falta medir contra Neon
+- [x] Cierre de caja: efectivo esperado = cobros confirmados en efectivo del día (planes + ventas sueltas) menos reversos; un cierre activo por día
+- [x] Todos los resultados del escáner documentados en Swagger (`OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`)
+- [x] Descuento FIFO (el plan que vence primero), doble escaneo en 60 s → `DUPLICADO`, misma `Idempotency-Key` → mismo consumo
+- [x] Consumos, ventas y pagos son libros de solo inserción: se corrigen con movimientos inversos
+- [x] `fn_descontar_almuerzo` se llama a través de `DbService` (pendiente heredado de la fase 3)
+
+### Endpoints de la fase 7
+
+| Ruta                                                | Quién                          | Para qué                                             |
+| --------------------------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| `GET /v1/pase/codigo`, `POST /v1/pase/rotar`        | comensal con sesión            | Código QR rotativo; invalidar los anteriores         |
+| `POST /v1/caja/validar`                             | dueño, cajero                  | Validar por QR o búsqueda manual (`Idempotency-Key`) |
+| `POST /v1/caja/consumos/:id/deshacer`               | dueño, cajero                  | Deshacer en 10 segundos                              |
+| `GET /v1/caja/mesas/:id`, `POST …/validar`          | dueño, cajero                  | Vista previa y validación de una mesa compartida     |
+| `GET·POST /v1/caja/ventas`, `POST …/:id/deshacer`   | dueño, cajero                  | Ventas sueltas (precios del servidor) y su reverso   |
+| `GET·POST /v1/caja/cierre/:fecha`, `POST …/reabrir` | dueño, cajero (reabrir: dueño) | Arqueo y cierre de caja                              |
+| `GET /v1/reclamos`, `POST …/:id/devolver·rechazar`  | lista: ambos; resolver: dueño  | Reclamos con devolución del almuerzo                 |
+
+### Decisiones de la fase
+
+- `POST /v1/caja/validar` responde siempre 200 con un `resultado`: para la caja, "sin saldo" es una respuesta normal, no un error.
+- El código del QR es `BCD1.<usuario>.<restaurante|0>.<mac>`; con restaurante solo vale en ese local. La llave `QR_SECRET_KEY` es obligatoria en producción.
+- Migración `20261116000000`: `fn_descontar_almuerzo` gana `p_mesa_local_id` y `p_omitir_duplicado` (mesa "invito yo": el anfitrión paga varios almuerzos seguidos).
+- En una mesa, quien no tiene plan queda "por cobrar" y se cobra como venta suelta.
+- Las mesas compartidas y los reclamos los crean los comensales en la fase 8; aquí está el lado de la caja.
+- Las reglas de negocio de la base (FIFO, idempotencia, duplicado, reverso, solo inserción) quedaron cubiertas por las pruebas de integración en vez de un archivo SQL aparte.
 
 ## Fase 6: checklist
 
@@ -90,5 +124,6 @@ Los endpoints del personal llevan `Authorization: Bearer …` y `x-restaurant-id
 - ⬜ **Rotar la contraseña de `neondb_owner`** (se compartió por mensajería y en una conversación).
 - ⬜ Llave JWT (`pnpm keys:generate`) en las variables de Render al desplegar.
 - ⬜ Correr en Neon las pruebas que escriben datos (registro, auth, menú…) usando una **rama de Neon** de prueba; hoy solo se corrieron ahí las de aislamiento y readiness.
-- ⬜ Pruebas SQL de reglas de negocio (`db/tests/01_rls_and_rules.sql`) antes de la fase 7.
+- ⬜ Prueba de carga contra Neon (ver `docs/carga.md`), con una rama de prueba.
+- ⬜ `QR_SECRET_KEY` y `JWT_PRIVATE_KEY` (`pnpm keys:generate`) en las variables de Render al desplegar.
 - ⬜ Rate limit en memoria: si la API escala a varias instancias, moverlo a un almacén compartido.

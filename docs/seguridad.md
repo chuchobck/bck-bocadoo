@@ -60,6 +60,22 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 | Otros orígenes en el navegador                                                                         | CORS con lista blanca (`CORS_ORIGINS`)                                                           | `abuse.int.ts`                         |
 | Filtración de secretos en logs                                                                         | pino redacta `authorization`, `password`, `refreshToken`, `accessToken`                          | prueba manual                          |
 
+## QR del comensal (fase 7)
+
+- Cada usuario tiene un **secreto** de 32 bytes, guardado cifrado con AES-256-GCM (llave `QR_SECRET_KEY`, fuera del repo) y atado a su id: copiar el valor cifrado a otro usuario no funciona. La tabla solo la lee el rol de servicio.
+- El código es `HMAC-SHA256(secreto, usuario | restaurante | paso de 30 s)` truncado a 132 bits. La caja acepta el paso actual ±1.
+- Una captura de pantalla sirve como máximo 90 segundos, y la regla de doble escaneo (60 s) impide usarla dos veces seguidas. `POST /v1/pase/rotar` invalida todo lo anterior.
+- Cada intento, válido o no, queda en `intento_escaneo` con el personal que escaneó.
+
+| Amenaza                          | Mitigación                                                                 | Prueba                                 |
+| -------------------------------- | -------------------------------------------------------------------------- | -------------------------------------- |
+| QR falsificado o alterado        | HMAC con secreto por usuario; comparación en tiempo constante              | `pass-code.spec.ts`, `checkout.int.ts` |
+| Captura de pantalla reenviada    | Vence en 30 s (±1 paso); doble escaneo → `DUPLICADO`; rotación del secreto | `checkout.int.ts`                      |
+| Volcado de la tabla de secretos  | Cifrado AES-256-GCM con llave fuera de la base                             | `checkout.int.ts`                      |
+| Doble cobro por reintento de red | `Idempotency-Key` obligatoria en caja y pagos                              | `checkout.int.ts`, `plans.int.ts`      |
+| Dos cajas a la vez               | Bloqueo de fila del cliente en la función atómica                          | `checkout.int.ts`                      |
+| Cajero que altera precios        | Los precios de almuerzo y platos los pone el servidor                      | `checkout.int.ts`                      |
+
 ## Llaves JWT
 
 Las llaves **nunca van al repo**: viven en `.env` (local) o en las variables de Render.
@@ -84,4 +100,3 @@ Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierr
 - El rate limit es **en memoria**: vale para una sola instancia. Si la API escala a varias, hay que moverlo a un almacén compartido.
 - Sin verificación de correo ni recuperación de contraseña (fuera del alcance de v1). Login con Google, después de v1.
 - Los access tokens no se pueden revocar antes de su vencimiento (15 min).
-- `Idempotency-Key` y los secretos del QR llegan con la fase 7.
