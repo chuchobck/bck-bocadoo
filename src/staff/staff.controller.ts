@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { UuidPipe } from '../common/pipes';
 import { RateLimit } from '../security/rate-limit';
 import { Email, Text } from '../security/sanitize';
 import { StaffService } from './staff.service';
+import { PersonalResponse } from './responses';
 
 class InviteCashierDto {
   @ApiProperty({ example: 'cajero@correo.com' }) @Email() @IsEmail() @MaxLength(254) correo!: string;
@@ -29,6 +30,7 @@ export class StaffController {
   @Roles('DUENO')
   @Get()
   @ApiOperation({ summary: 'Personal del restaurante (dueño y cajeros)' })
+  @ApiOkResponse({ type: PersonalResponse, isArray: true })
   list() {
     return this.service.list();
   }
@@ -40,6 +42,7 @@ export class StaffController {
     summary: 'Agregar un cajero por su correo',
     description: 'La persona debe haberse registrado antes. Límite de intentos por hora.',
   })
+  @ApiCreatedResponse({ type: PersonalResponse })
   invite(@Body() dto: InviteCashierDto) {
     return this.service.inviteCashier(dto.correo, dto.nombreVisible);
   }
@@ -47,6 +50,7 @@ export class StaffController {
   @Roles('DUENO')
   @Patch(':usuarioId')
   @ApiOperation({ summary: 'Activar o desactivar a un cajero', description: 'Un cajero desactivado pierde el acceso de inmediato.' })
+  @ApiOkResponse({ type: PersonalResponse })
   setActive(@Param('usuarioId', UuidPipe) usuarioId: string, @Body() dto: SetActiveDto) {
     return this.service.setActive(usuarioId, dto.activo);
   }

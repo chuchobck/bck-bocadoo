@@ -11,7 +11,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -37,6 +37,7 @@ import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
 import { PERSONAL_ACTUAL } from './checkout';
+import { VentaResponse } from './responses';
 
 const ID = /^[1-9][0-9]{0,17}$/;
 const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
@@ -405,6 +406,7 @@ export class PosController {
   @Roles('DUENO', 'CAJERO')
   @Get()
   @ApiOperation({ summary: 'Ventas sueltas de hoy' })
+  @ApiOkResponse({ type: VentaResponse, isArray: true })
   today() {
     return this.pos.today();
   }
@@ -416,6 +418,7 @@ export class PosController {
     summary: 'Registrar una venta suelta (sin plan)',
     description: 'Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.',
   })
+  @ApiCreatedResponse({ type: VentaResponse })
   sell(@Body() dto: VentaDto, @IdempotencyKey() key: string) {
     return this.pos.sell(dto, key);
   }
@@ -428,6 +431,7 @@ export class PosController {
     summary: 'Deshacer una venta suelta',
     description: 'Registra una venta y un pago inversos. El cajero, solo las del mismo día.',
   })
+  @ApiOkResponse({ type: VentaResponse })
   undo(@Param('id', UuidPipe) id: string, @IdempotencyKey() key: string) {
     return this.pos.undo(id, key);
   }

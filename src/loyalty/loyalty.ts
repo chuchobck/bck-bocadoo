@@ -29,7 +29,7 @@ class ConfigResponse {
   @ApiProperty() activa!: boolean;
   @ApiProperty() meta!: number;
   @ApiProperty() premio!: string;
-  @ApiPropertyOptional() nombre!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) nombre!: string | null;
   @ApiProperty({ enum: ['ALMUERZO', 'PLATO'] }) cuenta!: string;
 }
 class TarjetaResponse {
@@ -38,7 +38,7 @@ class TarjetaResponse {
   @ApiProperty({ description: 'Sellos que faltan para el próximo premio' }) faltan!: number;
   @ApiProperty() premiosDisponibles!: number;
   @ApiProperty() premio!: string;
-  @ApiPropertyOptional() nombre!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) nombre!: string | null;
   @ApiProperty({ description: 'false si el local apagó la tarjeta (los premios ya ganados se pueden canjear)' }) activa!: boolean;
 }
 class MiTarjeta extends TarjetaResponse {

@@ -18,12 +18,16 @@ class CicloResponse {
 class PlanSaasResponse {
   @ApiProperty({ example: 'FREEMIUM' }) codigo!: string;
   @ApiProperty({ example: 'Gratis' }) nombre!: string;
-  @ApiPropertyOptional({ description: 'Precio mensual vigente en el país del local (centavos); null si el plan no tiene precio ahí' })
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    description: 'Precio mensual vigente en el país del local (centavos); null si el plan no tiene precio ahí',
+  })
   precioMensualCentavos!: number | null;
-  @ApiPropertyOptional({ example: 'USD' }) moneda!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, example: 'USD' }) moneda!: string | null;
 }
 class LimitesResponse {
-  @ApiPropertyOptional({ description: 'Escaneos por ciclo; null = sin límite' }) escaneosMes!: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Escaneos por ciclo; null = sin límite' }) escaneosMes!: number | null;
   @ApiProperty() mesaGrupal!: boolean;
   @ApiProperty() reportesAvanzados!: boolean;
 }
@@ -32,17 +36,23 @@ class SuscripcionResponse {
   estado!: Estado;
   @ApiPropertyOptional({ type: PlanSaasResponse }) plan!: PlanSaasResponse | null;
   @ApiPropertyOptional({ type: CicloResponse }) ciclo!: CicloResponse | null;
-  @ApiPropertyOptional({ example: '2026-12-01', description: 'null en planes gratuitos' }) proximoCobro!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, example: '2026-12-01', description: 'null en planes gratuitos' }) proximoCobro!:
+    string | null;
   @ApiProperty({ type: LimitesResponse }) limites!: LimitesResponse;
 }
 class UsoResponse {
   @ApiPropertyOptional({ type: CicloResponse }) ciclo!: CicloResponse | null;
   @ApiProperty({ description: 'Escaneos válidos del ciclo (un almuerzo descontado cuenta uno; deshacerlo no lo devuelve)' })
   escaneosUsados!: number;
-  @ApiPropertyOptional({ description: 'null = sin límite' }) limite!: number | null;
-  @ApiPropertyOptional({ description: 'Lo que queda antes del tope; null = sin límite' }) restantes!: number | null;
-  @ApiPropertyOptional({ description: 'Porcentaje entero del límite usado (puede pasar de 100); null = sin límite' }) porcentaje!:
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'null = sin límite' }) limite!: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Lo que queda antes del tope; null = sin límite' }) restantes!:
     number | null;
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    description: 'Porcentaje entero del límite usado (puede pasar de 100); null = sin límite',
+  })
+  porcentaje!: number | null;
   @ApiProperty({
     enum: NIVELES,
     description: 'CERCA_DEL_LIMITE desde el 80 %; LIMITE_ALCANZADO desde el 100 %: la caja responde `LIMITE_SAAS`',

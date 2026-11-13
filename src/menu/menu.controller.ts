@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { MenuDiaResponse, PlatoResponse } from './responses';
 import { IsIn, IsOptional } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { FechaOHoyPipe, IdPipe } from '../common/pipes';
@@ -19,6 +20,7 @@ export class DishesController {
   @Roles('DUENO', 'CAJERO')
   @Get()
   @ApiOperation({ summary: 'Catálogo de platos del restaurante' })
+  @ApiOkResponse({ type: PlatoResponse, isArray: true })
   list(@Query() q: ListarPlatosQuery) {
     return this.menu.listDishes(q.categoria, q.soloActivos === 'true');
   }
@@ -26,6 +28,7 @@ export class DishesController {
   @Roles('DUENO')
   @Post()
   @ApiOperation({ summary: 'Crear un plato en el catálogo' })
+  @ApiCreatedResponse({ type: PlatoResponse })
   create(@Body() dto: CrearPlatoDto) {
     return this.menu.createDish(dto);
   }
@@ -33,6 +36,7 @@ export class DishesController {
   @Roles('DUENO')
   @Patch(':id')
   @ApiOperation({ summary: 'Editar o desactivar un plato', description: 'Los platos no se borran: se desactivan.' })
+  @ApiOkResponse({ type: PlatoResponse })
   update(@Param('id', IdPipe) id: string, @Body() dto: ActualizarPlatoDto) {
     return this.menu.updateDish(id, dto);
   }
@@ -49,6 +53,7 @@ export class DailyMenuController {
   @Get(':fecha')
   @ApiParam(FECHA)
   @ApiOperation({ summary: 'Menú de un día (incluye borrador)' })
+  @ApiOkResponse({ type: MenuDiaResponse })
   get(@Param('fecha', FechaOHoyPipe) fecha: string) {
     return this.menu.getMenu(fecha);
   }
@@ -61,6 +66,7 @@ export class DailyMenuController {
     description:
       'Lista completa y libre: sin límite de sopas o segundos. Lo que quede fuera se quita; lo que se mantiene conserva su estado de agotado.',
   })
+  @ApiOkResponse({ type: MenuDiaResponse })
   set(@Param('fecha', FechaOHoyPipe) fecha: string, @Body() dto: DefinirMenuDto) {
     return this.menu.setMenu(fecha, dto);
   }
@@ -70,6 +76,7 @@ export class DailyMenuController {
   @HttpCode(200)
   @ApiParam(FECHA)
   @ApiOperation({ summary: 'Publicar el menú en la vitrina' })
+  @ApiOkResponse({ type: MenuDiaResponse })
   publish(@Param('fecha', FechaOHoyPipe) fecha: string) {
     return this.menu.publish(fecha);
   }
@@ -79,6 +86,7 @@ export class DailyMenuController {
   @HttpCode(200)
   @ApiParam(FECHA)
   @ApiOperation({ summary: 'Sacar el menú de la vitrina' })
+  @ApiOkResponse({ type: MenuDiaResponse })
   unpublish(@Param('fecha', FechaOHoyPipe) fecha: string) {
     return this.menu.unpublish(fecha);
   }
@@ -91,6 +99,7 @@ export class DailyMenuController {
     summary: 'Copiar el menú de otro día',
     description: 'Por defecto, el último menú anterior con platos. Queda como borrador y sin agotados.',
   })
+  @ApiOkResponse({ type: MenuDiaResponse })
   copy(@Param('fecha', FechaOHoyPipe) fecha: string, @Body() dto: CopiarMenuDto) {
     return this.menu.copy(fecha, dto.desde, dto.reemplazar ?? false);
   }
@@ -99,6 +108,7 @@ export class DailyMenuController {
   @Patch(':fecha/items/:id/agotado')
   @ApiParam(FECHA)
   @ApiOperation({ summary: 'Marcar o quitar "agotado" en un plato del menú', description: 'Guarda a qué hora se acabó.' })
+  @ApiOkResponse({ type: MenuDiaResponse })
   setSoldOut(@Param('fecha', FechaOHoyPipe) fecha: string, @Param('id', IdPipe) id: string, @Body() dto: AgotadoDto) {
     return this.menu.setSoldOut(fecha, id, dto.agotado);
   }

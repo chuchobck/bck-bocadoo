@@ -25,7 +25,7 @@ const present = () => ValidateIf((_: unknown, v: unknown) => v !== undefined);
 
 export class UpdateRestauranteDto {
   @ApiPropertyOptional() @present() @Text() @IsString() @Length(2, 100) nombre?: string;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) descripcionCorta?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) descripcionCorta?: string | null;
   @ApiPropertyOptional({ type: [String], example: ['casero', 'vegetariano'] })
   @present()
   @IsArray()
@@ -34,16 +34,21 @@ export class UpdateRestauranteDto {
   @IsString({ each: true })
   @Length(1, 30, { each: true })
   etiquetas?: string[];
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) direccion?: string | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-90) @Max(90) latitud?: number | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-180) @Max(180) longitud?: number | null;
-  @ApiPropertyOptional({ nullable: true, example: '+593990000001' })
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) direccion?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-90) @Max(90) latitud?:
+    number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-180) @Max(180) longitud?:
+    number | null;
+  @ApiPropertyOptional({ type: String, nullable: true, example: '+593990000001' })
   @IsOptional()
   @IsString()
   @Matches(/^\+[1-9][0-9]{6,14}$/, { message: 'telefono debe estar en formato E.164, p. ej. +593990000001' })
   telefono?: string | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(500) logoUrl?:
-    string | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(500)
+  logoUrl?: string | null;
   @ApiPropertyOptional({ description: 'Puestos del local; base del cálculo de ocupación' })
   @present()
   @IsInt()
@@ -67,7 +72,7 @@ export class UpdateRestauranteDto {
   @Min(0)
   @Max(100_000_000)
   recargoParaLlevarCentavos?: number;
-  @ApiPropertyOptional({ nullable: true, description: 'zona_id del catálogo (debe ser de la ciudad del local)' })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'zona_id del catálogo (debe ser de la ciudad del local)' })
   @IsOptional()
   @IsInt()
   @Min(1)

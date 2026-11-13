@@ -17,11 +17,13 @@ import { createHash } from 'node:crypto';
 import { QrSecretService } from '../auth/qr-secret.service';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
-import { notFound } from '../common/errors';
+import { ApiProblems, notFound } from '../common/errors';
+import { CodigoPaseResponse } from '../catalog/dto';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
+import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
 const ID = /^[1-9][0-9]{0,17}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -72,8 +74,8 @@ export class ValidacionResponse {
   @ApiPropertyOptional({ example: { id: 'uuid', creadoEn: '2026-11-13T17:00:00Z', deshacerHasta: '2026-11-13T17:00:10Z' } })
   consumo!: { id: string; creadoEn: Date; deshacerHasta: Date } | null;
   @ApiPropertyOptional({ example: { nombre: 'Plan semanal', venceEl: '2026-11-20' } }) plan!: { nombre: string; venceEl: string } | null;
-  @ApiPropertyOptional({ example: 4 }) almuerzosRestantes!: number | null;
-  @ApiPropertyOptional({ example: 6 }) diasParaVencer!: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, example: 4 }) almuerzosRestantes!: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, example: 6 }) diasParaVencer!: number | null;
 }
 
 interface QrCheck {
@@ -429,6 +431,8 @@ export class PassController {
     summary: 'Código QR del comensal (cambia cada 30 segundos)',
     description: 'La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local.',
   })
+  @ApiOkResponse({ type: CodigoPaseResponse })
+  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'] })
   code(@CurrentUser() user: AuthUser, @Query() q: CodigoQuery) {
     return this.checkout.issueCode(user, q.restaurante?.toLowerCase());
   }
@@ -473,6 +477,7 @@ export class CheckoutController {
     summary: 'Deshacer una validación',
     description: `Solo en los ${UNDO_SECONDS} segundos siguientes; después → 409. Devuelve el almuerzo al plan.`,
   })
+  @ApiOkResponse({ type: ConsumoRevertidoResponse })
   undo(@Param('id', UuidPipe) id: string) {
     return this.checkout.undo(id);
   }
@@ -483,6 +488,7 @@ export class CheckoutController {
     summary: 'Vista previa de una mesa compartida',
     description: 'Quiénes vienen, quién paga y cuántos almuerzos cubren los planes.',
   })
+  @ApiOkResponse({ type: MesaVistaResponse })
   previewTable(@Param('id', UuidPipe) id: string) {
     return this.checkout.previewTable(id);
   }
@@ -495,6 +501,7 @@ export class CheckoutController {
     summary: 'Validar toda la mesa de una vez',
     description: 'CADA_UNO: cada quien con su plan. INVITO_YO: paga el anfitrión. Sin plan → por cobrar.',
   })
+  @ApiOkResponse({ type: MesaValidadaResponse })
   validateTable(@Param('id', UuidPipe) id: string, @IdempotencyKey() key: string) {
     return this.checkout.validateTable(id, key);
   }

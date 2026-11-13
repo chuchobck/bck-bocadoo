@@ -7,6 +7,7 @@ import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { enrichDocument } from './common/openapi-enrich';
 import { ProblemFilter } from './common/problem.filter';
 import { loadEnv } from './config/env';
 import { POOL_FACTORY, type PoolFactory } from './db/db.service';
@@ -94,14 +95,16 @@ export async function createApp(opts: { controllers?: Type<unknown>[]; poolFacto
   // Swagger: encendido salvo en producción (o si SWAGGER_ENABLED lo fuerza).
   const swaggerOn = env.SWAGGER_ENABLED ? env.SWAGGER_ENABLED === 'true' : env.NODE_ENV !== 'production';
   if (!swaggerOn) return app;
-  const doc = SwaggerModule.createDocument(
-    app,
-    new DocumentBuilder()
-      .setTitle('Bocadoo API')
-      .setDescription('Backend de Bocadoo: planes de almuerzo prepago por QR.')
-      .setVersion('0.4.0')
-      .addBearerAuth()
-      .build(),
+  const doc = enrichDocument(
+    SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('Bocadoo API')
+        .setDescription('Backend de Bocadoo: planes de almuerzo prepago por QR.')
+        .setVersion('0.4.0')
+        .addBearerAuth()
+        .build(),
+    ),
   );
   SwaggerModule.setup('docs', app, doc);
   return app;

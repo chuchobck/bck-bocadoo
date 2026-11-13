@@ -28,8 +28,12 @@ class HorasPicoResponse {
   @ApiProperty() hasta!: string;
   @ApiProperty() zonaHoraria!: string;
   @ApiProperty({ type: [HoraPico], description: 'Siempre 24 filas, de la hora 0 a la 23' }) porHora!: HoraPico[];
-  @ApiPropertyOptional({ description: 'Hora con más movimiento (la más temprana si hay empate); null si no hubo nada' }) horaPico!:
-    number | null;
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    description: 'Hora con más movimiento (la más temprana si hay empate); null si no hubo nada',
+  })
+  horaPico!: number | null;
   @ApiProperty() totalAlmuerzos!: number;
   @ApiProperty() totalVentas!: number;
 }

@@ -13,7 +13,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -40,30 +40,31 @@ import { DbService, Queryable } from '../db/db.service';
 import { RateLimit } from '../security/rate-limit';
 import { Email, Text } from '../security/sanitize';
 import { SUBS_SELECT, SubRow, toSub } from '../sales/subscriptions';
+import { ClienteDetalleResponse, ClientePageResponse } from './responses';
 
 const E164 = /^\+[1-9][0-9]{6,14}$/;
 const present = () => ValidateIf((_: unknown, v: unknown) => v !== undefined);
 
 export class CrearClienteDto {
   @ApiProperty({ example: 'Juan Pérez' }) @Text() @IsString() @Length(1, 100) nombre!: string;
-  @ApiPropertyOptional({ example: '+593990000123', description: 'E.164; único por restaurante' })
+  @ApiPropertyOptional({ type: String, nullable: true, example: '+593990000123', description: 'E.164; único por restaurante' })
   @IsOptional()
   @IsString()
   @Matches(E164, { message: 'telefono debe estar en formato E.164, p. ej. +593990000123' })
   telefono?: string | null;
-  @ApiPropertyOptional() @IsOptional() @Email() @IsEmail() @MaxLength(254) correo?: string | null;
-  @ApiPropertyOptional() @IsOptional() @Text() @IsString() @MaxLength(300) nota?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Email() @IsEmail() @MaxLength(254) correo?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) nota?: string | null;
 }
 
 export class ActualizarClienteDto {
   @ApiPropertyOptional() @present() @Text() @IsString() @Length(1, 100) nombre?: string;
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsString()
   @Matches(E164, { message: 'telefono debe estar en formato E.164' })
   telefono?: string | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Email() @IsEmail() @MaxLength(254) correo?: string | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) nota?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Email() @IsEmail() @MaxLength(254) correo?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) nota?: string | null;
   @ApiPropertyOptional() @present() @IsBoolean() activo?: boolean;
 }
 
@@ -326,6 +327,7 @@ export class CustomersController {
     summary: 'Buscar clientes por nombre o teléfono',
     description: 'Paginación por cursor (máximo 50). Incluye almuerzos disponibles.',
   })
+  @ApiOkResponse({ type: ClientePageResponse })
   search(@Query() q: BuscarQuery) {
     return this.customers.search(q.q, q.limit ?? 20, q.cursor);
   }
@@ -333,6 +335,7 @@ export class CustomersController {
   @Roles('DUENO', 'CAJERO')
   @Post()
   @ApiOperation({ summary: 'Crear un cliente', description: 'Teléfono en E.164; repetido en el mismo restaurante → 409.' })
+  @ApiCreatedResponse({ type: ClienteDetalleResponse })
   create(@Body() dto: CrearClienteDto) {
     return this.customers.create(dto);
   }
@@ -340,6 +343,7 @@ export class CustomersController {
   @Roles('DUENO', 'CAJERO')
   @Get(':id')
   @ApiOperation({ summary: 'Ficha del cliente con todos sus planes' })
+  @ApiOkResponse({ type: ClienteDetalleResponse })
   detail(@Param('id', IdPipe) id: string) {
     return this.customers.detail(id);
   }
@@ -347,6 +351,7 @@ export class CustomersController {
   @Roles('DUENO', 'CAJERO')
   @Patch(':id')
   @ApiOperation({ summary: 'Editar o desactivar un cliente' })
+  @ApiOkResponse({ type: ClienteDetalleResponse })
   update(@Param('id', IdPipe) id: string, @Body() dto: ActualizarClienteDto) {
     return this.customers.update(id, dto);
   }
@@ -354,6 +359,7 @@ export class CustomersController {
   @Roles('DUENO')
   @Post(':id/migrar-cartulina')
   @ApiOperation({ summary: 'Migrar el saldo de una cartulina de papel', description: 'Crea un plan de origen MIGRADA, sin cobro.' })
+  @ApiCreatedResponse({ type: ClienteDetalleResponse })
   migrate(@Param('id', IdPipe) id: string, @Body() dto: MigrarCartulinaDto) {
     return this.customers.migrateCard(id, dto);
   }
@@ -366,6 +372,7 @@ export class CustomersController {
     summary: 'Vincular el cliente con su cuenta de la app',
     description: 'Por el correo de la cuenta. Límite de intentos por hora.',
   })
+  @ApiOkResponse({ type: ClienteDetalleResponse })
   link(@Param('id', IdPipe) id: string, @Body() dto: VincularDto) {
     return this.customers.link(id, dto.correo);
   }
@@ -374,6 +381,7 @@ export class CustomersController {
   @Post(':id/desvincular')
   @HttpCode(200)
   @ApiOperation({ summary: 'Quitar el vínculo con la cuenta de la app' })
+  @ApiOkResponse({ type: ClienteDetalleResponse })
   unlink(@Param('id', IdPipe) id: string) {
     return this.customers.unlink(id);
   }

@@ -50,7 +50,7 @@ class OpinionResponse {
   })
   consumo!: { id: string; fecha: Date; restaurante: { id: string; nombre: string; slug: string } };
   @ApiProperty({ enum: ETIQUETAS, isArray: true }) etiquetas!: string[];
-  @ApiPropertyOptional() comentario!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) comentario!: string | null;
   @ApiProperty({ description: 'Cerró la tarjeta sin opinar' }) descartada!: boolean;
   @ApiProperty() creadoEn!: Date;
   @ApiPropertyOptional({ example: { texto: '¡Gracias! Lo corregimos.', respondidoEn: '2026-11-13T18:00:00Z' } })
@@ -268,7 +268,7 @@ class OpinionBandeja {
   @ApiProperty({ example: { nombre: 'Plan semanal' } }) plan!: { nombre: string };
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ enum: ETIQUETAS, isArray: true }) etiquetas!: string[];
-  @ApiPropertyOptional() comentario!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) comentario!: string | null;
   @ApiPropertyOptional({ example: { texto: '¡Gracias!', respondidoEn: '2026-11-13T18:00:00Z' } }) respuesta!: {
     texto: string;
     respondidoEn: Date;
@@ -276,7 +276,7 @@ class OpinionBandeja {
 }
 class BandejaResponse {
   @ApiProperty({ type: [OpinionBandeja] }) items!: OpinionBandeja[];
-  @ApiPropertyOptional() nextCursor!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) nextCursor!: string | null;
   @ApiProperty({
     description: 'Últimos 30 días (sin descartes)',
     example: { total: 12, sinResponder: 3, conComentario: 5, etiquetas: { RICO: 8, FRIO: 2 } },

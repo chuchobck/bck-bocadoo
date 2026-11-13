@@ -1,11 +1,12 @@
 import { Body, ConflictException, Controller, Get, HttpCode, Injectable, NotFoundException, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { IdPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { PERSONAL_ACTUAL } from './checkout';
+import { ReclamoPersonalResponse } from './responses';
 
 const ESTADOS = ['PENDIENTE', 'DEVUELTO', 'RECHAZADO'] as const;
 
@@ -133,6 +134,7 @@ export class ClaimsController {
   @Roles('DUENO', 'CAJERO')
   @Get()
   @ApiOperation({ summary: 'Reclamos de comensales sobre un almuerzo', description: 'Por defecto, los pendientes.' })
+  @ApiOkResponse({ type: ReclamoPersonalResponse, isArray: true })
   list(@Query() q: ListarQuery) {
     return this.claims.list(q.estado);
   }
@@ -141,6 +143,7 @@ export class ClaimsController {
   @Post(':id/devolver')
   @HttpCode(200)
   @ApiOperation({ summary: 'Aceptar el reclamo y devolver el almuerzo al plan' })
+  @ApiOkResponse({ type: ReclamoPersonalResponse })
   refund(@Param('id', IdPipe) id: string, @Body() dto: DevolverDto) {
     return this.claims.refund(id, dto.respuesta);
   }
@@ -149,6 +152,7 @@ export class ClaimsController {
   @Post(':id/rechazar')
   @HttpCode(200)
   @ApiOperation({ summary: 'Rechazar el reclamo con una explicación' })
+  @ApiOkResponse({ type: ReclamoPersonalResponse })
   reject(@Param('id', IdPipe) id: string, @Body() dto: RechazarDto) {
     return this.claims.reject(id, dto.respuesta);
   }

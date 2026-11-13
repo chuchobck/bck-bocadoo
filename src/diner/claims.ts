@@ -28,9 +28,9 @@ class ReclamoResponse {
   consumo!: { id: string; fecha: Date; restaurante: { id: string; nombre: string; slug: string } };
   @ApiProperty({ enum: ['PENDIENTE', 'DEVUELTO', 'RECHAZADO'], description: 'DEVUELTO: el almuerzo volvió a tu plan' }) estado!: string;
   @ApiProperty() mensaje!: string;
-  @ApiPropertyOptional({ description: 'Respuesta del restaurante' }) respuesta!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'Respuesta del restaurante' }) respuesta!: string | null;
   @ApiProperty() creadoEn!: Date;
-  @ApiPropertyOptional() resueltoEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true }) resueltoEn!: Date | null;
 }
 
 interface Row {
