@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-13. Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-13 (fase 6). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -11,11 +11,45 @@
 | 4   | Seguridad                    | ✅     | `v0.4.0`      | argon2id, JWT ES256, refresh rotativo, roles y tenant, rate limit                        |
 | —   | Calidad automática           | ✅     | —             | ESLint con reglas de arquitectura, Prettier, husky + commitlint, CI (4 jobs), Dockerfile |
 | 5   | Restaurante, menú y vitrina  | ✅     | `v0.5.0`      | ver abajo                                                                                |
-| 6   | Clientes y planes            | ⬜     | `v0.6.0`      |                                                                                          |
+| 6   | Clientes y planes            | ✅     | `v0.6.0`      | ver abajo                                                                                |
 | 7   | Caja                         | ⬜     | `v0.7.0`      | requiere Fable 5.2                                                                       |
 | 8   | Comensal                     | ⬜     | `v0.8.0`      |                                                                                          |
 | 9   | Ofertas, reportes y SaaS     | ⬜     | `v0.9.0`      |                                                                                          |
 | 10  | Documentación viva y Swagger | ⬜     | `v1.0.0-rc.1` |                                                                                          |
+
+## Fase 6: checklist
+
+- [x] Vender plan crea suscripción + pago en una sola transacción (si falla el pago, no queda el plan)
+- [x] Editar la plantilla no cambia lo ya vendido (la venta copia nombre, almuerzos, precio, días y vencimiento)
+- [x] Se respetan los cupos de la plantilla, también con ventas simultáneas (bloqueo de fila); deshacer libera el cupo
+- [x] Dos planes del mismo cliente no suman vencimientos: cada uno vence desde su compra
+- [x] Deshacer genera un pago inverso; nunca borra (los pagos son de solo inserción). Un pago pendiente se rechaza
+- [x] La misma `Idempotency-Key` devuelve la misma respuesta, también con peticiones simultáneas; con otra venta → 409
+- [x] Teléfono en formato E.164; duplicado en el mismo restaurante → 409 con mensaje claro
+- [x] Un mismo depósito (referencia de transferencia) no paga dos planes → 409
+
+### Endpoints de la fase 6
+
+| Ruta                                                                | Quién                           | Para qué                                                                |
+| ------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------- |
+| `GET·POST·PATCH /v1/planes`                                         | dueño (GET también cajero)      | Plantillas de plan con cupos disponibles                                |
+| `GET·POST /v1/clientes`, `GET·PATCH /v1/clientes/:id`               | dueño, cajero                   | Buscar (nombre o teléfono, con cursor), crear, ficha con planes, editar |
+| `POST /v1/clientes/:id/migrar-cartulina`                            | dueño                           | Saldo de la cartulina de papel como plan MIGRADA                        |
+| `POST /v1/clientes/:id/vincular`, `…/desvincular`                   | dueño, cajero                   | Vincular con la cuenta de la app (por correo)                           |
+| `POST /v1/clientes/:id/planes`                                      | dueño, cajero                   | Vender un plan (`Idempotency-Key` obligatoria)                          |
+| `POST /v1/planes-vendidos/:id/deshacer`                             | dueño; cajero solo el mismo día | Pago inverso y plan anulado (`Idempotency-Key`)                         |
+| `GET /v1/pagos/pendientes`, `POST /v1/pagos/:id/confirmar·rechazar` | dueño                           | Transferencias y Deuna por confirmar                                    |
+| `GET /v1/solicitudes-plan`, `POST …/:id/cobrar·rechazar`            | dueño, cajero                   | Solicitudes de comensales                                               |
+| `POST /v1/restaurantes/:slug/solicitudes-plan`                      | comensal con sesión             | Pedir un plan visible en la vitrina                                     |
+
+### Decisiones de la fase
+
+- Efectivo queda confirmado al vender; transferencia y Deuna quedan pendientes salvo `pagoConfirmado`. Rechazar el pago anula el plan.
+- El plan con pago pendiente ya está activo (el cajero confía en el comprobante); el dueño lo confirma o rechaza después.
+- Deshacer solo si no se consumió ningún almuerzo. El consumo FIFO llega en la fase 7.
+- Pedir un plan desde la app crea la ficha del cliente en ese local (vinculada a su cuenta) si aún no existía.
+- Los ids de plantillas, clientes y solicitudes son numéricos dentro del tenant; planes vendidos y pagos salen con `public_id`.
+- Sin migraciones nuevas: el esquema ya tenía la unicidad de teléfono y de cuenta por restaurante, y la de referencia de pago.
 
 ## Fase 5: checklist
 
