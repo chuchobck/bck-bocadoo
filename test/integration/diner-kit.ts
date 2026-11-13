@@ -89,6 +89,33 @@ export class DinerKit {
     return this.h.diner();
   }
 
+  /**
+   * Menú de hoy publicado: sopa, dos fuertes y jugo (sin precio: van en el almuerzo) más dos extras con precio.
+   * Devuelve los public_id que ve el comensal en la vitrina, por nombre.
+   */
+  async menu(o: Actor & { slug: string }): Promise<Record<string, string>> {
+    const platos: [string, string, string, number | null][] = [
+      ['Sopa de quinua', 'ALMUERZO', 'SOPA', null],
+      ['Seco de pollo', 'ALMUERZO', 'FUERTE', null],
+      ['Menestra con carne', 'ALMUERZO', 'FUERTE', null],
+      ['Jugo de mora', 'ALMUERZO', 'JUGO', null],
+      ['Huevo frito', 'EXTRA', 'ADICIONAL', 75],
+      ['Cola', 'BEBIDA', 'ADICIONAL', 100],
+    ];
+    const items = [];
+    for (const [nombre, categoria, seccion, precioCentavos] of platos) {
+      const r = await this.as(o).post('/v1/menu/platos', { nombre, categoria, seccion, precioCentavos });
+      expect(r.statusCode, r.body).toBe(201);
+      items.push({ platoId: r.json().id, seccion });
+    }
+    expect((await this.as(o).put('/v1/menu/hoy', { items })).statusCode).toBe(200);
+    expect((await this.as(o).post('/v1/menu/hoy/publicar')).statusCode).toBe(200);
+    const vitrina = (await this.as({}).get(`/v1/restaurantes/${o.slug}`)).json();
+    const ids: Record<string, string> = {};
+    for (const s of vitrina.menuHoy.secciones) for (const p of s.platos) ids[p.nombre] = p.id;
+    return ids;
+  }
+
   async plan(o: Actor, extra: object = {}) {
     const r = await this.as(o).post('/v1/planes', {
       tipo: 'SEMANAL',

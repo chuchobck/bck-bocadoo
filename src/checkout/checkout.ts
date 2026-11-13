@@ -64,7 +64,7 @@ export class ValidarDto {
   mesaLocalId?: string;
 }
 
-class ValidacionResponse {
+export class ValidacionResponse {
   @ApiProperty({ enum: Object.keys(RESULTADOS), example: 'OK' }) resultado!: Resultado;
   @ApiProperty({ example: RESULTADOS.OK }) mensaje!: string;
   @ApiProperty({ description: 'true solo si se descontó un almuerzo (OK u OK_ADVERTENCIA)' }) descontado!: boolean;
@@ -208,7 +208,7 @@ export class CheckoutService {
   }
 
   /** Llama a la función atómica de la base (FIFO, duplicado, idempotencia, límite SaaS) y arma la respuesta. */
-  private async deduct(
+  async deduct(
     q: Queryable,
     a: {
       clienteId: string;
@@ -216,6 +216,7 @@ export class CheckoutService {
       key: string;
       canal: string;
       paraLlevar: boolean;
+      ordenId?: string;
       mesaLocalId?: string;
       mesaCompartidaId?: string;
       omitirDuplicado?: boolean;
@@ -227,7 +228,7 @@ export class CheckoutService {
         consumo_id: string | null;
         almuerzos_restantes_total: number;
         dias_para_vencer: number | null;
-      }>('SELECT * FROM fn_descontar_almuerzo(app_tenant_id(), $1, $2, $3, $4::canal_consumo_enum, $5, NULL, $6, $7, $8)', [
+      }>('SELECT * FROM fn_descontar_almuerzo(app_tenant_id(), $1, $2, $3, $4::canal_consumo_enum, $5, $9, $6, $7, $8)', [
         a.clienteId,
         a.personalId,
         a.key,
@@ -236,6 +237,7 @@ export class CheckoutService {
         a.mesaCompartidaId ?? null,
         a.mesaLocalId ?? null,
         a.omitirDuplicado ?? false,
+        a.ordenId ?? null,
       ])
     ).rows[0]!;
     const descontado = f.resultado === 'OK' || f.resultado === 'OK_ADVERTENCIA';

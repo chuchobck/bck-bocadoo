@@ -161,6 +161,7 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     expect(live.menuHoy.publicado).toBe(true);
     expect(live.menuHoy.secciones.map((s: { seccion: string }) => s.seccion)).toEqual(['SOPA', 'FUERTE']);
     expect(live.menuHoy.secciones[1].platos[0]).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       nombre: 'Seco de pollo',
       descripcion: 'Con arroz',
       fotoUrl: null,
