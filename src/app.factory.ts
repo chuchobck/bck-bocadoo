@@ -1,5 +1,5 @@
 import { Global, Module, Type, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import { ModulesContainer, NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +7,8 @@ import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { enrichDocument } from './common/openapi-enrich';
+import { ROLES_KEY } from './authz/roles.decorator';
+import { enrichDocument, type RolesPorOperacion } from './common/openapi-enrich';
 import { ProblemFilter } from './common/problem.filter';
 import { loadEnv } from './config/env';
 import { POOL_FACTORY, type PoolFactory } from './db/db.service';
@@ -105,7 +106,26 @@ export async function createApp(opts: { controllers?: Type<unknown>[]; poolFacto
         .addBearerAuth()
         .build(),
     ),
+    rolesByOperation(app),
   );
   SwaggerModule.setup('docs', app, doc);
   return app;
+}
+
+/** `operationId` (Controlador_método, el que genera Swagger) → roles de `@Roles` en el método o en la clase. */
+function rolesByOperation(app: NestFastifyApplication): RolesPorOperacion {
+  const out: RolesPorOperacion = {};
+  for (const mod of app.get(ModulesContainer).values()) {
+    for (const wrapper of mod.controllers.values()) {
+      const cls = wrapper.metatype as (Type<unknown> & { name: string }) | null;
+      if (!cls) continue;
+      for (const name of Object.getOwnPropertyNames(cls.prototype)) {
+        const handler = (cls.prototype as Record<string, unknown>)[name];
+        if (name === 'constructor' || typeof handler !== 'function') continue;
+        const roles = (Reflect.getMetadata(ROLES_KEY, handler) ?? Reflect.getMetadata(ROLES_KEY, cls)) as string[] | undefined;
+        if (roles?.length) out[`${cls.name}_${name}`] = roles;
+      }
+    }
+  }
+  return out;
 }

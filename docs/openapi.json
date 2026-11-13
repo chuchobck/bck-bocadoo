@@ -61,7 +61,8 @@
           }
         },
         "summary": "Estado del servicio (liveness, no toca la base)",
-        "tags": ["salud"]
+        "tags": ["Público"],
+        "x-dominio": "salud"
       }
     },
     "/health/ready": {
@@ -145,7 +146,8 @@
           }
         },
         "summary": "Listo para recibir tráfico (readiness): ambos roles de base de datos responden",
-        "tags": ["salud"]
+        "tags": ["Público"],
+        "x-dominio": "salud"
       }
     },
     "/v1/auth/register": {
@@ -262,7 +264,8 @@
           }
         },
         "summary": "Registrar una cuenta de comensal",
-        "tags": ["auth"]
+        "tags": ["Público"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/register-owner": {
@@ -383,7 +386,8 @@
           }
         },
         "summary": "Registrar una cuenta de dueño con su restaurante (en borrador)",
-        "tags": ["auth"]
+        "tags": ["Público"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/login": {
@@ -481,7 +485,8 @@
           }
         },
         "summary": "Iniciar sesión con correo o nombre de usuario",
-        "tags": ["auth"]
+        "tags": ["Público"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/refresh": {
@@ -579,7 +584,8 @@
           }
         },
         "summary": "Rotar el refresh token y obtener un access token nuevo",
-        "tags": ["auth"]
+        "tags": ["Público"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/logout": {
@@ -662,7 +668,8 @@
           }
         },
         "summary": "Cerrar la sesión de este dispositivo",
-        "tags": ["auth"]
+        "tags": ["Público"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/logout-all": {
@@ -737,7 +744,8 @@
           }
         ],
         "summary": "Cerrar la sesión en todos los dispositivos",
-        "tags": ["auth"]
+        "tags": ["Comensal"],
+        "x-dominio": "auth"
       }
     },
     "/v1/auth/me": {
@@ -832,7 +840,8 @@
           }
         ],
         "summary": "Mi usuario y los restaurantes donde trabajo",
-        "tags": ["auth"]
+        "tags": ["Comensal"],
+        "x-dominio": "auth"
       }
     },
     "/v1/restaurante": {
@@ -969,7 +978,8 @@
           }
         ],
         "summary": "Perfil de mi restaurante (el de x-restaurant-id)",
-        "tags": ["restaurante"]
+        "tags": ["Caja"],
+        "x-dominio": "restaurante"
       },
       "patch": {
         "description": "No cambia estado, slug, moneda ni país.",
@@ -1150,7 +1160,8 @@
           }
         ],
         "summary": "Editar el perfil: nombre, contacto, puestos, precios, zona…",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/activar": {
@@ -1288,7 +1299,8 @@
           }
         ],
         "summary": "Publicar el local en la vitrina",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/pausar": {
@@ -1425,7 +1437,8 @@
           }
         ],
         "summary": "Sacar el local de la vitrina sin borrarlo",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/horarios": {
@@ -1546,7 +1559,8 @@
           }
         ],
         "summary": "Horarios de atención",
-        "tags": ["restaurante"]
+        "tags": ["Caja"],
+        "x-dominio": "restaurante"
       },
       "put": {
         "description": "Varios tramos por día (p. ej. almuerzo y merienda); no se pueden traslapar.",
@@ -1704,7 +1718,8 @@
           }
         ],
         "summary": "Reemplazar todos los horarios",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/mesas": {
@@ -1845,7 +1860,8 @@
           }
         ],
         "summary": "Mesas del local",
-        "tags": ["restaurante"]
+        "tags": ["Caja"],
+        "x-dominio": "restaurante"
       },
       "post": {
         "operationId": "RestaurantController_createMesa",
@@ -2012,7 +2028,8 @@
           }
         ],
         "summary": "Crear una mesa",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/mesas/{id}": {
@@ -2190,7 +2207,8 @@
           }
         ],
         "summary": "Editar o desactivar una mesa",
-        "tags": ["restaurante"]
+        "tags": ["Dueño"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/lleno": {
@@ -2338,7 +2356,8 @@
           }
         ],
         "summary": "Marcar o quitar \"Local lleno\"",
-        "tags": ["restaurante"]
+        "tags": ["Caja"],
+        "x-dominio": "restaurante"
       }
     },
     "/v1/restaurante/personal": {
@@ -2461,7 +2480,8 @@
           }
         ],
         "summary": "Personal del restaurante (dueño y cajeros)",
-        "tags": ["personal"]
+        "tags": ["Dueño"],
+        "x-dominio": "personal"
       }
     },
     "/v1/restaurante/personal/cajeros": {
@@ -2613,7 +2633,8 @@
           }
         ],
         "summary": "Agregar un cajero por su correo",
-        "tags": ["personal"]
+        "tags": ["Dueño"],
+        "x-dominio": "personal"
       }
     },
     "/v1/restaurante/personal/{usuarioId}": {
@@ -2772,7 +2793,8 @@
           }
         ],
         "summary": "Activar o desactivar a un cajero",
-        "tags": ["personal"]
+        "tags": ["Dueño"],
+        "x-dominio": "personal"
       }
     },
     "/v1/menu/platos": {
@@ -2936,7 +2958,8 @@
           }
         ],
         "summary": "Catálogo de platos del restaurante",
-        "tags": ["menú"]
+        "tags": ["Caja"],
+        "x-dominio": "menú"
       },
       "post": {
         "operationId": "DishesController_create",
@@ -3094,7 +3117,8 @@
           }
         ],
         "summary": "Crear un plato en el catálogo",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/platos/{id}": {
@@ -3264,7 +3288,8 @@
           }
         ],
         "summary": "Editar o desactivar un plato",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/{fecha}": {
@@ -3427,7 +3452,8 @@
           }
         ],
         "summary": "Menú de un día (incluye borrador)",
-        "tags": ["menú"]
+        "tags": ["Caja"],
+        "x-dominio": "menú"
       },
       "put": {
         "description": "Lista completa y libre: sin límite de sopas o segundos. Lo que quede fuera se quita; lo que se mantiene conserva su estado de agotado.",
@@ -3610,7 +3636,8 @@
           }
         ],
         "summary": "Definir el menú del día",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/{fecha}/publicar": {
@@ -3773,7 +3800,8 @@
           }
         ],
         "summary": "Publicar el menú en la vitrina",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/{fecha}/despublicar": {
@@ -3936,7 +3964,8 @@
           }
         ],
         "summary": "Sacar el menú de la vitrina",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/{fecha}/copiar": {
@@ -4114,7 +4143,8 @@
           }
         ],
         "summary": "Copiar el menú de otro día",
-        "tags": ["menú"]
+        "tags": ["Dueño"],
+        "x-dominio": "menú"
       }
     },
     "/v1/menu/{fecha}/items/{id}/agotado": {
@@ -4299,7 +4329,8 @@
           }
         ],
         "summary": "Marcar o quitar \"agotado\" en un plato del menú",
-        "tags": ["menú"]
+        "tags": ["Caja"],
+        "x-dominio": "menú"
       }
     },
     "/v1/restaurantes": {
@@ -4463,7 +4494,8 @@
           }
         },
         "summary": "Buscar restaurantes por zona, ciudad, texto o etiqueta",
-        "tags": ["vitrina"]
+        "tags": ["Público"],
+        "x-dominio": "vitrina"
       }
     },
     "/v1/restaurantes/{slug}": {
@@ -4633,7 +4665,8 @@
           }
         },
         "summary": "Detalle de un restaurante: horarios, menú publicado de hoy, planes visibles y ocupación",
-        "tags": ["vitrina"]
+        "tags": ["Público"],
+        "x-dominio": "vitrina"
       }
     },
     "/v1/planes": {
@@ -4764,7 +4797,8 @@
           }
         ],
         "summary": "Plantillas de plan del restaurante, con cupos disponibles",
-        "tags": ["planes"]
+        "tags": ["Caja"],
+        "x-dominio": "planes"
       },
       "post": {
         "operationId": "PlansController_create",
@@ -4928,7 +4962,8 @@
           }
         ],
         "summary": "Crear una plantilla de plan",
-        "tags": ["planes"]
+        "tags": ["Dueño"],
+        "x-dominio": "planes"
       }
     },
     "/v1/planes/{id}": {
@@ -5104,7 +5139,8 @@
           }
         ],
         "summary": "Editar o desactivar una plantilla",
-        "tags": ["planes"]
+        "tags": ["Dueño"],
+        "x-dominio": "planes"
       }
     },
     "/v1/clientes": {
@@ -5279,7 +5315,8 @@
           }
         ],
         "summary": "Buscar clientes por nombre o teléfono",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       },
       "post": {
         "description": "Teléfono en E.164; repetido en el mismo restaurante → 409.",
@@ -5470,7 +5507,8 @@
           }
         ],
         "summary": "Crear un cliente",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       }
     },
     "/v1/clientes/{id}": {
@@ -5654,7 +5692,8 @@
           }
         ],
         "summary": "Ficha del cliente con todos sus planes",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       },
       "patch": {
         "operationId": "CustomersController_update",
@@ -5853,7 +5892,8 @@
           }
         ],
         "summary": "Editar o desactivar un cliente",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       }
     },
     "/v1/clientes/{id}/migrar-cartulina": {
@@ -6056,7 +6096,8 @@
           }
         ],
         "summary": "Migrar el saldo de una cartulina de papel",
-        "tags": ["clientes"]
+        "tags": ["Dueño"],
+        "x-dominio": "clientes"
       }
     },
     "/v1/clientes/{id}/vincular": {
@@ -6254,7 +6295,8 @@
           }
         ],
         "summary": "Vincular el cliente con su cuenta de la app",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       }
     },
     "/v1/clientes/{id}/desvincular": {
@@ -6438,7 +6480,8 @@
           }
         ],
         "summary": "Quitar el vínculo con la cuenta de la app",
-        "tags": ["clientes"]
+        "tags": ["Caja"],
+        "x-dominio": "clientes"
       }
     },
     "/v1/clientes/{id}/planes": {
@@ -6636,7 +6679,8 @@
           }
         ],
         "summary": "Vender un plan a un cliente",
-        "tags": ["ventas"]
+        "tags": ["Caja"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/planes-vendidos/{id}/deshacer": {
@@ -6830,7 +6874,8 @@
           }
         ],
         "summary": "Deshacer la venta de un plan",
-        "tags": ["ventas"]
+        "tags": ["Caja"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/pagos/pendientes": {
@@ -6979,7 +7024,8 @@
           }
         ],
         "summary": "Transferencias y pagos Deuna por confirmar",
-        "tags": ["ventas"]
+        "tags": ["Dueño"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/pagos/{id}/confirmar": {
@@ -7150,7 +7196,8 @@
           }
         ],
         "summary": "Confirmar un pago pendiente",
-        "tags": ["ventas"]
+        "tags": ["Dueño"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/pagos/{id}/rechazar": {
@@ -7322,7 +7369,8 @@
           }
         ],
         "summary": "Rechazar un pago pendiente",
-        "tags": ["ventas"]
+        "tags": ["Dueño"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/solicitudes-plan": {
@@ -7452,7 +7500,8 @@
           }
         ],
         "summary": "Solicitudes de plan hechas por comensales desde la app",
-        "tags": ["ventas"]
+        "tags": ["Caja"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/solicitudes-plan/{id}/cobrar": {
@@ -7648,7 +7697,8 @@
           }
         ],
         "summary": "Cobrar una solicitud: vende el plan y la marca cobrada",
-        "tags": ["ventas"]
+        "tags": ["Caja"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/solicitudes-plan/{id}/rechazar": {
@@ -7790,7 +7840,8 @@
           }
         ],
         "summary": "Rechazar una solicitud de plan",
-        "tags": ["ventas"]
+        "tags": ["Caja"],
+        "x-dominio": "ventas"
       }
     },
     "/v1/restaurantes/{slug}/solicitudes-plan": {
@@ -7958,7 +8009,8 @@
           }
         ],
         "summary": "Pedir un plan a un restaurante (comensal con sesión)",
-        "tags": ["vitrina"]
+        "tags": ["Comensal"],
+        "x-dominio": "vitrina"
       }
     },
     "/v1/pase/codigo": {
@@ -8094,7 +8146,8 @@
           }
         ],
         "summary": "Código QR del comensal (cambia cada 30 segundos)",
-        "tags": ["pase"]
+        "tags": ["Comensal"],
+        "x-dominio": "pase"
       }
     },
     "/v1/pase/rotar": {
@@ -8170,7 +8223,8 @@
           }
         ],
         "summary": "Invalidar todos mis códigos anteriores",
-        "tags": ["pase"]
+        "tags": ["Comensal"],
+        "x-dominio": "pase"
       }
     },
     "/v1/caja/validar": {
@@ -8346,7 +8400,8 @@
           }
         ],
         "summary": "Validar un almuerzo por QR o por búsqueda manual",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/consumos/{id}/deshacer": {
@@ -8489,7 +8544,8 @@
           }
         ],
         "summary": "Deshacer una validación",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/mesas/{id}": {
@@ -8645,7 +8701,8 @@
           }
         ],
         "summary": "Vista previa de una mesa compartida",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/mesas/{id}/validar": {
@@ -8821,7 +8878,8 @@
           }
         ],
         "summary": "Validar toda la mesa de una vez",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/ventas": {
@@ -8961,7 +9019,8 @@
           }
         ],
         "summary": "Ventas sueltas de hoy",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       },
       "post": {
         "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.",
@@ -9150,7 +9209,8 @@
           }
         ],
         "summary": "Registrar una venta suelta (sin plan)",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/ventas/{id}/deshacer": {
@@ -9322,7 +9382,8 @@
           }
         ],
         "summary": "Deshacer una venta suelta",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/cierre/{fecha}": {
@@ -9492,7 +9553,8 @@
           }
         ],
         "summary": "Arqueo del día: lo esperado por método de pago y el cierre, si existe",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       },
       "post": {
         "description": "Un solo cierre activo por día (repetir → 409). El cajero solo cierra el día de hoy.",
@@ -9674,7 +9736,8 @@
           }
         ],
         "summary": "Cerrar la caja",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/cierre/{fecha}/reabrir": {
@@ -9844,7 +9907,8 @@
           }
         ],
         "summary": "Reabrir la caja de un día",
-        "tags": ["caja"]
+        "tags": ["Dueño"],
+        "x-dominio": "caja"
       }
     },
     "/v1/reclamos": {
@@ -10007,7 +10071,8 @@
           }
         ],
         "summary": "Reclamos de comensales sobre un almuerzo",
-        "tags": ["reclamos"]
+        "tags": ["Caja"],
+        "x-dominio": "reclamos"
       }
     },
     "/v1/reclamos/{id}/devolver": {
@@ -10176,7 +10241,8 @@
           }
         ],
         "summary": "Aceptar el reclamo y devolver el almuerzo al plan",
-        "tags": ["reclamos"]
+        "tags": ["Dueño"],
+        "x-dominio": "reclamos"
       }
     },
     "/v1/reclamos/{id}/rechazar": {
@@ -10345,7 +10411,8 @@
           }
         ],
         "summary": "Rechazar el reclamo con una explicación",
-        "tags": ["reclamos"]
+        "tags": ["Dueño"],
+        "x-dominio": "reclamos"
       }
     },
     "/v1/pase": {
@@ -10511,7 +10578,8 @@
           }
         ],
         "summary": "Pase del comensal: QR rotativo y planes vigentes por local",
-        "tags": ["pase"]
+        "tags": ["Comensal"],
+        "x-dominio": "pase"
       }
     },
     "/v1/mis/consumos": {
@@ -10666,7 +10734,8 @@
           }
         ],
         "summary": "Mis almuerzos consumidos (todos los locales)",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/consumos/{id}": {
@@ -10813,7 +10882,8 @@
           }
         ],
         "summary": "Un almuerzo consumido",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/reclamos": {
@@ -10916,7 +10986,8 @@
           }
         ],
         "summary": "Mis reclamos y cómo se resolvieron",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/consumos/{id}/reclamo": {
@@ -11103,7 +11174,8 @@
           }
         ],
         "summary": "Reclamar por un almuerzo mío",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/pedidos": {
@@ -11336,7 +11408,8 @@
           }
         ],
         "summary": "Hacer una preorden del menú de hoy",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       },
       "get": {
         "operationId": "DinerOrdersController_list",
@@ -11502,7 +11575,8 @@
           }
         ],
         "summary": "Mis pedidos, del más reciente al más antiguo",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/pedidos/{id}": {
@@ -11672,7 +11746,8 @@
           }
         ],
         "summary": "Un pedido mío",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/pedidos/{id}/cancelar": {
@@ -11861,7 +11936,8 @@
           }
         ],
         "summary": "Cancelar mi pedido mientras está en camino",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/caja/pedidos": {
@@ -12056,7 +12132,8 @@
           }
         ],
         "summary": "Preórdenes de hoy",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/pedidos/{id}": {
@@ -12261,7 +12338,8 @@
           }
         ],
         "summary": "Ver un pedido por su QR (public_id)",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/pedidos/{id}/canjear": {
@@ -12505,7 +12583,8 @@
           }
         ],
         "summary": "Canjear el QR del pedido",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/caja/pedidos/{id}/servir": {
@@ -12729,7 +12808,8 @@
           }
         ],
         "summary": "Marcar el pedido como servido",
-        "tags": ["caja"]
+        "tags": ["Caja"],
+        "x-dominio": "caja"
       }
     },
     "/v1/mis/mesas": {
@@ -12920,7 +13000,8 @@
           }
         ],
         "summary": "Crear una mesa compartida e invitar por link",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       },
       "get": {
         "operationId": "TablesController_list",
@@ -13030,7 +13111,8 @@
           }
         ],
         "summary": "Mis mesas (como anfitrión o invitado)",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/mesas/{id}": {
@@ -13184,7 +13266,8 @@
           }
         ],
         "summary": "Una mesa mía, con sus miembros",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/mesas/{id}/cancelar": {
@@ -13376,7 +13459,8 @@
           }
         ],
         "summary": "Cancelar la mesa (solo el anfitrión, antes de la caja)",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mesas/invitacion/{id}": {
@@ -13524,7 +13608,8 @@
           }
         ],
         "summary": "Validar un link de invitación antes de unirse",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mesas/invitacion/{id}/unirse": {
@@ -13720,7 +13805,8 @@
           }
         ],
         "summary": "Unirse a la mesa por su link",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/opiniones/pendientes": {
@@ -13821,7 +13907,8 @@
           }
         ],
         "summary": "Tarjetas \"¿Qué tal hoy?\" por responder",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/opiniones": {
@@ -13927,7 +14014,8 @@
           }
         ],
         "summary": "Mis opiniones enviadas, con la respuesta del restaurante",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/consumos/{id}/opinion": {
@@ -14118,7 +14206,8 @@
           }
         ],
         "summary": "Opinar sobre un almuerzo mío",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/mis/consumos/{id}/opinion/descartar": {
@@ -14295,7 +14384,8 @@
           }
         ],
         "summary": "Cerrar la tarjeta sin opinar",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/opiniones": {
@@ -14487,7 +14577,8 @@
           }
         ],
         "summary": "Bandeja de opiniones de los comensales",
-        "tags": ["opiniones"]
+        "tags": ["Dueño"],
+        "x-dominio": "opiniones"
       }
     },
     "/v1/opiniones/{id}/responder": {
@@ -14694,7 +14785,8 @@
           }
         ],
         "summary": "Responder una opinión",
-        "tags": ["opiniones"]
+        "tags": ["Dueño"],
+        "x-dominio": "opiniones"
       }
     },
     "/v1/mis/sellos": {
@@ -14796,7 +14888,8 @@
           }
         ],
         "summary": "Mis tarjetas de sellos",
-        "tags": ["comensal"]
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
       }
     },
     "/v1/sellos/config": {
@@ -14933,7 +15026,8 @@
           }
         ],
         "summary": "Configuración de la tarjeta de sellos",
-        "tags": ["sellos"]
+        "tags": ["Caja"],
+        "x-dominio": "sellos"
       },
       "put": {
         "description": "Cada almuerzo validado suma un sello; al llegar a la meta se gana un premio. Cambiar la meta no toca los sellos ya ganados.",
@@ -15086,7 +15180,8 @@
           }
         ],
         "summary": "Configurar la tarjeta de sellos",
-        "tags": ["sellos"]
+        "tags": ["Dueño"],
+        "x-dominio": "sellos"
       }
     },
     "/v1/clientes/{id}/sellos": {
@@ -15252,7 +15347,8 @@
           }
         ],
         "summary": "Tarjeta de sellos de un cliente",
-        "tags": ["sellos"]
+        "tags": ["Caja"],
+        "x-dominio": "sellos"
       }
     },
     "/v1/clientes/{id}/sellos/canjear": {
@@ -15446,7 +15542,8 @@
           }
         ],
         "summary": "Canjear un premio de la tarjeta de sellos",
-        "tags": ["sellos"]
+        "tags": ["Caja"],
+        "x-dominio": "sellos"
       }
     },
     "/v1/ofertas": {
@@ -15662,7 +15759,8 @@
           }
         ],
         "summary": "Publicar una oferta flash",
-        "tags": ["ofertas"]
+        "tags": ["Dueño"],
+        "x-dominio": "ofertas"
       },
       "get": {
         "description": "Más recientes primero, con cursor. Filtro opcional por estado.",
@@ -15845,7 +15943,8 @@
           }
         ],
         "summary": "Ofertas del local",
-        "tags": ["ofertas"]
+        "tags": ["Caja"],
+        "x-dominio": "ofertas"
       }
     },
     "/v1/ofertas/{id}/cerrar": {
@@ -16022,7 +16121,8 @@
           }
         ],
         "summary": "Cerrar una oferta",
-        "tags": ["ofertas"]
+        "tags": ["Dueño"],
+        "x-dominio": "ofertas"
       }
     },
     "/v1/ofertas/{id}/canjear": {
@@ -16270,7 +16370,8 @@
           }
         ],
         "summary": "Canjear una oferta en caja",
-        "tags": ["ofertas"]
+        "tags": ["Caja"],
+        "x-dominio": "ofertas"
       }
     },
     "/v1/restaurantes/{slug}/ofertas": {
@@ -16399,7 +16500,8 @@
           }
         },
         "summary": "Ofertas flash vigentes de un local",
-        "tags": ["vitrina"]
+        "tags": ["Público"],
+        "x-dominio": "vitrina"
       }
     },
     "/v1/reportes/resumen-diario": {
@@ -16593,7 +16695,8 @@
           }
         ],
         "summary": "Resumen del día",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/reportes/ventas-planes": {
@@ -16772,7 +16875,8 @@
           }
         ],
         "summary": "Ventas de planes",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/reportes/horas-pico": {
@@ -16939,7 +17043,8 @@
           }
         ],
         "summary": "Horas pico",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/reportes/ranking-platos": {
@@ -17121,7 +17226,8 @@
           }
         ],
         "summary": "Ranking de platos",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/reportes/almuerzos-pendientes": {
@@ -17260,7 +17366,8 @@
           }
         ],
         "summary": "Almuerzos pendientes (lo que debes)",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/reportes/clientes-a-contactar": {
@@ -17455,7 +17562,8 @@
           }
         ],
         "summary": "Clientes a quienes escribirles",
-        "tags": ["reportes"]
+        "tags": ["Dueño"],
+        "x-dominio": "reportes"
       }
     },
     "/v1/suscripcion": {
@@ -17588,7 +17696,8 @@
           }
         ],
         "summary": "Suscripción SaaS del local",
-        "tags": ["saas"]
+        "tags": ["Dueño"],
+        "x-dominio": "saas"
       }
     },
     "/v1/suscripcion/uso": {
@@ -17714,7 +17823,8 @@
           }
         ],
         "summary": "Uso de escaneos del ciclo",
-        "tags": ["saas"]
+        "tags": ["Caja"],
+        "x-dominio": "saas"
       }
     },
     "/v1/eventos": {
@@ -17914,7 +18024,8 @@
           }
         ],
         "summary": "Enviar eventos de producto en lote",
-        "tags": ["eventos"]
+        "tags": ["Comensal"],
+        "x-dominio": "eventos"
       }
     }
   },
@@ -17924,7 +18035,24 @@
     "version": "0.4.0",
     "contact": {}
   },
-  "tags": [],
+  "tags": [
+    {
+      "name": "Público",
+      "description": "Sin token: salud, registro, login, refresh y la vitrina de restaurantes."
+    },
+    {
+      "name": "Comensal",
+      "description": "Cualquier usuario con sesión (`Authorization: Bearer`), sin `x-restaurant-id`: su pase QR, pedidos, mesas, opiniones, sellos y eventos."
+    },
+    {
+      "name": "Caja",
+      "description": "Personal del local: **dueño y cajero** (`@Roles('DUENO', 'CAJERO')`). Exige `Authorization` y el encabezado `x-restaurant-id`. Es lo que se usa en el mostrador."
+    },
+    {
+      "name": "Dueño",
+      "description": "Solo el **dueño** del restaurante (`@Roles('DUENO')`): perfil, menú, planes, personal, pagos, reportes y ofertas. Mismos encabezados que Caja."
+    }
+  ],
   "servers": [],
   "components": {
     "securitySchemes": {

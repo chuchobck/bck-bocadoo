@@ -174,7 +174,28 @@ function fixArrayItems(node: unknown): void {
   Object.values(node).forEach(fixArrayItems);
 }
 
-export function enrichDocument(doc: OpenAPIObject): OpenAPIObject {
+/** Grupos de la documentación: quién puede llamar a cada endpoint. */
+export const GRUPOS = {
+  publico: 'Público',
+  comensal: 'Comensal',
+  caja: 'Caja',
+  dueno: 'Dueño',
+} as const;
+
+const DESCRIPCION_GRUPOS: Record<string, string> = {
+  [GRUPOS.publico]: 'Sin token: salud, registro, login, refresh y la vitrina de restaurantes.',
+  [GRUPOS.comensal]:
+    'Cualquier usuario con sesión (`Authorization: Bearer`), sin `x-restaurant-id`: su pase QR, pedidos, mesas, opiniones, sellos y eventos.',
+  [GRUPOS.caja]:
+    "Personal del local: **dueño y cajero** (`@Roles('DUENO', 'CAJERO')`). Exige `Authorization` y el encabezado `x-restaurant-id`. Es lo que se usa en el mostrador.",
+  [GRUPOS.dueno]:
+    "Solo el **dueño** del restaurante (`@Roles('DUENO')`): perfil, menú, planes, personal, pagos, reportes y ofertas. Mismos encabezados que Caja.",
+};
+
+/** Rol mínimo que exige cada operación (`operationId` → roles de `@Roles`). Sin entrada = sin rol (público o comensal). */
+export type RolesPorOperacion = Record<string, readonly string[]>;
+
+export function enrichDocument(doc: OpenAPIObject, roles: RolesPorOperacion = {}): OpenAPIObject {
   fixArrayItems(doc.components?.schemas);
   const schemas = (doc.components?.schemas ?? {}) as unknown as Record<string, Schema>;
   doc.components = { ...doc.components, schemas: doc.components?.schemas ?? {} };
@@ -197,6 +218,15 @@ export function enrichDocument(doc: OpenAPIObject): OpenAPIObject {
   for (const item of Object.values(doc.paths) as Record<string, Operation>[]) {
     for (const [method, op] of Object.entries(item)) {
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
+      const grupo = !op.security?.length
+        ? GRUPOS.publico
+        : !roles[op['operationId'] as string]?.length
+          ? GRUPOS.comensal
+          : roles[op['operationId'] as string]!.includes('CAJERO')
+            ? GRUPOS.caja
+            : GRUPOS.dueno;
+      op['x-dominio'] = (op['tags'] as string[] | undefined)?.[0];
+      op['tags'] = [grupo];
       const responses = (op.responses ??= {});
       const standard: string[] = ['429', '500'];
       if (op.security?.length) standard.unshift('401');
@@ -226,5 +256,6 @@ export function enrichDocument(doc: OpenAPIObject): OpenAPIObject {
       if (body?.schema && body.example === undefined) body.example = build('', body.schema, schemas, []);
     }
   }
+  doc.tags = Object.values(GRUPOS).map((name) => ({ name, description: DESCRIPCION_GRUPOS[name] }));
   return doc;
 }
