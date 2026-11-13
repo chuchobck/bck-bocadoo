@@ -3919,6 +3919,220 @@
         "summary": "Canjear un premio de la tarjeta de sellos",
         "tags": ["sellos"]
       }
+    },
+    "/v1/ofertas": {
+      "post": {
+        "description": "Empieza al publicarse y dura `duracionMinutos`. El stock nunca baja de cero aunque se canjee en paralelo.",
+        "operationId": "OffersController_publish",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicarOfertaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PLATO_NO_ENCONTRADO`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `OFERTA_PRECIO_INVALIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publicar una oferta flash",
+        "tags": ["ofertas"]
+      },
+      "get": {
+        "description": "Más recientes primero, con cursor. Filtro opcional por estado.",
+        "operationId": "OffersController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "required": false,
+            "in": "query",
+            "description": "Sin filtro devuelve todas",
+            "schema": {
+              "type": "string",
+              "enum": ["VIGENTE", "PROGRAMADA", "AGOTADA", "EXPIRADA", "CERRADA"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertasPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ofertas del local",
+        "tags": ["ofertas"]
+      }
+    },
+    "/v1/ofertas/{id}/cerrar": {
+      "post": {
+        "description": "Deja de aceptar canjes. Repetirlo devuelve la misma oferta ya cerrada.",
+        "operationId": "OffersController_close",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `OFERTA_NO_ENCONTRADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar una oferta",
+        "tags": ["ofertas"]
+      }
+    },
+    "/v1/restaurantes/{slug}/ofertas": {
+      "get": {
+        "description": "Sin token. Solo las que están vigentes y con stock.",
+        "operationId": "PublicOffersController_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertasPublicas"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          }
+        },
+        "summary": "Ofertas flash vigentes de un local",
+        "tags": ["vitrina"]
+      }
     }
   },
   "info": {
@@ -5796,6 +6010,155 @@
           }
         },
         "required": ["sellos", "meta", "faltan", "premiosDisponibles", "premio", "activa"]
+      },
+      "PublicarOfertaDto": {
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "example": "Churrasco a mitad de tarde",
+            "maxLength": 80
+          },
+          "descripcion": {
+            "type": "string",
+            "example": "Últimos churrascos del día",
+            "maxLength": 300
+          },
+          "platoId": {
+            "type": "string",
+            "description": "Plato del catálogo (public_id) al que corresponde la oferta"
+          },
+          "precioCentavos": {
+            "type": "number",
+            "example": 450,
+            "description": "Precio de la oferta en centavos; debe ser menor que el original"
+          },
+          "precioOriginalCentavos": {
+            "type": "number",
+            "example": 650,
+            "description": "Precio normal en centavos"
+          },
+          "stock": {
+            "type": "number",
+            "example": 8,
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Unidades disponibles"
+          },
+          "duracionMinutos": {
+            "type": "number",
+            "example": 120,
+            "minimum": 5,
+            "maximum": 1440,
+            "default": 120,
+            "description": "Cuánto dura desde que se publica"
+          }
+        },
+        "required": ["titulo", "precioCentavos", "precioOriginalCentavos", "stock"]
+      },
+      "OfertaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "object"
+          },
+          "plato": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Churrasco"
+            }
+          },
+          "precioCentavos": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "precioOriginalCentavos": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "descuentoPorcentaje": {
+            "type": "number",
+            "description": "Descuento entero sobre el precio original"
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "stockTotal": {
+            "type": "number"
+          },
+          "stockRestante": {
+            "type": "number",
+            "description": "Nunca negativo"
+          },
+          "canjeadas": {
+            "type": "number",
+            "description": "Unidades ya canjeadas"
+          },
+          "iniciaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["VIGENTE", "PROGRAMADA", "AGOTADA", "EXPIRADA", "CERRADA"],
+            "description": "CERRADA tiene prioridad; luego AGOTADA, EXPIRADA, PROGRAMADA y VIGENTE"
+          }
+        },
+        "required": [
+          "id",
+          "titulo",
+          "precioCentavos",
+          "precioOriginalCentavos",
+          "descuentoPorcentaje",
+          "moneda",
+          "stockTotal",
+          "stockRestante",
+          "canjeadas",
+          "iniciaEn",
+          "expiraEn",
+          "estado"
+        ]
+      },
+      "OfertasPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "object"
+          }
+        },
+        "required": ["items"]
+      },
+      "OfertasPublicas": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "Solo vigentes con stock",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaResponse"
+            }
+          }
+        },
+        "required": ["items"]
       }
     }
   }

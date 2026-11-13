@@ -4215,6 +4215,92 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                                          |
 | 409  | `SIN_PREMIOS`                 | Este cliente no tiene premios por canjear. |
 
+### Fase 9 · Ofertas flash
+
+Modelo SaaS: el local paga su suscripción y se queda con todo lo que cobra. **No existe ningún endpoint ni campo de comisión.**
+
+Estados de una oferta (`estado`, calculado con la hora de la base): `CERRADA` (el dueño la cerró), `AGOTADA` (stock 0), `EXPIRADA` (pasó `expiraEn`), `PROGRAMADA` (aún no empieza) y `VIGENTE`. Se evalúan en ese orden.
+
+#### `POST /v1/ofertas`
+
+**Publicar una oferta flash**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave → misma oferta, sin publicar otra (aunque el cuerpo cambie).
+
+Empieza al publicarse y dura `duracionMinutos` (5–1440, por defecto 120).
+
+Request:
+
+```json
+{
+  "titulo": "Churrasco a mitad de tarde",
+  "descripcion": "Últimos churrascos del día",
+  "platoId": "uuid del plato (opcional)",
+  "precioCentavos": 450,
+  "precioOriginalCentavos": 650,
+  "stock": 8,
+  "duracionMinutos": 120
+}
+```
+
+Response `201`:
+
+```json
+{
+  "id": "6f0c1c5e-3a0b-4d1e-9d57-0a8c1d6f2b11",
+  "titulo": "Churrasco a mitad de tarde",
+  "descripcion": "Últimos churrascos del día",
+  "plato": { "id": "uuid", "nombre": "Churrasco" },
+  "precioCentavos": 450,
+  "precioOriginalCentavos": 650,
+  "descuentoPorcentaje": 31,
+  "moneda": "USD",
+  "stockTotal": 8,
+  "stockRestante": 8,
+  "canjeadas": 0,
+  "iniciaEn": "2026-11-18T15:00:00.000Z",
+  "expiraEn": "2026-11-18T17:00:00.000Z",
+  "estado": "VIGENTE"
+}
+```
+
+Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx):
+
+| HTTP | `code`                     | Ejemplo de `detail`                                           |
+| ---- | -------------------------- | ------------------------------------------------------------- |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA` | Falta el encabezado Idempotency-Key (UUID) o no es válido.    |
+| 404  | `PLATO_NO_ENCONTRADO`      | El plato no existe o está inactivo.                           |
+| 422  | `OFERTA_PRECIO_INVALIDO`   | El precio de la oferta debe ser menor que el precio original. |
+
+#### `GET /v1/ofertas`
+
+**Ofertas del local**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Más recientes primero. Query: `limit` (1–50, por defecto 20), `cursor` (el `nextCursor` anterior) y `estado` (uno de los cinco). Response `200`: `{ "items": [<oferta>], "nextCursor": "…" | null }`.
+
+#### `POST /v1/ofertas/{id}/cerrar`
+
+**Cerrar una oferta**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Deja de aceptar canjes. No necesita `Idempotency-Key`: repetirlo devuelve la misma oferta ya `CERRADA`. Response `200`: la oferta. Error: 404 `OFERTA_NO_ENCONTRADA` (también si es de otro local).
+
+#### `GET /v1/restaurantes/{slug}/ofertas`
+
+**Ofertas flash vigentes de un local (vitrina)**
+
+- **Rol:** público, sin token
+- **Estado:** En revisión (fase 9)
+
+Solo las `VIGENTE` con stock, por vencer primero. Response `200`: `{ "items": [<oferta>] }`. Error: 404 `RESTAURANTE_NO_ENCONTRADO`.
+
 ### Salud
 
 #### `GET /health`
