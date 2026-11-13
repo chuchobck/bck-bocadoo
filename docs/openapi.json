@@ -4208,6 +4208,120 @@
         "summary": "Ofertas flash vigentes de un local",
         "tags": ["vitrina"]
       }
+    },
+    "/v1/reportes/resumen-diario": {
+      "get": {
+        "description": "Almuerzos servidos, ingresos por origen y método, ventas sueltas, planes vendidos, canjes de ofertas y escaneos de un día local del restaurante. Sin `fecha` es hoy en la zona horaria del local.",
+        "operationId": "SummaryController_daily",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": false,
+            "in": "query",
+            "description": "Día local del restaurante. Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumenDiarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resumen del día",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/ventas-planes": {
+      "get": {
+        "description": "Planes vendidos en un rango de días locales (máximo 366), por nombre de plan y por día. No cuenta los anulados como venta ni las cartulinas migradas.",
+        "operationId": "SummaryController_plans",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentasPlanesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ventas de planes",
+        "tags": ["reportes"]
+      }
     }
   },
   "info": {
@@ -6271,6 +6385,229 @@
           }
         },
         "required": ["items"]
+      },
+      "AlmuerzosDia": {
+        "type": "object",
+        "properties": {
+          "servidos": {
+            "type": "number",
+            "description": "Almuerzos descontados de planes, netos de devoluciones"
+          },
+          "paraLlevar": {
+            "type": "number"
+          },
+          "porCanal": {
+            "type": "object",
+            "example": {
+              "QR": 40,
+              "MANUAL": 2,
+              "PREORDEN": 3,
+              "MESA": 5
+            }
+          }
+        },
+        "required": ["servidos", "paraLlevar", "porCanal"]
+      },
+      "IngresosDia": {
+        "type": "object",
+        "properties": {
+          "totalCentavos": {
+            "type": "number",
+            "description": "Cobros confirmados del día, netos de reversos (centavos)"
+          },
+          "porOrigen": {
+            "type": "object",
+            "example": {
+              "planes": 1500,
+              "ventas": 700,
+              "ofertas": 900,
+              "pedidos": 0
+            }
+          },
+          "porMetodo": {
+            "example": [
+              {
+                "metodo": "EFECTIVO",
+                "centavos": 2400
+              }
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pendientesPorConfirmar": {
+            "type": "object",
+            "example": {
+              "cantidad": 1,
+              "centavos": 1500
+            },
+            "description": "Transferencias o Deuna sin confirmar (no están en el total)"
+          }
+        },
+        "required": ["totalCentavos", "porOrigen", "porMetodo", "pendientesPorConfirmar"]
+      },
+      "VentasPosDia": {
+        "type": "object",
+        "properties": {
+          "tickets": {
+            "type": "number"
+          },
+          "reversos": {
+            "type": "number",
+            "description": "Tickets deshechos"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "description": "Neto de reversos (centavos)"
+          },
+          "almuerzos": {
+            "type": "number",
+            "description": "Almuerzos sueltos vendidos, netos"
+          }
+        },
+        "required": ["tickets", "reversos", "totalCentavos", "almuerzos"]
+      },
+      "CantidadMonto": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number"
+          },
+          "centavos": {
+            "type": "number"
+          }
+        },
+        "required": ["cantidad", "centavos"]
+      },
+      "ResumenDiarioResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "example": "2026-10-31",
+            "description": "Día local del restaurante"
+          },
+          "zonaHoraria": {
+            "type": "string",
+            "example": "America/Guayaquil"
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "almuerzos": {
+            "$ref": "#/components/schemas/AlmuerzosDia"
+          },
+          "ingresos": {
+            "$ref": "#/components/schemas/IngresosDia"
+          },
+          "ventasPos": {
+            "$ref": "#/components/schemas/VentasPosDia"
+          },
+          "planesVendidos": {
+            "description": "Planes vendidos ese día, sin los anulados ni las cartulinas migradas",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CantidadMonto"
+              }
+            ]
+          },
+          "ofertas": {
+            "type": "object",
+            "example": {
+              "unidades": 3,
+              "centavos": 1350
+            },
+            "description": "Canjes de ofertas flash"
+          },
+          "escaneos": {
+            "type": "object",
+            "example": {
+              "total": 50,
+              "validos": 47,
+              "rechazados": 3
+            },
+            "description": "Escaneos en caja"
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "moneda", "almuerzos", "ingresos", "ventasPos", "planesVendidos", "ofertas", "escaneos"]
+      },
+      "PlanVentas": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Semanal"
+          },
+          "vendidos": {
+            "type": "number",
+            "description": "No anulados"
+          },
+          "anulados": {
+            "type": "number"
+          },
+          "ingresoCentavos": {
+            "type": "number",
+            "description": "Precio pagado de los vendidos (centavos)"
+          },
+          "almuerzosVendidos": {
+            "type": "number",
+            "description": "Almuerzos incluidos en lo vendido"
+          },
+          "almuerzosConsumidos": {
+            "type": "number",
+            "description": "Almuerzos ya consumidos de lo vendido"
+          }
+        },
+        "required": ["nombre", "vendidos", "anulados", "ingresoCentavos", "almuerzosVendidos", "almuerzosConsumidos"]
+      },
+      "VentasPlanesResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "total": {
+            "type": "object",
+            "example": {
+              "vendidos": 12,
+              "anulados": 1,
+              "ingresoCentavos": 18000
+            }
+          },
+          "porPlan": {
+            "description": "Por nombre de plan, de más a menos ingreso",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanVentas"
+            }
+          },
+          "porDia": {
+            "example": [
+              {
+                "fecha": "2026-10-30",
+                "vendidos": 2,
+                "ingresoCentavos": 3000
+              }
+            ],
+            "description": "Solo los días con ventas",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "moneda", "total", "porPlan", "porDia"]
       }
     }
   }

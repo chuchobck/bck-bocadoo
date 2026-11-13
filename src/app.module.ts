@@ -17,6 +17,7 @@ import { LoyaltyModule } from './loyalty/loyalty';
 import { MenuModule } from './menu/menu.module';
 import { OffersModule } from './offers/offers';
 import { OrdersModule } from './orders/orders';
+import { ReportsModule } from './reports/reports.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { SecurityModule } from './security/security.module';
 import { StaffModule } from './staff/staff.module';
@@ -44,6 +45,7 @@ import { HealthController } from './health/health.controller';
     FeedbackModule,
     LoyaltyModule,
     OffersModule,
+    ReportsModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,

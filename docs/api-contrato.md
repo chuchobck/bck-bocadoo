@@ -4349,6 +4349,79 @@ Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx
 
 Solo las `VIGENTE` con stock, por vencer primero. Response `200`: `{ "items": [<oferta>] }`. Error: 404 `RESTAURANTE_NO_ENCONTRADO`.
 
+### Fase 9 · Reportes
+
+Solo el **dueño** (`@Roles('DUENO')`; el cajero recibe 403). Todos usan la **zona horaria del restaurante** (`zonaHoraria` en la respuesta): "hoy" y los días de un rango son días locales del local, no de UTC ni del servidor. Salen de los libros de solo inserción (consumos, ventas, pagos): los reversos restan, y el efectivo del resumen es el mismo que el "efectivo esperado" del cierre de caja.
+
+Errores comunes de los reportes: 400 `FECHA_INVALIDA` (no es una fecha real AAAA-MM-DD), 400 `RANGO_INVALIDO` (`desde` > `hasta`), 400 `RANGO_MUY_LARGO` (más de 366 días).
+
+#### `GET /v1/reportes/resumen-diario`
+
+**Resumen del día**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `fecha` (AAAA-MM-DD; por defecto, hoy en la zona del local).
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "almuerzos": { "servidos": 2, "paraLlevar": 1, "porCanal": { "QR": 0, "MANUAL": 2, "PREORDEN": 0, "MESA": 0 } },
+  "ingresos": {
+    "totalCentavos": 7100,
+    "porOrigen": { "planes": 5500, "ventas": 700, "ofertas": 900, "pedidos": 0 },
+    "porMetodo": [
+      { "metodo": "DEUNA", "centavos": 3400 },
+      { "metodo": "EFECTIVO", "centavos": 3700 }
+    ],
+    "pendientesPorConfirmar": { "cantidad": 1, "centavos": 1500 }
+  },
+  "ventasPos": { "tickets": 2, "reversos": 1, "totalCentavos": 700, "almuerzos": 2 },
+  "planesVendidos": { "cantidad": 4, "centavos": 7000 },
+  "ofertas": { "unidades": 2, "centavos": 900 },
+  "escaneos": { "total": 4, "validos": 3, "rechazados": 1 }
+}
+```
+
+- `almuerzos.servidos`: almuerzos descontados de planes **netos** de devoluciones (igual que el cierre de caja).
+- `ingresos`: cobros `CONFIRMADO` del día **netos** de reversos; los `PENDIENTE` (transferencia o Deuna sin confirmar) van aparte y no suman al total.
+- `planesVendidos`: planes de venta (no cartulinas migradas) comprados ese día local, sin los anulados.
+
+#### `GET /v1/reportes/ventas-planes`
+
+**Ventas de planes**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde` y `hasta` (días locales, ambos incluidos; por defecto los últimos 30 días con hoy).
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-10-15",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "total": { "vendidos": 2, "anulados": 1, "ingresoCentavos": 3000 },
+  "porPlan": [
+    { "nombre": "Semanal", "vendidos": 2, "anulados": 1, "ingresoCentavos": 3000, "almuerzosVendidos": 10, "almuerzosConsumidos": 1 }
+  ],
+  "porDia": [
+    { "fecha": "2026-11-11", "vendidos": 1, "ingresoCentavos": 1500 },
+    { "fecha": "2026-11-13", "vendidos": 1, "ingresoCentavos": 1500 }
+  ]
+}
+```
+
+`vendidos` no cuenta los planes anulados (van en `anulados`); `ingresoCentavos` es el precio pagado de los vendidos. `porDia` solo trae los días con ventas.
+
 ### Salud
 
 #### `GET /health`
