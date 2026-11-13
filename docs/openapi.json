@@ -3919,6 +3919,806 @@
         "summary": "Canjear un premio de la tarjeta de sellos",
         "tags": ["sellos"]
       }
+    },
+    "/v1/ofertas": {
+      "post": {
+        "description": "Empieza al publicarse y dura `duracionMinutos`. El stock nunca baja de cero aunque se canjee en paralelo.",
+        "operationId": "OffersController_publish",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicarOfertaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PLATO_NO_ENCONTRADO`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `OFERTA_PRECIO_INVALIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publicar una oferta flash",
+        "tags": ["ofertas"]
+      },
+      "get": {
+        "description": "Más recientes primero, con cursor. Filtro opcional por estado.",
+        "operationId": "OffersController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "required": false,
+            "in": "query",
+            "description": "Sin filtro devuelve todas",
+            "schema": {
+              "type": "string",
+              "enum": ["VIGENTE", "PROGRAMADA", "AGOTADA", "EXPIRADA", "CERRADA"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertasPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ofertas del local",
+        "tags": ["ofertas"]
+      }
+    },
+    "/v1/ofertas/{id}/cerrar": {
+      "post": {
+        "description": "Deja de aceptar canjes. Repetirlo devuelve la misma oferta ya cerrada.",
+        "operationId": "OffersController_close",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `OFERTA_NO_ENCONTRADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar una oferta",
+        "tags": ["ofertas"]
+      }
+    },
+    "/v1/ofertas/{id}/canjear": {
+      "post": {
+        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.",
+        "operationId": "OffersController_redeem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanjearOfertaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanjeResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `OFERTA_NO_ENCONTRADA`, `COMENSAL_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Canjear una oferta en caja",
+        "tags": ["ofertas"]
+      }
+    },
+    "/v1/restaurantes/{slug}/ofertas": {
+      "get": {
+        "description": "Sin token. Solo las que están vigentes y con stock.",
+        "operationId": "PublicOffersController_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfertasPublicas"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          }
+        },
+        "summary": "Ofertas flash vigentes de un local",
+        "tags": ["vitrina"]
+      }
+    },
+    "/v1/reportes/resumen-diario": {
+      "get": {
+        "description": "Almuerzos servidos, ingresos por origen y método, ventas sueltas, planes vendidos, canjes de ofertas y escaneos de un día local del restaurante. Sin `fecha` es hoy en la zona horaria del local.",
+        "operationId": "SummaryController_daily",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": false,
+            "in": "query",
+            "description": "Día local del restaurante. Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumenDiarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resumen del día",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/ventas-planes": {
+      "get": {
+        "description": "Planes vendidos en un rango de días locales (máximo 366), por nombre de plan y por día. No cuenta los anulados como venta ni las cartulinas migradas.",
+        "operationId": "SummaryController_plans",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VentasPlanesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ventas de planes",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/horas-pico": {
+      "get": {
+        "description": "Almuerzos servidos y tickets de venta por hora local (0–23) en un rango de días. Los almuerzos devueltos y los tickets deshechos no cuentan, así un reverso no mueve la hora.",
+        "operationId": "OperationsController_peak",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HorasPicoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Horas pico",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/ranking-platos": {
+      "get": {
+        "description": "Platos más pedidos en un rango: vendidos sueltos en caja (netos de deshechos) y dentro de pedidos de comensales ya canjeados. Un plato de un pedido que además se cobra en caja cuenta en las dos fuentes, que se muestran por separado.",
+        "operationId": "OperationsController_ranking",
+        "parameters": [
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Primer día (hora local del restaurante). Por defecto, hace 29 días.",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "required": false,
+            "in": "query",
+            "description": "Último día incluido (hora local). Por defecto, hoy.",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Cuántos platos devolver",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `FECHA_INVALIDA`, `RANGO_INVALIDO`, `RANGO_MUY_LARGO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ranking de platos",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/almuerzos-pendientes": {
+      "get": {
+        "description": "Almuerzos prepagados que quedan en planes activos y no vencidos, con su valor en centavos (precio unitario de cada plan), por plan y por cercanía al vencimiento.",
+        "operationId": "OperationsController_outstanding",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendientesResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Almuerzos pendientes (lo que debes)",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/reportes/clientes-a-contactar": {
+      "get": {
+        "description": "`POR_VENCER`: plan vigente que vence pronto con almuerzos sin usar. `SIN_VENIR`: pagó un plan vigente pero hace días que no viene. `PARA_RENOVAR`: se le acabó o venció el plan hace poco y no tiene otro. Un cliente trae todos sus motivos; los umbrales se ajustan por query. Sin paginación: el más urgente primero y `total` dice cuántos hay.",
+        "operationId": "FollowUpController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasVencer",
+            "required": false,
+            "in": "query",
+            "description": "POR_VENCER: el plan vence en este número de días o menos",
+            "schema": {
+              "minimum": 1,
+              "maximum": 30,
+              "default": 3,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasSinVenir",
+            "required": false,
+            "in": "query",
+            "description": "SIN_VENIR: con plan vigente, sin actividad en estos días o más",
+            "schema": {
+              "minimum": 3,
+              "maximum": 90,
+              "default": 7,
+              "type": "number"
+            }
+          },
+          {
+            "name": "diasRenovar",
+            "required": false,
+            "in": "query",
+            "description": "PARA_RENOVAR: se le acabó el plan hace este número de días o menos",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30,
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeguimientoResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clientes a quienes escribirles",
+        "tags": ["reportes"]
+      }
+    },
+    "/v1/suscripcion": {
+      "get": {
+        "description": "Plan, estado, ciclo, próximo cobro y límites. Modelo SaaS: el local paga una mensualidad y se queda con todo lo que cobra; no hay comisión.",
+        "operationId": "SaasController_subscription",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuscripcionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Suscripción SaaS del local",
+        "tags": ["saas"]
+      }
+    },
+    "/v1/suscripcion/uso": {
+      "get": {
+        "description": "Cuántos escaneos lleva el local en el ciclo actual frente al tope de su plan. También lo ve el cajero: al llegar al tope la caja responde `LIMITE_SAAS`.",
+        "operationId": "SaasController_usage",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsoResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Uso de escaneos del ciclo",
+        "tags": ["saas"]
+      }
+    },
+    "/v1/eventos": {
+      "post": {
+        "description": "Hasta 50 eventos por lote (cuerpo máximo 100 kB). Todo el lote se guarda o se rechaza. Los eventos son siempre de la sesión: si uno nombra a otro usuario, se rechaza el lote. La misma `Idempotency-Key` devuelve el mismo resultado sin duplicar eventos.",
+        "operationId": "EventsController_ingest",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoteEventosDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoteResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "application/problem+json con `code`: `EVENTO_USUARIO_AJENO`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `EVENTO_MUY_GRANDE`, `EVENTO_FECHA_INVALIDA`"
+          },
+          "429": {
+            "description": "application/problem+json con `code`: `EVENTOS_LIMITE_TASA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enviar eventos de producto en lote",
+        "tags": ["eventos"]
+      }
     }
   },
   "info": {
@@ -5282,29 +6082,43 @@
       "CanjeResponse": {
         "type": "object",
         "properties": {
-          "pedido": {
-            "$ref": "#/components/schemas/PedidoCaja"
+          "id": {
+            "type": "string",
+            "description": "public_id del canje"
           },
-          "yaCanjeado": {
-            "type": "boolean",
-            "description": "El pedido ya estaba canjeado: no se descontó nada esta vez"
+          "cantidad": {
+            "type": "number"
           },
-          "almuerzo": {
-            "type": "object",
-            "description": "null si el pedido no lleva almuerzo. `resultado` es null al repetir un canje ya hecho.",
-            "example": {
-              "resultado": "OK",
-              "mensaje": "Almuerzo descontado.",
-              "descontado": true,
-              "consumoId": "uuid"
-            }
-          },
-          "porCobrarCentavos": {
+          "montoCentavos": {
             "type": "number",
-            "description": "Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió"
+            "description": "Precio de la oferta × cantidad, en centavos. Es todo lo que cobra el local: sin comisión."
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "comensalId": {
+            "type": "object",
+            "description": "public_id del comensal, si se identificó"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "oferta": {
+            "description": "La oferta tal como quedó después del canje (stock actualizado)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OfertaResponse"
+              }
+            ]
           }
         },
-        "required": ["pedido", "yaCanjeado", "porCobrarCentavos"]
+        "required": ["id", "cantidad", "montoCentavos", "moneda", "metodoPago", "creadoEn", "oferta"]
       },
       "CrearMesaCompartidaDto": {
         "type": "object",
@@ -5796,6 +6610,856 @@
           }
         },
         "required": ["sellos", "meta", "faltan", "premiosDisponibles", "premio", "activa"]
+      },
+      "PublicarOfertaDto": {
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "example": "Churrasco a mitad de tarde",
+            "maxLength": 80
+          },
+          "descripcion": {
+            "type": "string",
+            "example": "Últimos churrascos del día",
+            "maxLength": 300
+          },
+          "platoId": {
+            "type": "string",
+            "description": "Plato del catálogo (public_id) al que corresponde la oferta"
+          },
+          "precioCentavos": {
+            "type": "number",
+            "example": 450,
+            "description": "Precio de la oferta en centavos; debe ser menor que el original"
+          },
+          "precioOriginalCentavos": {
+            "type": "number",
+            "example": 650,
+            "description": "Precio normal en centavos"
+          },
+          "stock": {
+            "type": "number",
+            "example": 8,
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Unidades disponibles"
+          },
+          "duracionMinutos": {
+            "type": "number",
+            "example": 120,
+            "minimum": 5,
+            "maximum": 1440,
+            "default": 120,
+            "description": "Cuánto dura desde que se publica"
+          }
+        },
+        "required": ["titulo", "precioCentavos", "precioOriginalCentavos", "stock"]
+      },
+      "OfertaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "object"
+          },
+          "plato": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Churrasco"
+            }
+          },
+          "precioCentavos": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "precioOriginalCentavos": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "descuentoPorcentaje": {
+            "type": "number",
+            "description": "Descuento entero sobre el precio original"
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "stockTotal": {
+            "type": "number"
+          },
+          "stockRestante": {
+            "type": "number",
+            "description": "Nunca negativo"
+          },
+          "canjeadas": {
+            "type": "number",
+            "description": "Unidades ya canjeadas"
+          },
+          "iniciaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["VIGENTE", "PROGRAMADA", "AGOTADA", "EXPIRADA", "CERRADA"],
+            "description": "CERRADA tiene prioridad; luego AGOTADA, EXPIRADA, PROGRAMADA y VIGENTE"
+          }
+        },
+        "required": [
+          "id",
+          "titulo",
+          "precioCentavos",
+          "precioOriginalCentavos",
+          "descuentoPorcentaje",
+          "moneda",
+          "stockTotal",
+          "stockRestante",
+          "canjeadas",
+          "iniciaEn",
+          "expiraEn",
+          "estado"
+        ]
+      },
+      "OfertasPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "object"
+          }
+        },
+        "required": ["items"]
+      },
+      "CanjearOfertaDto": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Unidades que se llevan en este canje"
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"],
+            "description": "Con qué paga en caja. El cobro queda confirmado: el canje se entrega al pagar."
+          },
+          "comensalId": {
+            "type": "string",
+            "description": "Comensal con cuenta (public_id), si lo identifican. Sin él, es un canje de mostrador."
+          }
+        },
+        "required": ["metodoPago"]
+      },
+      "OfertasPublicas": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "Solo vigentes con stock",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaResponse"
+            }
+          }
+        },
+        "required": ["items"]
+      },
+      "AlmuerzosDia": {
+        "type": "object",
+        "properties": {
+          "servidos": {
+            "type": "number",
+            "description": "Almuerzos descontados de planes, netos de devoluciones"
+          },
+          "paraLlevar": {
+            "type": "number"
+          },
+          "porCanal": {
+            "type": "object",
+            "example": {
+              "QR": 40,
+              "MANUAL": 2,
+              "PREORDEN": 3,
+              "MESA": 5
+            }
+          }
+        },
+        "required": ["servidos", "paraLlevar", "porCanal"]
+      },
+      "IngresosDia": {
+        "type": "object",
+        "properties": {
+          "totalCentavos": {
+            "type": "number",
+            "description": "Cobros confirmados del día, netos de reversos (centavos)"
+          },
+          "porOrigen": {
+            "type": "object",
+            "example": {
+              "planes": 1500,
+              "ventas": 700,
+              "ofertas": 900,
+              "pedidos": 0
+            }
+          },
+          "porMetodo": {
+            "example": [
+              {
+                "metodo": "EFECTIVO",
+                "centavos": 2400
+              }
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pendientesPorConfirmar": {
+            "type": "object",
+            "example": {
+              "cantidad": 1,
+              "centavos": 1500
+            },
+            "description": "Transferencias o Deuna sin confirmar (no están en el total)"
+          }
+        },
+        "required": ["totalCentavos", "porOrigen", "porMetodo", "pendientesPorConfirmar"]
+      },
+      "VentasPosDia": {
+        "type": "object",
+        "properties": {
+          "tickets": {
+            "type": "number"
+          },
+          "reversos": {
+            "type": "number",
+            "description": "Tickets deshechos"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "description": "Neto de reversos (centavos)"
+          },
+          "almuerzos": {
+            "type": "number",
+            "description": "Almuerzos sueltos vendidos, netos"
+          }
+        },
+        "required": ["tickets", "reversos", "totalCentavos", "almuerzos"]
+      },
+      "CantidadMonto": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number"
+          },
+          "centavos": {
+            "type": "number"
+          }
+        },
+        "required": ["cantidad", "centavos"]
+      },
+      "ResumenDiarioResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "example": "2026-10-31",
+            "description": "Día local del restaurante"
+          },
+          "zonaHoraria": {
+            "type": "string",
+            "example": "America/Guayaquil"
+          },
+          "moneda": {
+            "type": "string",
+            "example": "USD"
+          },
+          "almuerzos": {
+            "$ref": "#/components/schemas/AlmuerzosDia"
+          },
+          "ingresos": {
+            "$ref": "#/components/schemas/IngresosDia"
+          },
+          "ventasPos": {
+            "$ref": "#/components/schemas/VentasPosDia"
+          },
+          "planesVendidos": {
+            "description": "Planes vendidos ese día, sin los anulados ni las cartulinas migradas",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CantidadMonto"
+              }
+            ]
+          },
+          "ofertas": {
+            "type": "object",
+            "example": {
+              "unidades": 3,
+              "centavos": 1350
+            },
+            "description": "Canjes de ofertas flash"
+          },
+          "escaneos": {
+            "type": "object",
+            "example": {
+              "total": 50,
+              "validos": 47,
+              "rechazados": 3
+            },
+            "description": "Escaneos en caja"
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "moneda", "almuerzos", "ingresos", "ventasPos", "planesVendidos", "ofertas", "escaneos"]
+      },
+      "PlanVentas": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Semanal"
+          },
+          "vendidos": {
+            "type": "number",
+            "description": "No anulados"
+          },
+          "anulados": {
+            "type": "number"
+          },
+          "ingresoCentavos": {
+            "type": "number",
+            "description": "Precio pagado de los vendidos (centavos)"
+          },
+          "almuerzosVendidos": {
+            "type": "number",
+            "description": "Almuerzos incluidos en lo vendido"
+          },
+          "almuerzosConsumidos": {
+            "type": "number",
+            "description": "Almuerzos ya consumidos de lo vendido"
+          }
+        },
+        "required": ["nombre", "vendidos", "anulados", "ingresoCentavos", "almuerzosVendidos", "almuerzosConsumidos"]
+      },
+      "VentasPlanesResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "total": {
+            "type": "object",
+            "example": {
+              "vendidos": 12,
+              "anulados": 1,
+              "ingresoCentavos": 18000
+            }
+          },
+          "porPlan": {
+            "description": "Por nombre de plan, de más a menos ingreso",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanVentas"
+            }
+          },
+          "porDia": {
+            "example": [
+              {
+                "fecha": "2026-10-30",
+                "vendidos": 2,
+                "ingresoCentavos": 3000
+              }
+            ],
+            "description": "Solo los días con ventas",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "moneda", "total", "porPlan", "porDia"]
+      },
+      "HoraPico": {
+        "type": "object",
+        "properties": {
+          "hora": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 23,
+            "description": "Hora local del restaurante (0 = 00:00–00:59)"
+          },
+          "almuerzos": {
+            "type": "number",
+            "description": "Almuerzos de planes servidos esa hora (los devueltos no cuentan)"
+          },
+          "ventas": {
+            "type": "number",
+            "description": "Tickets de ventas sueltas de esa hora (los deshechos no cuentan)"
+          },
+          "total": {
+            "type": "number",
+            "description": "almuerzos + ventas"
+          }
+        },
+        "required": ["hora", "almuerzos", "ventas", "total"]
+      },
+      "HorasPicoResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "porHora": {
+            "description": "Siempre 24 filas, de la hora 0 a la 23",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HoraPico"
+            }
+          },
+          "horaPico": {
+            "type": "object",
+            "description": "Hora con más movimiento (la más temprana si hay empate); null si no hubo nada"
+          },
+          "totalAlmuerzos": {
+            "type": "number"
+          },
+          "totalVentas": {
+            "type": "number"
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas"]
+      },
+      "PlatoRanking": {
+        "type": "object",
+        "properties": {
+          "posicion": {
+            "type": "number",
+            "example": 1
+          },
+          "plato": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Seco de pollo"
+            },
+            "description": "id = public_id del plato"
+          },
+          "unidades": {
+            "type": "number",
+            "description": "unidadesVentas + unidadesPedidos"
+          },
+          "unidadesVentas": {
+            "type": "number",
+            "description": "Vendidas sueltas en caja (netas de tickets deshechos)"
+          },
+          "unidadesPedidos": {
+            "type": "number",
+            "description": "Incluidas en pedidos de comensales ya canjeados"
+          },
+          "ingresoCentavos": {
+            "type": "number",
+            "description": "Lo cobrado por ese plato (centavos); los platos dentro del almuerzo cuestan 0"
+          }
+        },
+        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "ingresoCentavos"]
+      },
+      "RankingResponse": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string"
+          },
+          "hasta": {
+            "type": "string"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatoRanking"
+            }
+          }
+        },
+        "required": ["desde", "hasta", "zonaHoraria", "moneda", "items"]
+      },
+      "PlanPendiente": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "planes": {
+            "type": "number"
+          },
+          "almuerzos": {
+            "type": "number"
+          },
+          "pasivoCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["nombre", "planes", "almuerzos", "pasivoCentavos"]
+      },
+      "BloqueVencimiento": {
+        "type": "object",
+        "properties": {
+          "rango": {
+            "type": "string",
+            "enum": ["HOY", "EN_1_A_3_DIAS", "EN_4_A_7_DIAS", "EN_MAS_DE_7_DIAS"]
+          },
+          "planes": {
+            "type": "number"
+          },
+          "almuerzos": {
+            "type": "number"
+          },
+          "pasivoCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["rango", "planes", "almuerzos", "pasivoCentavos"]
+      },
+      "PendientesResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "description": "Hoy, en la zona del local"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "total": {
+            "type": "object",
+            "example": {
+              "clientes": 12,
+              "planes": 14,
+              "almuerzos": 60,
+              "pasivoCentavos": 18000
+            },
+            "description": "Lo que el local todavía debe en almuerzos prepagados"
+          },
+          "porPlan": {
+            "description": "Por nombre de plan, de más a menos pasivo",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanPendiente"
+            }
+          },
+          "porVencimiento": {
+            "description": "Siempre los 4 bloques, en este orden",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloqueVencimiento"
+            }
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "moneda", "total", "porPlan", "porVencimiento"]
+      },
+      "ClienteSeguimiento": {
+        "type": "object",
+        "properties": {
+          "clienteId": {
+            "type": "string",
+            "example": "12",
+            "description": "Id del cliente dentro del local (el mismo de /v1/clientes)"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "telefono": {
+            "type": "object",
+            "example": "+593990000123"
+          },
+          "motivos": {
+            "type": "array",
+            "description": "Por qué aparece; puede tener más de uno. El primero es el más urgente.",
+            "items": {
+              "type": "string",
+              "enum": ["POR_VENCER", "SIN_VENIR", "PARA_RENOVAR"]
+            }
+          },
+          "almuerzosRestantes": {
+            "type": "number",
+            "description": "Almuerzos que le quedan en planes vigentes (0 si no tiene)"
+          },
+          "venceEl": {
+            "type": "object",
+            "example": "2026-11-15",
+            "description": "Vencimiento más próximo entre sus planes vigentes"
+          },
+          "ultimaVisita": {
+            "type": "object",
+            "example": "2026-11-06",
+            "description": "Último almuerzo servido (día local); null si nunca"
+          },
+          "diasSinActividad": {
+            "type": "number",
+            "description": "Días desde su última actividad (último almuerzo o última compra de plan)"
+          }
+        },
+        "required": ["clienteId", "nombre", "motivos", "almuerzosRestantes", "diasSinActividad"]
+      },
+      "SeguimientoResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "description": "Hoy, en la zona del local"
+          },
+          "zonaHoraria": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number",
+            "description": "Cuántos cumplen algún criterio (puede ser más que los devueltos por `limit`)"
+          },
+          "items": {
+            "description": "POR_VENCER primero (vence antes, antes), luego SIN_VENIR (más días sin venir, antes) y PARA_RENOVAR (el que se quedó sin plan más recién, antes)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClienteSeguimiento"
+            }
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "total", "items"]
+      },
+      "PlanSaasResponse": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "example": "FREEMIUM"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Gratis"
+          },
+          "precioMensualCentavos": {
+            "type": "object",
+            "description": "Precio mensual vigente en el país del local (centavos); null si el plan no tiene precio ahí"
+          },
+          "moneda": {
+            "type": "object",
+            "example": "USD"
+          }
+        },
+        "required": ["codigo", "nombre"]
+      },
+      "CicloResponse": {
+        "type": "object",
+        "properties": {
+          "inicio": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "Primer día del ciclo"
+          },
+          "fin": {
+            "type": "string",
+            "example": "2026-12-01",
+            "description": "Día en que termina el ciclo"
+          },
+          "diasRestantes": {
+            "type": "number",
+            "description": "Días desde hoy (hora local del local) hasta `fin`; 0 si ya pasó"
+          },
+          "vencido": {
+            "type": "boolean",
+            "description": "true si `fin` ya pasó y el ciclo no se renovó: los contadores siguen del ciclo anterior"
+          }
+        },
+        "required": ["inicio", "fin", "diasRestantes", "vencido"]
+      },
+      "LimitesResponse": {
+        "type": "object",
+        "properties": {
+          "escaneosMes": {
+            "type": "object",
+            "description": "Escaneos por ciclo; null = sin límite"
+          },
+          "mesaGrupal": {
+            "type": "boolean"
+          },
+          "reportesAvanzados": {
+            "type": "boolean"
+          }
+        },
+        "required": ["mesaGrupal", "reportesAvanzados"]
+      },
+      "SuscripcionResponse": {
+        "type": "object",
+        "properties": {
+          "estado": {
+            "type": "string",
+            "enum": ["TRIAL", "FREEMIUM", "ACTIVA_PRO", "MOROSA", "SUSPENDIDA", "CANCELADA", "SIN_SUSCRIPCION"],
+            "description": "`SIN_SUSCRIPCION`: el local aún no tiene plan SaaS asignado (se comporta como sin límite)"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanSaasResponse"
+          },
+          "ciclo": {
+            "$ref": "#/components/schemas/CicloResponse"
+          },
+          "proximoCobro": {
+            "type": "object",
+            "example": "2026-12-01",
+            "description": "null en planes gratuitos"
+          },
+          "limites": {
+            "$ref": "#/components/schemas/LimitesResponse"
+          }
+        },
+        "required": ["estado", "limites"]
+      },
+      "UsoResponse": {
+        "type": "object",
+        "properties": {
+          "ciclo": {
+            "$ref": "#/components/schemas/CicloResponse"
+          },
+          "escaneosUsados": {
+            "type": "number",
+            "description": "Escaneos válidos del ciclo (un almuerzo descontado cuenta uno; deshacerlo no lo devuelve)"
+          },
+          "limite": {
+            "type": "object",
+            "description": "null = sin límite"
+          },
+          "restantes": {
+            "type": "object",
+            "description": "Lo que queda antes del tope; null = sin límite"
+          },
+          "porcentaje": {
+            "type": "object",
+            "description": "Porcentaje entero del límite usado (puede pasar de 100); null = sin límite"
+          },
+          "nivel": {
+            "type": "string",
+            "enum": ["ILIMITADO", "NORMAL", "CERCA_DEL_LIMITE", "LIMITE_ALCANZADO"],
+            "description": "CERCA_DEL_LIMITE desde el 80 %; LIMITE_ALCANZADO desde el 100 %: la caja responde `LIMITE_SAAS`"
+          },
+          "rechazadosPorLimite": {
+            "type": "number",
+            "description": "Escaneos que la caja rechazó con `LIMITE_SAAS` desde que empezó el ciclo"
+          }
+        },
+        "required": ["escaneosUsados", "nivel", "rechazadosPorLimite"]
+      },
+      "EventoDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "example": "oferta.impresion",
+            "description": "minúsculas, dígitos y `_`, con puntos para agrupar (`menu.visto`)",
+            "maxLength": 60
+          },
+          "ocurridoEn": {
+            "type": "string",
+            "example": "2026-11-18T15:04:05Z",
+            "description": "Cuándo ocurrió en el dispositivo. De hace 7 días a 5 minutos en el futuro; por defecto, ahora."
+          },
+          "restauranteId": {
+            "type": "string",
+            "description": "Local al que se refiere (public_id)"
+          },
+          "usuarioId": {
+            "type": "string",
+            "description": "Solo para verificar: si se manda, debe ser el usuario de la sesión; el de otro se rechaza"
+          },
+          "propiedades": {
+            "type": "object",
+            "example": {
+              "oferta": "uuid",
+              "posicion": 2
+            },
+            "description": "Objeto plano, hasta 20 claves y 1024 bytes"
+          }
+        },
+        "required": ["tipo"]
+      },
+      "LoteEventosDto": {
+        "type": "object",
+        "properties": {
+          "sesionId": {
+            "type": "string",
+            "description": "Sesión de la app (UUID generado por el cliente)"
+          },
+          "plataforma": {
+            "type": "string",
+            "enum": ["ANDROID", "IOS", "WEB"]
+          },
+          "versionApp": {
+            "type": "string",
+            "example": "1.4.2",
+            "maxLength": 20
+          },
+          "eventos": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventoDto"
+            }
+          }
+        },
+        "required": ["eventos"]
+      },
+      "LoteResponse": {
+        "type": "object",
+        "properties": {
+          "aceptados": {
+            "type": "number",
+            "example": 12,
+            "description": "Eventos guardados de este lote"
+          },
+          "anonimizado": {
+            "type": "boolean",
+            "description": "true si el usuario no dio su consentimiento de analítica: los eventos se guardaron sin su identidad (sin usuario ni sesión)"
+          }
+        },
+        "required": ["aceptados", "anonimizado"]
       }
     }
   }

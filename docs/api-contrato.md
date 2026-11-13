@@ -4215,6 +4215,458 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                                          |
 | 409  | `SIN_PREMIOS`                 | Este cliente no tiene premios por canjear. |
 
+### Fase 9 · Ofertas flash
+
+Modelo SaaS: el local paga su suscripción y se queda con todo lo que cobra. **No existe ningún endpoint ni campo de comisión.**
+
+Estados de una oferta (`estado`, calculado con la hora de la base): `CERRADA` (el dueño la cerró), `AGOTADA` (stock 0), `EXPIRADA` (pasó `expiraEn`), `PROGRAMADA` (aún no empieza) y `VIGENTE`. Se evalúan en ese orden.
+
+#### `POST /v1/ofertas`
+
+**Publicar una oferta flash**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave → misma oferta, sin publicar otra (aunque el cuerpo cambie).
+
+Empieza al publicarse y dura `duracionMinutos` (5–1440, por defecto 120).
+
+Request:
+
+```json
+{
+  "titulo": "Churrasco a mitad de tarde",
+  "descripcion": "Últimos churrascos del día",
+  "platoId": "uuid del plato (opcional)",
+  "precioCentavos": 450,
+  "precioOriginalCentavos": 650,
+  "stock": 8,
+  "duracionMinutos": 120
+}
+```
+
+Response `201`:
+
+```json
+{
+  "id": "6f0c1c5e-3a0b-4d1e-9d57-0a8c1d6f2b11",
+  "titulo": "Churrasco a mitad de tarde",
+  "descripcion": "Últimos churrascos del día",
+  "plato": { "id": "uuid", "nombre": "Churrasco" },
+  "precioCentavos": 450,
+  "precioOriginalCentavos": 650,
+  "descuentoPorcentaje": 31,
+  "moneda": "USD",
+  "stockTotal": 8,
+  "stockRestante": 8,
+  "canjeadas": 0,
+  "iniciaEn": "2026-11-18T15:00:00.000Z",
+  "expiraEn": "2026-11-18T17:00:00.000Z",
+  "estado": "VIGENTE"
+}
+```
+
+Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx):
+
+| HTTP | `code`                     | Ejemplo de `detail`                                           |
+| ---- | -------------------------- | ------------------------------------------------------------- |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA` | Falta el encabezado Idempotency-Key (UUID) o no es válido.    |
+| 404  | `PLATO_NO_ENCONTRADO`      | El plato no existe o está inactivo.                           |
+| 422  | `OFERTA_PRECIO_INVALIDO`   | El precio de la oferta debe ser menor que el precio original. |
+
+#### `GET /v1/ofertas`
+
+**Ofertas del local**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Más recientes primero. Query: `limit` (1–50, por defecto 20), `cursor` (el `nextCursor` anterior) y `estado` (uno de los cinco). Response `200`: `{ "items": [<oferta>], "nextCursor": "…" | null }`.
+
+#### `POST /v1/ofertas/{id}/cerrar`
+
+**Cerrar una oferta**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Deja de aceptar canjes. No necesita `Idempotency-Key`: repetirlo devuelve la misma oferta ya `CERRADA`. Response `200`: la oferta. Error: 404 `OFERTA_NO_ENCONTRADA` (también si es de otro local).
+
+#### `POST /v1/ofertas/{id}/canjear`
+
+**Canjear una oferta en caja**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave → mismo canje, sin descontar otra vez; la llave de otra oferta → 409.
+
+Descuenta el stock y registra el cobro (siempre `CONFIRMADO`: la oferta se entrega al pagar) en una sola transacción. **El stock nunca queda negativo**, tampoco con canjes simultáneos: el descuento es un `UPDATE` condicional (`stock_restante >= cantidad`) y los canjes que no alcanzan reciben 409 sin cobro. El cobro cuenta en el arqueo de caja del día. Sin comisión: el local cobra el 100 % del precio de la oferta.
+
+Request:
+
+```json
+{ "cantidad": 2, "metodoPago": "EFECTIVO", "comensalId": "uuid (opcional)" }
+```
+
+`cantidad` 1–10 (por defecto 1); `metodoPago`: `EFECTIVO`, `TRANSFERENCIA` o `DEUNA`; `comensalId` es el `public_id` de un comensal con cuenta (si no se manda, es un canje de mostrador).
+
+Response `201`:
+
+```json
+{
+  "id": "0c9f0a52-5d3b-4f3c-8f64-6a3a0e0b7b11",
+  "cantidad": 2,
+  "montoCentavos": 900,
+  "moneda": "USD",
+  "metodoPago": "EFECTIVO",
+  "comensalId": null,
+  "creadoEn": "2026-11-18T15:20:00.000Z",
+  "oferta": { "id": "…", "stockTotal": 3, "stockRestante": 1, "canjeadas": 2, "estado": "VIGENTE", "…": "…" }
+}
+```
+
+Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx):
+
+| HTTP | `code`                        | Cuándo                                                 |
+| ---- | ----------------------------- | ------------------------------------------------------ |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA`    | Falta la llave o no es UUID                            |
+| 404  | `OFERTA_NO_ENCONTRADA`        | No existe o es de otro local                           |
+| 404  | `COMENSAL_NO_ENCONTRADO`      | `comensalId` inexistente                               |
+| 409  | `OFERTA_AGOTADA`              | No quedan unidades                                     |
+| 409  | `STOCK_INSUFICIENTE`          | Pidió más de las que quedan (el `detail` dice cuántas) |
+| 409  | `OFERTA_CERRADA`              | El dueño la cerró                                      |
+| 409  | `OFERTA_EXPIRADA`             | Ya pasó `expiraEn`                                     |
+| 409  | `OFERTA_NO_INICIADA`          | Aún no empieza                                         |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya se usó con otra oferta                     |
+| 422  | `METODO_PAGO_NO_DISPONIBLE`   | El método no existe en el país del local               |
+
+#### `GET /v1/restaurantes/{slug}/ofertas`
+
+**Ofertas flash vigentes de un local (vitrina)**
+
+- **Rol:** público, sin token
+- **Estado:** En revisión (fase 9)
+
+Solo las `VIGENTE` con stock, por vencer primero. Response `200`: `{ "items": [<oferta>] }`. Error: 404 `RESTAURANTE_NO_ENCONTRADO`.
+
+### Fase 9 · Reportes
+
+Solo el **dueño** (`@Roles('DUENO')`; el cajero recibe 403). Todos usan la **zona horaria del restaurante** (`zonaHoraria` en la respuesta): "hoy" y los días de un rango son días locales del local, no de UTC ni del servidor. Salen de los libros de solo inserción (consumos, ventas, pagos): los reversos restan, y el efectivo del resumen es el mismo que el "efectivo esperado" del cierre de caja.
+
+Errores comunes de los reportes: 400 `FECHA_INVALIDA` (no es una fecha real AAAA-MM-DD), 400 `RANGO_INVALIDO` (`desde` > `hasta`), 400 `RANGO_MUY_LARGO` (más de 366 días).
+
+#### `GET /v1/reportes/resumen-diario`
+
+**Resumen del día**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `fecha` (AAAA-MM-DD; por defecto, hoy en la zona del local).
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "almuerzos": { "servidos": 2, "paraLlevar": 1, "porCanal": { "QR": 0, "MANUAL": 2, "PREORDEN": 0, "MESA": 0 } },
+  "ingresos": {
+    "totalCentavos": 7100,
+    "porOrigen": { "planes": 5500, "ventas": 700, "ofertas": 900, "pedidos": 0 },
+    "porMetodo": [
+      { "metodo": "DEUNA", "centavos": 3400 },
+      { "metodo": "EFECTIVO", "centavos": 3700 }
+    ],
+    "pendientesPorConfirmar": { "cantidad": 1, "centavos": 1500 }
+  },
+  "ventasPos": { "tickets": 2, "reversos": 1, "totalCentavos": 700, "almuerzos": 2 },
+  "planesVendidos": { "cantidad": 4, "centavos": 7000 },
+  "ofertas": { "unidades": 2, "centavos": 900 },
+  "escaneos": { "total": 4, "validos": 3, "rechazados": 1 }
+}
+```
+
+- `almuerzos.servidos`: almuerzos descontados de planes **netos** de devoluciones (igual que el cierre de caja).
+- `ingresos`: cobros `CONFIRMADO` del día **netos** de reversos; los `PENDIENTE` (transferencia o Deuna sin confirmar) van aparte y no suman al total.
+- `planesVendidos`: planes de venta (no cartulinas migradas) comprados ese día local, sin los anulados.
+
+#### `GET /v1/reportes/ventas-planes`
+
+**Ventas de planes**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde` y `hasta` (días locales, ambos incluidos; por defecto los últimos 30 días con hoy).
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-10-15",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "total": { "vendidos": 2, "anulados": 1, "ingresoCentavos": 3000 },
+  "porPlan": [
+    { "nombre": "Semanal", "vendidos": 2, "anulados": 1, "ingresoCentavos": 3000, "almuerzosVendidos": 10, "almuerzosConsumidos": 1 }
+  ],
+  "porDia": [
+    { "fecha": "2026-11-11", "vendidos": 1, "ingresoCentavos": 1500 },
+    { "fecha": "2026-11-13", "vendidos": 1, "ingresoCentavos": 1500 }
+  ]
+}
+```
+
+`vendidos` no cuenta los planes anulados (van en `anulados`); `ingresoCentavos` es el precio pagado de los vendidos. `porDia` solo trae los días con ventas.
+
+#### `GET /v1/reportes/horas-pico`
+
+**Horas pico**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde`, `hasta` (días locales; por defecto los últimos 30 días). Siempre devuelve las 24 horas locales (0–23). Los almuerzos devueltos y los tickets deshechos **no cuentan**, así un reverso no mueve la hora. La suma de `almuerzos` de todas las horas es igual a `almuerzos.servidos` de los resúmenes diarios del mismo rango.
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-11-13",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "porHora": [
+    { "hora": 0, "almuerzos": 0, "ventas": 0, "total": 0 },
+    { "hora": 12, "almuerzos": 3, "ventas": 2, "total": 5 },
+    { "hora": 13, "almuerzos": 2, "ventas": 0, "total": 2 }
+  ],
+  "horaPico": 12,
+  "totalAlmuerzos": 7,
+  "totalVentas": 3
+}
+```
+
+(El ejemplo omite las demás horas.) `horaPico` es la hora con más `total` (la más temprana si hay empate) y `null` si no hubo movimiento.
+
+#### `GET /v1/reportes/ranking-platos`
+
+**Ranking de platos**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Query: `desde`, `hasta`, `limit` (1–50, por defecto 10). Cuenta los platos **vendidos sueltos** en caja (netos de tickets deshechos) y los incluidos en **pedidos de comensales ya canjeados o servidos**; las dos fuentes se muestran por separado porque un plato de un pedido que además se cobra en caja cuenta en ambas. Orden: más unidades primero, empate por nombre.
+
+Response `200`:
+
+```json
+{
+  "desde": "2026-10-15",
+  "hasta": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "items": [
+    {
+      "posicion": 1,
+      "plato": { "id": "7d1c…", "nombre": "Huevo frito" },
+      "unidades": 5,
+      "unidadesVentas": 3,
+      "unidadesPedidos": 2,
+      "ingresoCentavos": 375
+    }
+  ]
+}
+```
+
+`plato.id` es el `public_id` del plato. Los platos dentro del almuerzo cuestan 0 (los cubre el plan o el precio del almuerzo), por eso su `ingresoCentavos` es 0.
+
+#### `GET /v1/reportes/almuerzos-pendientes`
+
+**Almuerzos pendientes (lo que debes)**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Foto de hoy (sin parámetros): los almuerzos prepagados que quedan en planes `ACTIVA` que todavía no vencieron en hora local. Un plan que venció ayer y espera al job de expiración no se puede consumir, así que no cuenta como deuda. El valor es `almuerzos restantes × precio unitario` de cada plan.
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "moneda": "USD",
+  "total": { "clientes": 4, "planes": 4, "almuerzos": 49, "pasivoCentavos": 7700 },
+  "porPlan": [
+    { "nombre": "Mensual", "planes": 2, "almuerzos": 40, "pasivoCentavos": 5000 },
+    { "nombre": "Semanal", "planes": 2, "almuerzos": 9, "pasivoCentavos": 2700 }
+  ],
+  "porVencimiento": [
+    { "rango": "HOY", "planes": 1, "almuerzos": 4, "pasivoCentavos": 1200 },
+    { "rango": "EN_1_A_3_DIAS", "planes": 1, "almuerzos": 5, "pasivoCentavos": 1500 },
+    { "rango": "EN_4_A_7_DIAS", "planes": 1, "almuerzos": 20, "pasivoCentavos": 2500 },
+    { "rango": "EN_MAS_DE_7_DIAS", "planes": 1, "almuerzos": 20, "pasivoCentavos": 2500 }
+  ]
+}
+```
+
+#### `GET /v1/reportes/clientes-a-contactar`
+
+**Clientes a quienes escribirles**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Los clientes con los que conviene hablar hoy, con su motivo:
+
+| `motivos`      | Cuándo                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `POR_VENCER`   | Tiene un plan vigente con almuerzos sin usar que vence en `diasVencer` días o menos      |
+| `SIN_VENIR`    | Tiene un plan vigente pero lleva `diasSinVenir` días o más sin actividad                 |
+| `PARA_RENOVAR` | No tiene plan vigente y su último plan se acabó o venció hace `diasRenovar` días o menos |
+
+La **actividad** de un cliente es lo más reciente entre su último almuerzo servido (los devueltos no cuentan) y la compra de su último plan; todas las fechas son del día local del restaurante. Un cliente trae todos sus motivos (el primero es el más urgente). No aparecen los clientes desactivados, los que nunca compraron un plan ni los que solo tienen planes anulados.
+
+Query (todos opcionales): `limit` (1–100, por defecto 20), `diasVencer` (1–30, por defecto 3), `diasSinVenir` (3–90, por defecto 7), `diasRenovar` (1–90, por defecto 30). Sin paginación: va primero lo más urgente (`POR_VENCER`, por vencimiento; luego `SIN_VENIR`, por más tiempo sin venir; luego `PARA_RENOVAR`, el que se quedó sin plan más recién) y `total` cuenta todos los que cumplen aunque `limit` recorte.
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "total": 5,
+  "items": [
+    {
+      "clienteId": "42",
+      "nombre": "Carla Mena",
+      "telefono": "+593990000123",
+      "motivos": ["POR_VENCER", "SIN_VENIR"],
+      "almuerzosRestantes": 4,
+      "venceEl": "2026-11-14",
+      "ultimaVisita": "2026-11-05",
+      "diasSinActividad": 8
+    }
+  ]
+}
+```
+
+`clienteId` es el id del cliente dentro del local, el mismo que usan `/v1/clientes/{id}` y `/v1/clientes/{id}/sellos` (ver "Limitaciones conocidas"). `venceEl` y `ultimaVisita` son `null` si no aplican; `almuerzosRestantes` es 0 sin plan vigente. Errores: los comunes (400 de validación, 401, 403, 429).
+
+### Fase 9 · Suscripción SaaS
+
+Modelo SaaS: el local paga una **mensualidad** por su plan de Bocadoo (con un tope de escaneos por ciclo en los planes bajos) y se queda con todo lo que cobra a sus comensales. **No existe ningún endpoint ni campo de comisión**, y la API solo **lee** la suscripción (la escribe el rol de servicio).
+
+#### `GET /v1/suscripcion`
+
+**Suscripción SaaS del local**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Response `200`:
+
+```json
+{
+  "estado": "FREEMIUM",
+  "plan": { "codigo": "FREEMIUM", "nombre": "Gratis", "precioMensualCentavos": 0, "moneda": "USD" },
+  "ciclo": { "inicio": "2026-11-01", "fin": "2026-12-01", "diasRestantes": 18, "vencido": false },
+  "proximoCobro": null,
+  "limites": { "escaneosMes": null, "mesaGrupal": false, "reportesAvanzados": false }
+}
+```
+
+- `estado`: `TRIAL`, `FREEMIUM`, `ACTIVA_PRO`, `MOROSA`, `SUSPENDIDA`, `CANCELADA` o `SIN_SUSCRIPCION` (el local todavía no tiene plan SaaS asignado: se comporta como sin límite y `plan`, `ciclo` son `null`). Un local `SUSPENDIDA` recibe `LIMITE_SAAS` en la caja.
+- `plan.precioMensualCentavos` y `moneda` son el precio vigente en el país del local; `null` si el plan no tiene precio ahí.
+- `ciclo.diasRestantes` se cuenta desde hoy en la zona horaria del local. `ciclo.vencido` es `true` si `fin` ya pasó y el ciclo no se renovó (los contadores siguen siendo del ciclo anterior).
+- `limites.escaneosMes`: `null` = sin límite. `mesaGrupal` y `reportesAvanzados` se informan pero **hoy la API no los exige** en los endpoints.
+
+#### `GET /v1/suscripcion/uso`
+
+**Uso de escaneos del ciclo**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Response `200`:
+
+```json
+{
+  "ciclo": { "inicio": "2026-11-01", "fin": "2026-12-01", "diasRestantes": 18, "vencido": false },
+  "escaneosUsados": 4,
+  "limite": 5,
+  "restantes": 1,
+  "porcentaje": 80,
+  "nivel": "CERCA_DEL_LIMITE",
+  "rechazadosPorLimite": 0
+}
+```
+
+- `escaneosUsados`: el contador que aplica el límite; cuenta cada almuerzo descontado en el ciclo (deshacerlo no lo devuelve).
+- `nivel`: `ILIMITADO` (sin tope), `NORMAL`, `CERCA_DEL_LIMITE` (desde el 80 %) o `LIMITE_ALCANZADO` (desde el 100 %: `POST /v1/caja/validar` responde `LIMITE_SAAS`).
+- `rechazadosPorLimite`: escaneos de la caja rechazados por `LIMITE_SAAS` desde que empezó el ciclo.
+- Sin suscripción: todo en cero/`null` y `nivel: "ILIMITADO"`.
+
+### Fase 9 · Eventos de producto
+
+#### `POST /v1/eventos`
+
+**Enviar eventos de producto en lote**
+
+- **Rol:** cualquier usuario con sesión (`Authorization`), sin `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave (del mismo usuario) → misma respuesta y **ningún evento duplicado**, aunque el cuerpo cambie: manda el primer lote.
+
+Materia prima de analítica (qué miró, qué buscó, qué oferta vio). Todo el lote se guarda o se rechaza.
+
+Request:
+
+```json
+{
+  "sesionId": "uuid de la sesión de la app (opcional)",
+  "plataforma": "ANDROID",
+  "versionApp": "1.4.2",
+  "eventos": [
+    { "tipo": "oferta.impresion", "restauranteId": "uuid del local (opcional)", "propiedades": { "posicion": 2 } },
+    { "tipo": "menu.visto", "ocurridoEn": "2026-11-18T15:04:05Z", "usuarioId": "uuid propio (opcional)" }
+  ]
+}
+```
+
+Response `201`:
+
+```json
+{ "aceptados": 2, "anonimizado": false }
+```
+
+**Límites**
+
+| Qué              | Límite                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| Eventos por lote | 1 a 50 (si no, 400)                                                                       |
+| Cuerpo           | 100 kB (413)                                                                              |
+| `tipo`           | 3–60 caracteres: minúsculas, dígitos, `_` y puntos (`menu.visto`)                         |
+| `propiedades`    | objeto de hasta 20 claves y 1024 bytes (422 `EVENTO_MUY_GRANDE`)                          |
+| `ocurridoEn`     | de hace 7 días a 5 minutos en el futuro; por defecto, ahora (422 `EVENTO_FECHA_INVALIDA`) |
+| Tasa por usuario | 20 lotes y 500 eventos por minuto (429 `EVENTOS_LIMITE_TASA`)                             |
+| Tasa por IP      | 60 lotes por minuto, con o sin sesión (429, con `Retry-After`)                            |
+
+**Identidad.** El evento es siempre de la sesión. `usuarioId` es opcional y solo sirve para verificar: si es de otro usuario, el lote completo se rechaza con 403 `EVENTO_USUARIO_AJENO` (y la base lo exige también con RLS). **Consentimiento:** si el usuario no aceptó la analítica (`consiente_analitica`), los eventos se guardan **anonimizados** (sin usuario ni sesión) y la respuesta trae `anonimizado: true`. Reintentar un lote ya aceptado no cuenta contra el límite de tasa.
+
+Errores posibles (además de los comunes: 401, 400 de validación, 413, 5xx):
+
+| HTTP | `code`                      | Cuándo                                           |
+| ---- | --------------------------- | ------------------------------------------------ |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA`  | Falta la llave o no es UUID                      |
+| 403  | `EVENTO_USUARIO_AJENO`      | Un evento nombra a otro usuario                  |
+| 404  | `RESTAURANTE_NO_ENCONTRADO` | Un `restauranteId` no existe                     |
+| 422  | `EVENTO_MUY_GRANDE`         | Propiedades por encima de 20 claves o 1024 bytes |
+| 422  | `EVENTO_FECHA_INVALIDA`     | `ocurridoEn` fuera de la ventana                 |
+| 429  | `EVENTOS_LIMITE_TASA`       | Más de 20 lotes o 500 eventos en un minuto       |
+
 ### Salud
 
 #### `GET /health`
@@ -4255,12 +4707,13 @@ Response `200`:
 
 ## 4. Estado
 
-Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de la fase 8, que vive en la rama `fase-8/diner`, aún sin merge ni tag, y cuyo contrato puede cambiar tras la revisión.
+Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de las fases 8 y 9: la 8 ya está mezclada en `main` pero sin tag, y la 9 vive en la rama `fase-9/offers-reports`, sin merge ni tag; su contrato puede cambiar tras la revisión.
 
 | Módulo                                                                                                                                                                                                                                                                                                                      | Estado                   |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | Auth, restaurante, personal, menú, catálogo y vitrina, planes, pagos, solicitudes, clientes, caja (validar, deshacer, mesas, ventas, cierre), reclamos del personal, `GET /v1/pase/codigo`, `POST /v1/pase/rotar`, salud                                                                                                    | **Estable**              |
 | `GET /v1/pase`, `/v1/mis/consumos*`, `/v1/mis/pedidos*`, `/v1/caja/pedidos*`, `/v1/mis/mesas*`, `/v1/mesas/invitacion/*`, `/v1/mis/opiniones*`, `/v1/mis/consumos/{id}/opinion*`, `/v1/opiniones*`, `/v1/mis/reclamos`, `/v1/mis/consumos/{id}/reclamo`, `/v1/mis/sellos`, `/v1/sellos/config`, `/v1/clientes/{id}/sellos*` | **En revisión (fase 8)** |
+| `/v1/ofertas*`, `GET /v1/restaurantes/{slug}/ofertas`, `/v1/reportes/*`, `GET /v1/suscripcion`, `GET /v1/suscripcion/uso`, `POST /v1/eventos`                                                                                                                                                                               | **En revisión (fase 9)** |
 
 Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 
@@ -4270,13 +4723,19 @@ Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 - **También afecta a endpoints estables, en esta rama:** `GET /v1/menu/{fecha}`, `PUT /v1/menu/{fecha}`, `POST /v1/menu/{fecha}/publicar`, `…/despublicar`, `…/copiar`, `PATCH /v1/menu/{fecha}/items/{id}/agotado` y `GET /v1/restaurantes/{slug}` leen `plato.public_id`, columna que crea la migración `20261117000000`. Con el código de la rama `fase-8/diner` sobre una base sin esa migración, esos siete endpoints fallan con 500. Con el código de `main` (sin la fase 8) funcionan igual que antes.
 - Además la migración `20261117000500` agrega un trigger sobre `consumo_almuerzo`: con la tarjeta de sellos activa, `POST /v1/caja/validar` y el canje de pedidos suman sellos en la misma transacción.
 
+### Dependencia de las migraciones de la fase 9
+
+- Los endpoints de la fase 9 **solo funcionan en una base con las migraciones `20261118000000` a `20261118000200` aplicadas** (después de las seis de la fase 8): `ofertas_flash` (`public_id` del canje, `Idempotency-Key` de la oferta y permisos por columnas), `eventos_analitica` (`evento_lote` y `fn_consiente_analitica()`) y `particiones_security_definer` (solo la usa el job de particiones). A la fecha de este documento están aplicadas **solo en la base local de pruebas, no en Neon**. En Neon, sin ellas fallan con 500 `POST /v1/ofertas`, `POST /v1/ofertas/{id}/canjear` y `POST /v1/eventos`; las lecturas (listar ofertas, vitrina, reportes, suscripción) no usan columnas nuevas.
+- No hay ningún endpoint ni campo de comisión: el modelo es SaaS (el local paga una mensualidad).
+
 ### Limitaciones conocidas (pueden cambiar el contrato)
 
 - Las fases 5–7 no tienen códigos de negocio propios (`CONFLICT`, `NOT_FOUND`, `BAD_REQUEST` genéricos con `detail`); la fase 8 sí. Migrarlos a códigos estables cambiaría el `code` de esos errores, no el status.
-- Ids numéricos del tenant en `/v1/clientes`, plantillas de plan, solicitudes y reclamos del personal; la fase 8 los mantiene en `/v1/clientes/{id}/sellos*` por coherencia. Se evalúa pasarlos a `public_id`.
+- Ids numéricos del tenant en `/v1/clientes`, plantillas de plan, solicitudes y reclamos del personal; la fase 8 los mantiene en `/v1/clientes/{id}/sellos*` y la 9 en `clienteId` de `/v1/reportes/clientes-a-contactar` por coherencia. Se evalúa pasarlos a `public_id`.
 - En esta rama `GET /v1/pase/codigo` con un restaurante inexistente responde 404 `RESTAURANTE_NO_ENCONTRADO` (antes `NOT_FOUND`) y la falta de `Idempotency-Key` da `IDEMPOTENCY_KEY_INVALIDA` (antes `BAD_REQUEST`); el status no cambia.
 - La tarjeta de sellos solo cuenta almuerzos (`cuenta: "ALMUERZO"`); `PLATO` queda para después.
-- Los límites de uso viven en memoria de cada instancia.
+- Los límites de uso por IP viven en memoria de cada instancia; el límite por usuario de `POST /v1/eventos` está en la base y vale para todas.
+- Los reportes son solo para el dueño y usan la zona horaria del local; no hay gating por plan SaaS (`limites.reportesAvanzados` se informa, pero no se exige).
 - El campo `info.version` del OpenAPI (`0.4.0`) no se actualiza por fase: no lo uses como versión del contrato.
 - `POST /v1/auth/register*` no devuelve tokens; el comensal debe iniciar sesión tras registrarse.
 

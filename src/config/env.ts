@@ -24,6 +24,8 @@ const schema = z
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5), // logins por IP+cuenta en la ventana
     AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
     INVITE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20), // altas de personal por IP y hora
+    EVENTS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60), // lotes de eventos por IP y minuto
+    EVENTS_USER_BATCHES_PER_MINUTE: z.coerce.number().int().min(1).default(20), // lotes por usuario y minuto
     SIGNUP_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10), // registros por IP y hora
     SWAGGER_ENABLED: z.enum(['true', 'false']).optional(), // por defecto: encendido salvo en producción
   })

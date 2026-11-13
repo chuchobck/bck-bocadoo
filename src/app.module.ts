@@ -12,11 +12,15 @@ import { SalesModule } from './sales/sales';
 import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
 import { DinerModule } from './diner/diner.module';
+import { EventsModule } from './events/events';
 import { FeedbackModule } from './feedback/feedback';
 import { LoyaltyModule } from './loyalty/loyalty';
 import { MenuModule } from './menu/menu.module';
+import { OffersModule } from './offers/offers';
 import { OrdersModule } from './orders/orders';
+import { ReportsModule } from './reports/reports.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
+import { SaasModule } from './saas/saas';
 import { SecurityModule } from './security/security.module';
 import { StaffModule } from './staff/staff.module';
 import { TablesModule } from './tables/tables';
@@ -42,6 +46,10 @@ import { HealthController } from './health/health.controller';
     TablesModule,
     FeedbackModule,
     LoyaltyModule,
+    OffersModule,
+    ReportsModule,
+    SaasModule,
+    EventsModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,

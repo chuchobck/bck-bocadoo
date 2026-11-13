@@ -28,7 +28,7 @@ export function problemCode(status: number, body: unknown): string {
 }
 
 /** Documenta en Swagger los errores de negocio posibles de un endpoint: `{ 409: ['YA_EXISTE', …] }`. */
-export const ApiProblems = (byStatus: Partial<Record<400 | 403 | 404 | 409 | 422, string[]>>) =>
+export const ApiProblems = (byStatus: Partial<Record<400 | 403 | 404 | 409 | 422 | 429, string[]>>) =>
   applyDecorators(
     ...Object.entries(byStatus).map(([status, codes]) =>
       ApiResponse({

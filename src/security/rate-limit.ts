@@ -5,7 +5,7 @@ import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
 
 export const RATE_LIMIT_KEY = 'rateLimitPreset';
-export type RateLimitPreset = 'auth' | 'signup' | 'invite';
+export type RateLimitPreset = 'auth' | 'signup' | 'invite' | 'events';
 /** Límite más estricto que el global para un endpoint sensible. */
 export const RateLimit = (preset: RateLimitPreset) => SetMetadata(RATE_LIMIT_KEY, preset);
 
@@ -49,6 +49,8 @@ export class RateLimitGuard implements CanActivate {
       checks.push([`c:${id}`, max * 4, win]); // contra ataques que rotan de IP sobre una cuenta
     } else if (preset === 'invite') {
       checks.push([`i:${req.ip}`, this.env.INVITE_RATE_LIMIT_MAX, 3600]); // busca cuentas por correo: se limita para no enumerar
+    } else if (preset === 'events') {
+      checks.push([`e:${req.ip}`, this.env.EVENTS_RATE_LIMIT_MAX, 60]); // ingesta de eventos: tope por IP además del tope por usuario
     } else if (preset === 'signup') {
       checks.push([`s:${req.ip}`, this.env.SIGNUP_RATE_LIMIT_MAX, 3600]);
     }
