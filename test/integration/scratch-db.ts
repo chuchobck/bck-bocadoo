@@ -50,6 +50,13 @@ export class ScratchDb {
     return pool;
   };
 
+  /** La misma URL (rol y contraseña incluidos) apuntando al clon: para pruebas que arman su propio entorno. */
+  urlFor(connectionString: string): string {
+    const u = new URL(connectionString);
+    u.pathname = `/${this.name}`;
+    return u.toString();
+  }
+
   async drop(): Promise<void> {
     const c = new pg.Client({ connectionString: this.adminUrl });
     await c.connect();

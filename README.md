@@ -41,6 +41,10 @@ Registro, login con JWT ES256, refresh rotativo, roles y tenant, rate limit. Mod
 
 Endpoints nuevos: sin token no entra nadie salvo `@Public()`; los de un restaurante llevan `@Roles('DUENO', 'CAJERO')` y el encabezado `x-restaurant-id`.
 
+## Jobs (cron)
+
+Vencer planes y crear las particiones mensuales: `node dist/jobs/cli.js all` (Cron Job de Render con la misma imagen). Son idempotentes y se pueden correr a mano con `pnpm jobs <expire-plans|create-partitions|all>`. Detalle, configuración de Render y qué hacer si falla en `docs/jobs.md`.
+
 ## Estado y API
 
 Estado de las fases, checklist y tabla de endpoints en `docs/estado.md`. Swagger en `/docs` (apagado en producción).

@@ -13,6 +13,7 @@
     "test:db": "vitest run --config vitest.db.config.ts",
     "typecheck": "tsc --noEmit",
     "openapi:export": "nest build && node dist/openapi-export.js",
+    "jobs": "nest build && node dist/jobs/cli.js",
     "db:migrate": "node scripts/db.mjs up",
     "db:status": "node scripts/db.mjs status",
     "db:rollback": "node scripts/db.mjs rollback",

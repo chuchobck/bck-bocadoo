@@ -31,11 +31,13 @@ export default tseslint.config(
       'no-restricted-syntax': ['error', ...SOLO_DBSERVICE],
     },
   },
-  // Lugares autorizados a usar el rol de servicio (módulo de auth, eventos de seguridad) y a hablar con pg.
+  // Lugares autorizados a usar el rol de servicio (módulo de auth, eventos de seguridad, jobs de cron) y a hablar con pg.
   {
-    files: ['src/auth/**', 'src/security/**', 'src/db/**'],
+    files: ['src/auth/**', 'src/security/**', 'src/db/**', 'src/jobs/**'],
     rules: { 'no-restricted-syntax': 'off' },
   },
+  // La entrada de cron imprime una línea JSON por job: la salida estándar es su interfaz.
+  { files: ['src/jobs/cli.ts'], rules: { 'no-console': 'off' } },
   { files: ['src/db/**'], rules: { 'no-restricted-imports': 'off' } },
   // Pruebas y scripts: acceso libre a la base para preparar datos y comprobar resultados.
   {
