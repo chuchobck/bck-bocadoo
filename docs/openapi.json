@@ -4583,6 +4583,84 @@
         "summary": "Clientes a quienes escribirles",
         "tags": ["reportes"]
       }
+    },
+    "/v1/suscripcion": {
+      "get": {
+        "description": "Plan, estado, ciclo, próximo cobro y límites. Modelo SaaS: el local paga una mensualidad y se queda con todo lo que cobra; no hay comisión.",
+        "operationId": "SaasController_subscription",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuscripcionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Suscripción SaaS del local",
+        "tags": ["saas"]
+      }
+    },
+    "/v1/suscripcion/uso": {
+      "get": {
+        "description": "Cuántos escaneos lleva el local en el ciclo actual frente al tope de su plan. También lo ve el cajero: al llegar al tope la caja responde `LIMITE_SAAS`.",
+        "operationId": "SaasController_usage",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsoResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Uso de escaneos del ciclo",
+        "tags": ["saas"]
+      }
     }
   },
   "info": {
@@ -7128,6 +7206,127 @@
           }
         },
         "required": ["fecha", "zonaHoraria", "total", "items"]
+      },
+      "PlanSaasResponse": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "example": "FREEMIUM"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Gratis"
+          },
+          "precioMensualCentavos": {
+            "type": "object",
+            "description": "Precio mensual vigente en el país del local (centavos); null si el plan no tiene precio ahí"
+          },
+          "moneda": {
+            "type": "object",
+            "example": "USD"
+          }
+        },
+        "required": ["codigo", "nombre"]
+      },
+      "CicloResponse": {
+        "type": "object",
+        "properties": {
+          "inicio": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "Primer día del ciclo"
+          },
+          "fin": {
+            "type": "string",
+            "example": "2026-12-01",
+            "description": "Día en que termina el ciclo"
+          },
+          "diasRestantes": {
+            "type": "number",
+            "description": "Días desde hoy (hora local del local) hasta `fin`; 0 si ya pasó"
+          },
+          "vencido": {
+            "type": "boolean",
+            "description": "true si `fin` ya pasó y el ciclo no se renovó: los contadores siguen del ciclo anterior"
+          }
+        },
+        "required": ["inicio", "fin", "diasRestantes", "vencido"]
+      },
+      "LimitesResponse": {
+        "type": "object",
+        "properties": {
+          "escaneosMes": {
+            "type": "object",
+            "description": "Escaneos por ciclo; null = sin límite"
+          },
+          "mesaGrupal": {
+            "type": "boolean"
+          },
+          "reportesAvanzados": {
+            "type": "boolean"
+          }
+        },
+        "required": ["mesaGrupal", "reportesAvanzados"]
+      },
+      "SuscripcionResponse": {
+        "type": "object",
+        "properties": {
+          "estado": {
+            "type": "string",
+            "enum": ["TRIAL", "FREEMIUM", "ACTIVA_PRO", "MOROSA", "SUSPENDIDA", "CANCELADA", "SIN_SUSCRIPCION"],
+            "description": "`SIN_SUSCRIPCION`: el local aún no tiene plan SaaS asignado (se comporta como sin límite)"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanSaasResponse"
+          },
+          "ciclo": {
+            "$ref": "#/components/schemas/CicloResponse"
+          },
+          "proximoCobro": {
+            "type": "object",
+            "example": "2026-12-01",
+            "description": "null en planes gratuitos"
+          },
+          "limites": {
+            "$ref": "#/components/schemas/LimitesResponse"
+          }
+        },
+        "required": ["estado", "limites"]
+      },
+      "UsoResponse": {
+        "type": "object",
+        "properties": {
+          "ciclo": {
+            "$ref": "#/components/schemas/CicloResponse"
+          },
+          "escaneosUsados": {
+            "type": "number",
+            "description": "Escaneos válidos del ciclo (un almuerzo descontado cuenta uno; deshacerlo no lo devuelve)"
+          },
+          "limite": {
+            "type": "object",
+            "description": "null = sin límite"
+          },
+          "restantes": {
+            "type": "object",
+            "description": "Lo que queda antes del tope; null = sin límite"
+          },
+          "porcentaje": {
+            "type": "object",
+            "description": "Porcentaje entero del límite usado (puede pasar de 100); null = sin límite"
+          },
+          "nivel": {
+            "type": "string",
+            "enum": ["ILIMITADO", "NORMAL", "CERCA_DEL_LIMITE", "LIMITE_ALCANZADO"],
+            "description": "CERCA_DEL_LIMITE desde el 80 %; LIMITE_ALCANZADO desde el 100 %: la caja responde `LIMITE_SAAS`"
+          },
+          "rechazadosPorLimite": {
+            "type": "number",
+            "description": "Escaneos que la caja rechazó con `LIMITE_SAAS` desde que empezó el ciclo"
+          }
+        },
+        "required": ["escaneosUsados", "nivel", "rechazadosPorLimite"]
       }
     }
   }

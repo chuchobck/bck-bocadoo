@@ -4556,6 +4556,60 @@ Response `200`:
 
 `clienteId` es el id del cliente dentro del local, el mismo que usan `/v1/clientes/{id}` y `/v1/clientes/{id}/sellos` (ver "Limitaciones conocidas"). `venceEl` y `ultimaVisita` son `null` si no aplican; `almuerzosRestantes` es 0 sin plan vigente. Errores: los comunes (400 de validación, 401, 403, 429).
 
+### Fase 9 · Suscripción SaaS
+
+Modelo SaaS: el local paga una **mensualidad** por su plan de Bocadoo (con un tope de escaneos por ciclo en los planes bajos) y se queda con todo lo que cobra a sus comensales. **No existe ningún endpoint ni campo de comisión**, y la API solo **lee** la suscripción (la escribe el rol de servicio).
+
+#### `GET /v1/suscripcion`
+
+**Suscripción SaaS del local**
+
+- **Rol:** dueño · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Response `200`:
+
+```json
+{
+  "estado": "FREEMIUM",
+  "plan": { "codigo": "FREEMIUM", "nombre": "Gratis", "precioMensualCentavos": 0, "moneda": "USD" },
+  "ciclo": { "inicio": "2026-11-01", "fin": "2026-12-01", "diasRestantes": 18, "vencido": false },
+  "proximoCobro": null,
+  "limites": { "escaneosMes": null, "mesaGrupal": false, "reportesAvanzados": false }
+}
+```
+
+- `estado`: `TRIAL`, `FREEMIUM`, `ACTIVA_PRO`, `MOROSA`, `SUSPENDIDA`, `CANCELADA` o `SIN_SUSCRIPCION` (el local todavía no tiene plan SaaS asignado: se comporta como sin límite y `plan`, `ciclo` son `null`). Un local `SUSPENDIDA` recibe `LIMITE_SAAS` en la caja.
+- `plan.precioMensualCentavos` y `moneda` son el precio vigente en el país del local; `null` si el plan no tiene precio ahí.
+- `ciclo.diasRestantes` se cuenta desde hoy en la zona horaria del local. `ciclo.vencido` es `true` si `fin` ya pasó y el ciclo no se renovó (los contadores siguen siendo del ciclo anterior).
+- `limites.escaneosMes`: `null` = sin límite. `mesaGrupal` y `reportesAvanzados` se informan pero **hoy la API no los exige** en los endpoints.
+
+#### `GET /v1/suscripcion/uso`
+
+**Uso de escaneos del ciclo**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+
+Response `200`:
+
+```json
+{
+  "ciclo": { "inicio": "2026-11-01", "fin": "2026-12-01", "diasRestantes": 18, "vencido": false },
+  "escaneosUsados": 4,
+  "limite": 5,
+  "restantes": 1,
+  "porcentaje": 80,
+  "nivel": "CERCA_DEL_LIMITE",
+  "rechazadosPorLimite": 0
+}
+```
+
+- `escaneosUsados`: el contador que aplica el límite; cuenta cada almuerzo descontado en el ciclo (deshacerlo no lo devuelve).
+- `nivel`: `ILIMITADO` (sin tope), `NORMAL`, `CERCA_DEL_LIMITE` (desde el 80 %) o `LIMITE_ALCANZADO` (desde el 100 %: `POST /v1/caja/validar` responde `LIMITE_SAAS`).
+- `rechazadosPorLimite`: escaneos de la caja rechazados por `LIMITE_SAAS` desde que empezó el ciclo.
+- Sin suscripción: todo en cero/`null` y `nivel: "ILIMITADO"`.
+
 ### Salud
 
 #### `GET /health`

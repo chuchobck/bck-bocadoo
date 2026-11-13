@@ -25,4 +25,19 @@ describe('OpenAPI', () => {
     const body = (path: string) => doc.paths[path]!.post!.requestBody!.content['application/json']!.schema.$ref;
     expect(body('/v1/restaurante/mesas')).not.toBe(body('/v1/mis/mesas'));
   });
+  it('modelo SaaS: ninguna ruta ni campo del contrato habla de comisiones', () => {
+    // Revisa nombres de rutas y de propiedades de esquemas (las descripciones pueden decir "sin comisión").
+    const names: string[] = [...Object.keys(doc.paths)];
+    const walk = (v: unknown) => {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== 'object') return;
+      for (const [key, child] of Object.entries(v)) {
+        if (key === 'properties' && child && typeof child === 'object') names.push(...Object.keys(child));
+        if (key === 'name' && typeof child === 'string') names.push(child); // parámetros
+        walk(child);
+      }
+    };
+    walk(doc);
+    expect(names.filter((n) => /comisi|commission|tasa/i.test(n))).toEqual([]);
+  });
 });
