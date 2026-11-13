@@ -28,3 +28,12 @@ export class UuidPipe implements PipeTransform<string, string> {
     return value.toLowerCase();
   }
 }
+
+/** Fecha AAAA-MM-DD o la palabra `hoy` (resuelta con la zona horaria del restaurante). */
+@Injectable()
+export class FechaOHoyPipe implements PipeTransform<string, string> {
+  private readonly iso = new IsoDatePipe();
+  transform(value: string): string {
+    return value === 'hoy' ? value : this.iso.transform(value);
+  }
+}
