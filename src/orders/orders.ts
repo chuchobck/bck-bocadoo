@@ -7,6 +7,7 @@ import {
   ArrayUnique,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   Matches,
@@ -15,6 +16,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
+import { Roles } from '../authz/roles.decorator';
+import { CheckoutModule } from '../checkout/checkout.module';
+import { CheckoutService, PERSONAL_ACTUAL, RESULTADOS, type Resultado } from '../checkout/checkout';
 import { ApiProblems, badRequest, conflict, notFound, unprocessable } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
@@ -461,5 +465,232 @@ export class DinerOrdersController {
   }
 }
 
-@Module({ controllers: [DinerOrdersController], providers: [DinerOrdersService] })
+// --- Personal del restaurante ---------------------------------------------------------------------------------
+
+const FILTROS = ['ACTIVOS', 'EN_CAMINO', 'CANJEADA', 'SERVIDA', 'EXPIRADA', 'CANCELADA', 'TODOS'] as const;
+
+class PedidosCajaQuery {
+  @ApiPropertyOptional({ enum: FILTROS, default: 'ACTIVOS', description: 'ACTIVOS = en camino (sin vencer) + canjeados sin servir' })
+  @IsOptional()
+  @IsIn(FILTROS)
+  estado?: (typeof FILTROS)[number];
+}
+
+class PedidoCaja extends PedidoResponse {
+  @ApiProperty({ example: { nombre: 'Ana Pérez' }, description: 'Quién pidió (nombre de su cuenta)' }) comensal!: { nombre: string };
+  @ApiPropertyOptional({
+    example: { nombre: 'Ana Pérez', almuerzosDisponibles: 4 },
+    description: 'Su ficha de cliente en este local; null si no es cliente',
+  })
+  cliente!: { nombre: string; almuerzosDisponibles: number } | null;
+}
+
+class CanjeResponse {
+  @ApiProperty({ type: PedidoCaja }) pedido!: PedidoCaja;
+  @ApiProperty({ description: 'El pedido ya estaba canjeado: no se descontó nada esta vez' }) yaCanjeado!: boolean;
+  @ApiPropertyOptional({
+    description: 'null si el pedido no lleva almuerzo. `resultado` es null al repetir un canje ya hecho.',
+    example: { resultado: 'OK', mensaje: RESULTADOS.OK, descontado: true, consumoId: 'uuid' },
+  })
+  almuerzo!: { resultado: Resultado | null; mensaje: string | null; descontado: boolean; consumoId: string | null } | null;
+  @ApiProperty({ description: 'Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió' })
+  porCobrarCentavos!: number;
+}
+
+interface StaffRow extends OrderRow {
+  cliente_nombre: string | null;
+  disponibles: number | null;
+}
+
+const STAFF_SELECT = `SELECT x.*, c.nombre AS cliente_nombre,
+       (SELECT COALESCE(sum(s.almuerzos_restantes), 0)::int FROM suscripcion_plan s
+         WHERE s.restaurante_id = x.restaurante_id_ AND s.cliente_id = c.cliente_id AND s.estado = 'ACTIVA'
+           AND s.vence_el >= x.fecha_local::date) AS disponibles
+  FROM (${ORDER_SELECT.replace('SELECT o.orden_id,', 'SELECT o.restaurante_id AS restaurante_id_, o.orden_id,')} WHERE o.restaurante_id = app_tenant_id()) x
+  LEFT JOIN cliente_restaurante c ON c.restaurante_id = x.restaurante_id_ AND c.cliente_id = x.cliente_id`;
+
+/**
+ * El pedido del comensal visto desde la caja (dueño y cajero, con tenant: RLS tenant_total). La caja escanea el QR
+ * (public_id), lo canjea —descuenta el almuerzo del plan con canal PREORDEN— y lo marca servido.
+ */
+@Injectable()
+export class StaffOrdersService {
+  constructor(
+    private readonly db: DbService,
+    private readonly checkout: CheckoutService,
+  ) {}
+
+  list(estado: (typeof FILTROS)[number] = 'ACTIVOS') {
+    return this.db.forRequest(
+      async (q) => {
+        const r = await q.query<StaffRow>(
+          `${STAFF_SELECT}
+            WHERE x.fecha_local::date = (SELECT ${HOY_LOCAL('r')} FROM restaurante r WHERE r.restaurante_id = app_tenant_id())
+              AND ($1 = 'TODOS' OR ($1 = 'ACTIVOS' AND x.estado IN ('EN_CAMINO', 'CANJEADA')) OR x.estado = $1)
+            ORDER BY x.numero_dia LIMIT 200`,
+          [estado],
+        );
+        return this.render(q, r.rows);
+      },
+      { readOnly: true },
+    );
+  }
+
+  one(id: string) {
+    return this.db.forRequest(async (q) => (await this.render(q, [await this.load(q, id, false)]))[0]!, { readOnly: true });
+  }
+
+  /** Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras tanto. */
+  redeem(id: string, key: string): Promise<CanjeResponse> {
+    return this.db.forRequest(async (q) => {
+      const o = await this.load(q, id, true);
+      if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
+      if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
+      const pedidoLines = await renderOrders(q, [o]);
+      const hasLunch = pedidoLines[0]!.almuerzo !== null;
+      const extras = pedidoLines[0]!.extras.reduce((s, e) => s + e.subtotalCentavos, 0);
+      const precio = Number(
+        (await q.query<{ p: string }>('SELECT precio_suelto_centavos AS p FROM restaurante WHERE restaurante_id = app_tenant_id()'))
+          .rows[0]!.p,
+      );
+      const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
+
+      if (o.estado === 'CANJEADA' || o.estado === 'SERVIDA') {
+        const c = await q.query<{ public_id: string }>(
+          `SELECT k.public_id FROM consumo_almuerzo k WHERE k.restaurante_id = app_tenant_id() AND k.orden_id = $1 AND k.cantidad = 1
+              AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)`,
+          [o.orden_id],
+        );
+        const consumoId = c.rows[0]?.public_id ?? null;
+        return {
+          pedido: (await this.render(q, [o]))[0]!,
+          yaCanjeado: true,
+          almuerzo: hasLunch ? { resultado: null, mensaje: null, descontado: consumoId !== null, consumoId } : null,
+          porCobrarCentavos: due(consumoId !== null),
+        };
+      }
+
+      let almuerzo: CanjeResponse['almuerzo'] = null;
+      if (hasLunch) {
+        if (o.cliente_id) {
+          // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
+          const prev = await q.query<{ orden_id: string | null }>(
+            'SELECT orden_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
+            [key],
+          );
+          if (prev.rows[0] && String(prev.rows[0].orden_id) !== String(o.orden_id))
+            throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra validación.');
+          const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
+          const r = await this.checkout.deduct(q, {
+            clienteId: String(o.cliente_id),
+            personalId,
+            key,
+            canal: 'PREORDEN',
+            paraLlevar: o.tipo === 'LLEVAR',
+            ordenId: String(o.orden_id),
+          });
+          almuerzo = { resultado: r.resultado, mensaje: r.mensaje, descontado: r.descontado, consumoId: r.consumo?.id ?? null };
+        } else {
+          almuerzo = { resultado: 'SIN_PLAN', mensaje: RESULTADOS.SIN_PLAN, descontado: false, consumoId: null };
+        }
+      }
+      await q.query(
+        `UPDATE orden_cabecera SET estado = 'CANJEADA', canjeada_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
+        [o.orden_id],
+      );
+      const after = await this.load(q, id, false);
+      return {
+        pedido: (await this.render(q, [after]))[0]!,
+        yaCanjeado: false,
+        almuerzo,
+        porCobrarCentavos: due(almuerzo?.descontado ?? false),
+      };
+    });
+  }
+
+  serve(id: string) {
+    return this.db.forRequest(async (q) => {
+      const o = await this.load(q, id, true);
+      if (o.estado === 'CANJEADA')
+        await q.query(
+          `UPDATE orden_cabecera SET estado = 'SERVIDA', servida_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
+          [o.orden_id],
+        );
+      else if (o.estado !== 'SERVIDA') throw conflict('PEDIDO_NO_CANJEADO', 'Primero canjea el pedido en caja.');
+      return (await this.render(q, [await this.load(q, id, false)]))[0]!;
+    });
+  }
+
+  private async load(q: Queryable, id: string, lock: boolean): Promise<StaffRow> {
+    if (lock) await q.query('SELECT 1 FROM orden_cabecera WHERE restaurante_id = app_tenant_id() AND public_id = $1 FOR UPDATE', [id]);
+    const r = await q.query<StaffRow>(`${STAFF_SELECT} WHERE x.public_id = $1`, [id]);
+    if (!r.rows[0]) throw notFound('PEDIDO_NO_ENCONTRADO', 'Pedido no encontrado.');
+    return r.rows[0];
+  }
+
+  private async render(q: Queryable, rows: StaffRow[]): Promise<PedidoCaja[]> {
+    const base = await renderOrders(q, rows);
+    return base.map((p, i) => ({
+      ...p,
+      comensal: { nombre: rows[i]!.usuario_nombre },
+      cliente:
+        rows[i]!.cliente_nombre === null ? null : { nombre: rows[i]!.cliente_nombre!, almuerzosDisponibles: rows[i]!.disponibles ?? 0 },
+    }));
+  }
+}
+
+@ApiTags('caja')
+@Controller('v1/caja/pedidos')
+export class StaffOrdersController {
+  constructor(private readonly svc: StaffOrdersService) {}
+
+  @Roles('DUENO', 'CAJERO')
+  @Get()
+  @ApiOperation({ summary: 'Preórdenes de hoy', description: 'Por defecto las activas, en orden de número ("Pedido #N").' })
+  @ApiOkResponse({ type: [PedidoCaja] })
+  list(@Query() q: PedidosCajaQuery) {
+    return this.svc.list(q.estado);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Get(':id')
+  @ApiOperation({ summary: 'Ver un pedido por su QR (public_id)' })
+  @ApiOkResponse({ type: PedidoCaja })
+  @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'] })
+  one(@Param('id', UuidPipe) id: string) {
+    return this.svc.one(id);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Post(':id/canjear')
+  @HttpCode(200)
+  @ApiIdempotent()
+  @ApiOperation({
+    summary: 'Canjear el QR del pedido',
+    description:
+      'Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados ' +
+      'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.',
+  })
+  @ApiOkResponse({ type: CanjeResponse })
+  @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'], 409: ['PEDIDO_EXPIRADO', 'PEDIDO_CANCELADO', 'IDEMPOTENCY_KEY_REUTILIZADA'] })
+  redeem(@Param('id', UuidPipe) id: string, @IdempotencyKey() key: string) {
+    return this.svc.redeem(id, key);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Post(':id/servir')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Marcar el pedido como servido' })
+  @ApiOkResponse({ type: PedidoCaja })
+  @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'], 409: ['PEDIDO_NO_CANJEADO'] })
+  serve(@Param('id', UuidPipe) id: string) {
+    return this.svc.serve(id);
+  }
+}
+
+@Module({
+  imports: [CheckoutModule],
+  controllers: [DinerOrdersController, StaffOrdersController],
+  providers: [DinerOrdersService, StaffOrdersService],
+})
 export class OrdersModule {}
