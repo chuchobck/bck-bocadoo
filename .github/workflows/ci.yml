@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, tipos, pruebas y build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  integration:
+    name: Integración contra Postgres 16 (RLS, auth, multi-tenant)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bocadoo
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bocadoo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      NODE_ENV: test
+      LOG_LEVEL: silent
+      DATABASE_MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/bocadoo?sslmode=disable
+      DATABASE_URL: postgresql://bck_api:apipw@localhost:5432/bocadoo?sslmode=disable
+      DATABASE_SERVICE_URL: postgresql://bck_servicio:svcpw@localhost:5432/bocadoo?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Aplicar migraciones (esquema, roles bocadoo_*, tablas de auth)
+        run: pnpm db:migrate
+      - name: Crear los roles de la API y cargar el seed demo
+        run: |
+          psql -h localhost -U postgres -d bocadoo -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE bck_api LOGIN PASSWORD 'apipw' IN ROLE bocadoo_app;
+          CREATE ROLE bck_servicio LOGIN PASSWORD 'svcpw' BYPASSRLS IN ROLE bocadoo_servicio;
+          SQL
+          psql -h localhost -U postgres -d bocadoo -v ON_ERROR_STOP=1 -q -f db/seeds/demo.sql
+      - run: pnpm test:db
+
+  secrets:
+    name: Búsqueda de secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Imagen de Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t bck-bocadoo:ci .

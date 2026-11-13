@@ -12,7 +12,10 @@ describe('Cabeceras, CORS, límites y rate limit', () => {
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
-  afterAll(() => { delete process.env.CORS_ORIGINS; return app.close(); });
+  afterAll(() => {
+    delete process.env.CORS_ORIGINS;
+    return app.close();
+  });
 
   const login = (identificador: string, password: string, remoteAddress: string) =>
     app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress, payload: { identificador, password } });
@@ -32,35 +35,74 @@ describe('Cabeceras, CORS, límites y rate limit', () => {
   });
 
   it('CORS: solo los orígenes de la lista blanca reciben permiso', async () => {
-    const preflight = (origin: string) => app.inject({
-      method: 'OPTIONS', url: '/v1/auth/login', remoteAddress: '10.60.0.3',
-      headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type' },
-    });
+    const preflight = (origin: string) =>
+      app.inject({
+        method: 'OPTIONS',
+        url: '/v1/auth/login',
+        remoteAddress: '10.60.0.3',
+        headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type' },
+      });
     expect((await preflight('https://app.bocadoo.test')).headers['access-control-allow-origin']).toBe('https://app.bocadoo.test');
     expect((await preflight('https://malo.example')).headers['access-control-allow-origin']).toBeUndefined();
-    const simple = await app.inject({ method: 'GET', url: '/health', remoteAddress: '10.60.0.3', headers: { origin: 'https://malo.example' } });
+    const simple = await app.inject({
+      method: 'GET',
+      url: '/health',
+      remoteAddress: '10.60.0.3',
+      headers: { origin: 'https://malo.example' },
+    });
     expect(simple.headers['access-control-allow-origin']).toBeUndefined();
   });
 
   it('cuerpo por encima del límite (100 kB) → 413', async () => {
     const res = await app.inject({
-      method: 'POST', url: '/v1/auth/login', remoteAddress: '10.60.0.4',
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: '10.60.0.4',
       payload: { identificador: 'a@b.co', password: 'x'.repeat(200_000) },
     });
     expect(res.statusCode).toBe(413);
   });
 
   it('campos extra en el body → 400; tipos incorrectos → 400', async () => {
-    const extra = await app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress: '10.60.0.5', payload: { identificador: 'a@b.co', password: 'x', admin: true } });
+    const extra = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: '10.60.0.5',
+      payload: { identificador: 'a@b.co', password: 'x', admin: true },
+    });
     expect(extra.statusCode).toBe(400);
     expect(extra.headers['content-type']).toContain('application/problem+json');
-    expect((await app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress: '10.60.0.5', payload: { identificador: { $ne: '' }, password: 'x' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress: '10.60.0.5', payload: 'no-json', headers: { 'content-type': 'application/json' } })).statusCode).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/auth/login',
+          remoteAddress: '10.60.0.5',
+          payload: { identificador: { $ne: '' }, password: 'x' },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/auth/login',
+          remoteAddress: '10.60.0.5',
+          payload: 'no-json',
+          headers: { 'content-type': 'application/json' },
+        })
+      ).statusCode,
+    ).toBe(400);
   });
 
   it('login: tras 5 intentos fallidos el sexto → 429 con Retry-After, aunque la clave sea correcta', async () => {
     const correo = `rate_${unique()}@correo.com`;
-    const reg = await app.inject({ method: 'POST', url: '/v1/auth/register', remoteAddress: '10.60.1.1', payload: { nombre: 'Rate Limit', correo, password: 'una-clave-larga-123', aceptaTerminos: true } });
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      remoteAddress: '10.60.1.1',
+      payload: { nombre: 'Rate Limit', correo, password: 'una-clave-larga-123', aceptaTerminos: true },
+    });
     expect(reg.statusCode).toBe(201);
     const ip = '10.60.1.2';
     for (let i = 0; i < 5; i++) expect((await login(correo, 'incorrecta-123456', ip)).statusCode).toBe(401);

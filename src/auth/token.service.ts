@@ -77,7 +77,13 @@ export class TokenService {
           if (!key) throw new errors.JWSInvalid('kid desconocido');
           return key;
         },
-        { algorithms: ['ES256'], issuer: this.env.JWT_ISSUER, audience: this.env.JWT_AUDIENCE, typ: 'at+jwt', requiredClaims: ['sub', 'exp', 'iat'] },
+        {
+          algorithms: ['ES256'],
+          issuer: this.env.JWT_ISSUER,
+          audience: this.env.JWT_AUDIENCE,
+          typ: 'at+jwt',
+          requiredClaims: ['sub', 'exp', 'iat'],
+        },
       );
       const { sub, uid } = payload as { sub?: unknown; uid?: unknown };
       if (typeof sub !== 'string' || !UUID_RE.test(sub) || typeof uid !== 'string' || !ID_RE.test(uid)) return null;

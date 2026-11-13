@@ -27,7 +27,8 @@ export class TenantGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     if (!req.user) throw new ForbiddenException('Acceso denegado.');
     const raw = req.headers['x-restaurant-id'];
-    if (typeof raw !== 'string' || !UUID_RE.test(raw)) throw new BadRequestException('Falta el encabezado x-restaurant-id o no es un UUID.');
+    if (typeof raw !== 'string' || !UUID_RE.test(raw))
+      throw new BadRequestException('Falta el encabezado x-restaurant-id o no es un UUID.');
 
     // Como bck_api con el usuario del request: RLS solo deja ver sus propias filas de personal.
     const found = await this.db.scope({ userId: req.user.userId, readOnly: true }, (q) =>
@@ -40,7 +41,12 @@ export class TenantGuard implements CanActivate {
     );
     const row = found.rows[0];
     if (!row) {
-      await this.events.record('ACCESO_DENEGADO', { ip: req.ip, userAgent: req.headers['user-agent'], usuarioId: req.user.userId, detalle: { motivo: 'SIN_ACCESO_AL_RESTAURANTE', restaurante: raw.toLowerCase(), ruta: req.url.split('?')[0] } });
+      await this.events.record('ACCESO_DENEGADO', {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        usuarioId: req.user.userId,
+        detalle: { motivo: 'SIN_ACCESO_AL_RESTAURANTE', restaurante: raw.toLowerCase(), ruta: req.url.split('?')[0] },
+      });
       throw new ForbiddenException('No tienes acceso a este restaurante.');
     }
     RequestContextStore.set({ tenantId: String(row.restaurante_id), role: row.rol });

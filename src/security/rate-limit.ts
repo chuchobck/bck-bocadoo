@@ -9,7 +9,10 @@ export type RateLimitPreset = 'auth' | 'signup';
 /** Límite más estricto que el global para un endpoint sensible. */
 export const RateLimit = (preset: RateLimitPreset) => SetMetadata(RATE_LIMIT_KEY, preset);
 
-interface Bucket { count: number; resetAt: number }
+interface Bucket {
+  count: number;
+  resetAt: number;
+}
 const MAX_ENTRIES = 100_000;
 
 /**
@@ -33,9 +36,14 @@ export class RateLimitGuard implements CanActivate {
 
     // Tope general por IP, para todos los endpoints.
     const checks: Array<[string, number, number]> = [[`g:${req.ip}`, this.env.RATE_LIMIT_MAX, 60]];
-    const preset = this.reflector.getAllAndOverride<RateLimitPreset | undefined>(RATE_LIMIT_KEY, [context.getHandler(), context.getClass()]);
+    const preset = this.reflector.getAllAndOverride<RateLimitPreset | undefined>(RATE_LIMIT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     if (preset === 'auth') {
-      const id = String((req.body as { identificador?: unknown } | undefined)?.identificador ?? '').toLowerCase().slice(0, 254);
+      const id = String((req.body as { identificador?: unknown } | undefined)?.identificador ?? '')
+        .toLowerCase()
+        .slice(0, 254);
       const { AUTH_RATE_LIMIT_MAX: max, AUTH_RATE_LIMIT_WINDOW_SECONDS: win } = this.env;
       checks.push([`a:${req.ip}:${id}`, max, win]); // intentos por IP y cuenta
       checks.push([`c:${id}`, max * 4, win]); // contra ataques que rotan de IP sobre una cuenta
@@ -46,7 +54,10 @@ export class RateLimitGuard implements CanActivate {
     let retryAfter = 0;
     for (const [key, max, windowSeconds] of checks) {
       let b = this.buckets.get(key);
-      if (!b || b.resetAt <= now) { b = { count: 0, resetAt: now + windowSeconds * 1000 }; this.buckets.set(key, b); }
+      if (!b || b.resetAt <= now) {
+        b = { count: 0, resetAt: now + windowSeconds * 1000 };
+        this.buckets.set(key, b);
+      }
       b.count += 1;
       if (b.count > max) retryAfter = Math.max(retryAfter, Math.ceil((b.resetAt - now) / 1000));
     }

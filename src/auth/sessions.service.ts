@@ -59,7 +59,9 @@ export class SessionsService {
       );
       const won = upd.rows[0];
       if (won) {
-        const u = await q.query<{ public_id: string; activo: boolean }>('SELECT public_id, activo FROM usuario WHERE usuario_id = $1', [won.usuario_id]);
+        const u = await q.query<{ public_id: string; activo: boolean }>('SELECT public_id, activo FROM usuario WHERE usuario_id = $1', [
+          won.usuario_id,
+        ]);
         const user = u.rows[0];
         if (!user?.activo) {
           await this.revokeFamily(q, won.familia_id, 'ADMIN');
@@ -68,10 +70,13 @@ export class SessionsService {
         const refreshToken = await this.issue(q, String(won.usuario_id), info, won.familia_id);
         return { kind: 'ok', usuarioId: String(won.usuario_id), publicId: user.public_id, refreshToken };
       }
-      const prev = await q.query<{ familia_id: string; usuario_id: string; usado_en: Date | null; revocado_en: Date | null; motivo_revocacion: string | null }>(
-        'SELECT familia_id, usuario_id, usado_en, revocado_en, motivo_revocacion FROM sesion_refresh WHERE token_hash = $1',
-        [hash],
-      );
+      const prev = await q.query<{
+        familia_id: string;
+        usuario_id: string;
+        usado_en: Date | null;
+        revocado_en: Date | null;
+        motivo_revocacion: string | null;
+      }>('SELECT familia_id, usuario_id, usado_en, revocado_en, motivo_revocacion FROM sesion_refresh WHERE token_hash = $1', [hash]);
       const row = prev.rows[0];
       if (!row) return { kind: 'unknown' };
       const usuarioId = String(row.usuario_id);
@@ -85,7 +90,9 @@ export class SessionsService {
     });
 
     if (out.kind === 'ok') return { usuarioId: out.usuarioId, publicId: out.publicId, refreshToken: out.refreshToken };
-    const tipo = { reuse: 'REFRESH_REUSO', invalid: 'REFRESH_INVALIDO', unknown: 'REFRESH_INVALIDO', inactive: 'REFRESH_INVALIDO' }[out.kind];
+    const tipo = { reuse: 'REFRESH_REUSO', invalid: 'REFRESH_INVALIDO', unknown: 'REFRESH_INVALIDO', inactive: 'REFRESH_INVALIDO' }[
+      out.kind
+    ];
     await this.events.record(tipo, { ...info, usuarioId: out.usuarioId, detalle: { motivo: out.kind.toUpperCase() } });
     throw new UnauthorizedException('Sesión inválida o expirada.');
   }
@@ -94,7 +101,10 @@ export class SessionsService {
   async logout(raw: string, info: ClientInfo): Promise<void> {
     if (!TOKEN_RE.test(raw)) return;
     const usuarioId = await this.db.service(async (q) => {
-      const r = await q.query<{ familia_id: string; usuario_id: string }>('SELECT familia_id, usuario_id FROM sesion_refresh WHERE token_hash = $1', [sha256(raw)]);
+      const r = await q.query<{ familia_id: string; usuario_id: string }>(
+        'SELECT familia_id, usuario_id FROM sesion_refresh WHERE token_hash = $1',
+        [sha256(raw)],
+      );
       if (!r.rows[0]) return undefined;
       await this.revokeFamily(q, r.rows[0].familia_id, 'LOGOUT');
       return String(r.rows[0].usuario_id);

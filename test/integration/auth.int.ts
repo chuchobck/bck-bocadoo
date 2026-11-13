@@ -26,11 +26,19 @@ describe('Autenticación', () => {
   // Cada prueba usa su propia IP para no compartir contadores de rate limit.
   const ip = () => `10.40.${Math.floor(++n / 250)}.${(n % 250) + 1}`;
   const call = (method: 'GET' | 'POST', url: string, opts: { payload?: object; token?: string; ip?: string } = {}) =>
-    app.inject({ method, url, payload: opts.payload, remoteAddress: opts.ip ?? ip(), headers: opts.token ? { authorization: `Bearer ${opts.token}` } : {} });
+    app.inject({
+      method,
+      url,
+      payload: opts.payload,
+      remoteAddress: opts.ip ?? ip(),
+      headers: opts.token ? { authorization: `Bearer ${opts.token}` } : {},
+    });
 
   async function newUser() {
     const correo = `auth_${unique()}@correo.com`;
-    const res = await call('POST', '/v1/auth/register', { payload: { nombre: 'Usuaria Prueba', correo, password: PASSWORD, aceptaTerminos: true } });
+    const res = await call('POST', '/v1/auth/register', {
+      payload: { nombre: 'Usuaria Prueba', correo, password: PASSWORD, aceptaTerminos: true },
+    });
     expect(res.statusCode).toBe(201);
     return { correo, publicId: res.json().usuario.id as string };
   }
@@ -38,7 +46,12 @@ describe('Autenticación', () => {
     return call('POST', '/v1/auth/login', { payload: { identificador: correo, password }, ip: ipAddr });
   }
   const events = (tipo: string, usuarioPublicId: string) =>
-    db.service((q) => q.query(`SELECT 1 FROM evento_seguridad e JOIN usuario u USING (usuario_id) WHERE e.tipo = $1 AND u.public_id = $2`, [tipo, usuarioPublicId]));
+    db.service((q) =>
+      q.query(`SELECT 1 FROM evento_seguridad e JOIN usuario u USING (usuario_id) WHERE e.tipo = $1 AND u.public_id = $2`, [
+        tipo,
+        usuarioPublicId,
+      ]),
+    );
 
   describe('login y /me', () => {
     it('login correcto devuelve access y refresh; /me responde con el usuario del token', async () => {
@@ -57,9 +70,16 @@ describe('Autenticación', () => {
     it('el refresh token se guarda solo como hash', async () => {
       const u = await newUser();
       const { refreshToken } = (await login(u.correo)).json();
-      const r = await db.service((q) => q.query(`SELECT 1 FROM sesion_refresh WHERE token_hash = $1 OR token_hash = encode(sha256($2::bytea), 'hex')`, [refreshToken, refreshToken]));
+      const r = await db.service((q) =>
+        q.query(`SELECT 1 FROM sesion_refresh WHERE token_hash = $1 OR token_hash = encode(sha256($2::bytea), 'hex')`, [
+          refreshToken,
+          refreshToken,
+        ]),
+      );
       expect(r.rowCount).toBe(1); // solo coincide el SHA-256, nunca el token en claro
-      const plain = await db.service((q) => q.query('SELECT 1 FROM sesion_refresh WHERE token_hash = $1', [refreshToken.padEnd(64, '0').slice(0, 64)]));
+      const plain = await db.service((q) =>
+        q.query('SELECT 1 FROM sesion_refresh WHERE token_hash = $1', [refreshToken.padEnd(64, '0').slice(0, 64)]),
+      );
       expect(plain.rowCount).toBe(0);
     });
 
@@ -69,7 +89,12 @@ describe('Autenticación', () => {
       const ghost = await login(`no_existe_${unique()}@correo.com`);
       expect(wrong.statusCode).toBe(401);
       expect(ghost.statusCode).toBe(401);
-      const strip = (r: { json: () => Record<string, unknown> }) => { const j = r.json(); delete j.requestId; delete j.instance; return j; };
+      const strip = (r: { json: () => Record<string, unknown> }) => {
+        const j = r.json();
+        delete j.requestId;
+        delete j.instance;
+        return j;
+      };
       expect(strip(wrong)).toEqual(strip(ghost));
       expect(strip(wrong).detail).toBe('Credenciales inválidas.');
       expect((await events('LOGIN_FALLIDO', u.publicId)).rowCount).toBe(1);
@@ -77,10 +102,16 @@ describe('Autenticación', () => {
 
     it('el tiempo de respuesta de un usuario inexistente es comparable al de uno real', async () => {
       const u = await newUser();
-      const time = async (f: () => Promise<unknown>) => { const t = performance.now(); await f(); return performance.now() - t; };
+      const time = async (f: () => Promise<unknown>) => {
+        const t = performance.now();
+        await f();
+        return performance.now() - t;
+      };
       await login(u.correo, 'x'); // calienta argon2
       const real = Math.min(...(await Promise.all([1, 2, 3].map(() => time(() => login(u.correo, 'mala-clave-larga-1'))))));
-      const ghost = Math.min(...(await Promise.all([1, 2, 3].map(() => time(() => login(`fantasma_${unique()}@correo.com`, 'mala-clave-larga-1'))))));
+      const ghost = Math.min(
+        ...(await Promise.all([1, 2, 3].map(() => time(() => login(`fantasma_${unique()}@correo.com`, 'mala-clave-larga-1'))))),
+      );
       expect(ghost).toBeGreaterThan(real * 0.5);
     });
   });
@@ -117,7 +148,12 @@ describe('Autenticación', () => {
       expect((await call('POST', '/v1/auth/refresh', { payload: { refreshToken: 'corto' } })).statusCode).toBe(400);
       const u = await newUser();
       const { refreshToken } = (await login(u.correo)).json();
-      await db.service((q) => q.query(`UPDATE sesion_refresh SET expira_en = now() - interval '1 second', creado_en = now() - interval '1 day' WHERE usuario_id = (SELECT usuario_id FROM usuario WHERE public_id = $1)`, [u.publicId]));
+      await db.service((q) =>
+        q.query(
+          `UPDATE sesion_refresh SET expira_en = now() - interval '1 second', creado_en = now() - interval '1 day' WHERE usuario_id = (SELECT usuario_id FROM usuario WHERE public_id = $1)`,
+          [u.publicId],
+        ),
+      );
       expect((await call('POST', '/v1/auth/refresh', { payload: { refreshToken } })).statusCode).toBe(401);
     });
   });
@@ -148,11 +184,22 @@ describe('Autenticación', () => {
   });
 
   describe('abuso de JWT', () => {
-    const claims = async () => { const u = await newUser(); const id = (await db.service((q) => q.query<{ usuario_id: string }>('SELECT usuario_id FROM usuario WHERE public_id = $1', [u.publicId]))).rows[0]!.usuario_id; return { sub: u.publicId, uid: String(id) }; };
+    const claims = async () => {
+      const u = await newUser();
+      const id = (
+        await db.service((q) => q.query<{ usuario_id: string }>('SELECT usuario_id FROM usuario WHERE public_id = $1', [u.publicId]))
+      ).rows[0]!.usuario_id;
+      return { sub: u.publicId, uid: String(id) };
+    };
 
     it('sin cabecera, con esquema raro o con basura → 401 problem+json', async () => {
       for (const authorization of [undefined, 'Basic abc', 'Bearer', 'Bearer a b', 'Bearer ñ']) {
-        const res = await app.inject({ method: 'GET', url: '/v1/auth/me', remoteAddress: ip(), headers: authorization ? { authorization } : {} });
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/auth/me',
+          remoteAddress: ip(),
+          headers: authorization ? { authorization } : {},
+        });
         expect(res.statusCode).toBe(401);
         expect(res.headers['content-type']).toContain('application/problem+json');
       }
@@ -178,8 +225,15 @@ describe('Autenticación', () => {
       const c = await claims();
       const { privateKey } = await generateKeyPair('ES256');
       const now = Math.floor(Date.now() / 1000);
-      const sign = (kid: string) => new SignJWT({ uid: c.uid }).setProtectedHeader({ alg: 'ES256', kid, typ: 'at+jwt' })
-        .setSubject(c.sub).setIssuer('bocadoo').setAudience('bocadoo-api').setIssuedAt(now).setExpirationTime(now + 900).sign(privateKey);
+      const sign = (kid: string) =>
+        new SignJWT({ uid: c.uid })
+          .setProtectedHeader({ alg: 'ES256', kid, typ: 'at+jwt' })
+          .setSubject(c.sub)
+          .setIssuer('bocadoo')
+          .setAudience('bocadoo-api')
+          .setIssuedAt(now)
+          .setExpirationTime(now + 900)
+          .sign(privateKey);
       expect((await call('GET', '/v1/auth/me', { token: await sign('otro-kid') })).statusCode).toBe(401);
       expect((await call('GET', '/v1/auth/me', { token: await sign('k1') })).statusCode).toBe(401); // kid conocido, llave ajena
     });
@@ -189,16 +243,27 @@ describe('Autenticación', () => {
       expect((await call('GET', '/v1/auth/me', { token: await tokens.signAccess(c, -10) })).statusCode).toBe(401);
       const { privateKey } = await generateKeyPair('ES256');
       const now = Math.floor(Date.now() / 1000);
-      const wrongAud = await new SignJWT({ uid: c.uid }).setProtectedHeader({ alg: 'ES256', kid: 'k1', typ: 'at+jwt' })
-        .setSubject(c.sub).setIssuer('bocadoo').setAudience('otra-api').setIssuedAt(now).setExpirationTime(now + 900).sign(privateKey);
+      const wrongAud = await new SignJWT({ uid: c.uid })
+        .setProtectedHeader({ alg: 'ES256', kid: 'k1', typ: 'at+jwt' })
+        .setSubject(c.sub)
+        .setIssuer('bocadoo')
+        .setAudience('otra-api')
+        .setIssuedAt(now)
+        .setExpirationTime(now + 900)
+        .sign(privateKey);
       expect((await call('GET', '/v1/auth/me', { token: wrongAud })).statusCode).toBe(401);
     });
 
     it('HS256 firmado con la llave pública como secreto (confusión de algoritmo) → 401', async () => {
       const c = await claims();
       const now = Math.floor(Date.now() / 1000);
-      const hs = await new SignJWT({ uid: c.uid }).setProtectedHeader({ alg: 'HS256', kid: 'k1', typ: 'at+jwt' })
-        .setSubject(c.sub).setIssuer('bocadoo').setAudience('bocadoo-api').setIssuedAt(now).setExpirationTime(now + 900)
+      const hs = await new SignJWT({ uid: c.uid })
+        .setProtectedHeader({ alg: 'HS256', kid: 'k1', typ: 'at+jwt' })
+        .setSubject(c.sub)
+        .setIssuer('bocadoo')
+        .setAudience('bocadoo-api')
+        .setIssuedAt(now)
+        .setExpirationTime(now + 900)
         .sign(new TextEncoder().encode('cualquier-secreto'));
       expect((await call('GET', '/v1/auth/me', { token: hs })).statusCode).toBe(401);
     });
@@ -208,13 +273,17 @@ describe('Autenticación', () => {
     it('/me solo muestra los restaurantes del usuario del token (el contexto del request no se cruza)', async () => {
       const mk = async (nombre: string) => {
         const correo = `own_${unique()}@correo.com`;
-        const r = await call('POST', '/v1/auth/register-owner', { payload: { nombre: 'Dueña', correo, password: PASSWORD, aceptaTerminos: true, restaurante: { nombre, ciudadId: 1 } } });
+        const r = await call('POST', '/v1/auth/register-owner', {
+          payload: { nombre: 'Dueña', correo, password: PASSWORD, aceptaTerminos: true, restaurante: { nombre, ciudadId: 1 } },
+        });
         expect(r.statusCode).toBe(201);
         return { correo, rid: r.json().restaurante.id as string };
       };
       const [a, b] = await Promise.all([mk('Local A'), mk('Local B')]);
       const [ta, tb] = await Promise.all([login(a.correo), login(b.correo)]);
-      const results = await Promise.all(Array.from({ length: 20 }, (_, i) => call('GET', '/v1/auth/me', { token: (i % 2 ? ta : tb).json().accessToken })));
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, i) => call('GET', '/v1/auth/me', { token: (i % 2 ? ta : tb).json().accessToken })),
+      );
       results.forEach((r, i) => expect(r.json().restaurantes.map((x: { id: string }) => x.id)).toEqual([(i % 2 ? a : b).rid]));
     });
   });

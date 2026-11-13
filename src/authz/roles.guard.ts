@@ -21,7 +21,9 @@ export class RolesGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     await this.events.record('ACCESO_DENEGADO', {
-      ip: req.ip, userAgent: req.headers['user-agent'], usuarioId: ctx?.userId,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      usuarioId: ctx?.userId,
       detalle: { motivo: 'ROL_INSUFICIENTE', rol: ctx?.role ?? null, requeridos: roles, ruta: req.url.split('?')[0] },
     });
     throw new ForbiddenException('Tu rol no permite esta acción.');

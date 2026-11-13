@@ -20,8 +20,7 @@ function fakePools(failOn?: RegExp) {
     }),
     release: vi.fn((err?: unknown) => released.push(err)),
   };
-  const factory: PoolFactory = () =>
-    ({ connect: async () => client, on: () => undefined, end: async () => undefined }) as unknown as Pool;
+  const factory: PoolFactory = () => ({ connect: async () => client, on: () => undefined, end: async () => undefined }) as unknown as Pool;
   return { log, client, released, db: new DbService(env, factory) };
 }
 
@@ -29,12 +28,9 @@ describe('assertScopeId', () => {
   it.each(['1', '42', '9223372036854775807'])('acepta %s', (v) => {
     expect(assertScopeId(v, 'id')).toBe(v);
   });
-  it.each(['0', '-1', 'abc', ' 1', '1; DROP TABLE x', '01', '9223372036854775808', '1.5', ''])(
-    'rechaza %j',
-    (v) => {
-      expect(() => assertScopeId(v, 'id')).toThrow(/inválido/);
-    },
-  );
+  it.each(['0', '-1', 'abc', ' 1', '1; DROP TABLE x', '01', '9223372036854775808', '1.5', ''])('rechaza %j', (v) => {
+    expect(() => assertScopeId(v, 'id')).toThrow(/inválido/);
+  });
   it('undefined significa sin contexto (cadena vacía)', () => {
     expect(assertScopeId(undefined, 'id')).toBe('');
   });
@@ -66,7 +62,11 @@ describe('DbService.scope', () => {
 
   it('si fn falla hace ROLLBACK, relanza el error y libera la conexión', async () => {
     const { db, log, released } = fakePools();
-    await expect(db.scope({ tenantId: '1' }, async () => { throw new Error('negocio'); })).rejects.toThrow('negocio');
+    await expect(
+      db.scope({ tenantId: '1' }, async () => {
+        throw new Error('negocio');
+      }),
+    ).rejects.toThrow('negocio');
     expect(log.at(-1)).toBe('ROLLBACK');
     expect(log).not.toContain('COMMIT');
     expect(released).toEqual([undefined]);
@@ -74,7 +74,11 @@ describe('DbService.scope', () => {
 
   it('si el ROLLBACK también falla, descarta la conexión (release con error)', async () => {
     const { db, released } = fakePools(/ROLLBACK/);
-    await expect(db.scope({ tenantId: '1' }, async () => { throw new Error('negocio'); })).rejects.toThrow('negocio');
+    await expect(
+      db.scope({ tenantId: '1' }, async () => {
+        throw new Error('negocio');
+      }),
+    ).rejects.toThrow('negocio');
     expect(released).toHaveLength(1);
     expect(released[0]).toBeInstanceOf(Error);
   });

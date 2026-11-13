@@ -27,7 +27,11 @@ describe('TokenService', () => {
     const oldToken = await oldSigner.signAccess(claims);
     const oldPublic = oldKp.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-    const rotated = make({ JWT_PRIVATE_KEY: pem(), JWT_KEY_ID: 'k-nuevo', JWT_PREVIOUS_PUBLIC_KEYS: JSON.stringify({ 'k-viejo': oldPublic }) });
+    const rotated = make({
+      JWT_PRIVATE_KEY: pem(),
+      JWT_KEY_ID: 'k-nuevo',
+      JWT_PREVIOUS_PUBLIC_KEYS: JSON.stringify({ 'k-viejo': oldPublic }),
+    });
     expect(await rotated.verifyAccess(oldToken)).toEqual(claims);
     // Al retirar la llave anterior, sus tokens dejan de valer.
     const retired = make({ JWT_PRIVATE_KEY: pem(), JWT_KEY_ID: 'k-nuevo' });

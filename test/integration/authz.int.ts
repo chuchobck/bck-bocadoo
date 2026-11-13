@@ -11,11 +11,21 @@ import { RequestContextStore } from '../../src/tenancy/request-context';
 @Controller('test-authz')
 class TestController {
   constructor(private readonly db: DbService) {}
-  @Public() @Get('abierto') abierto() { return { ok: true }; }
-  @Get('cualquiera-autenticado') cualquiera() { return { ok: true }; }
-  @Roles('DUENO', 'CAJERO') @Get('personal') personal() { const c = RequestContextStore.get(); return { tenantId: c?.tenantId, role: c?.role }; }
-  @Roles('DUENO') @Get('solo-dueno') soloDueno() { return { ok: true }; }
-  @Roles('DUENO') @Get('clientes')
+  @Public() @Get('abierto') abierto() {
+    return { ok: true };
+  }
+  @Get('cualquiera-autenticado') cualquiera() {
+    return { ok: true };
+  }
+  @Roles('DUENO', 'CAJERO') @Get('personal') personal() {
+    const c = RequestContextStore.get();
+    return { tenantId: c?.tenantId, role: c?.role };
+  }
+  @Roles('DUENO') @Get('solo-dueno') soloDueno() {
+    return { ok: true };
+  }
+  @Roles('DUENO')
+  @Get('clientes')
   async clientes() {
     return this.db.forRequest(async (q) => (await q.query<{ n: number }>('SELECT count(*)::int AS n FROM cliente_restaurante')).rows[0]);
   }
@@ -38,28 +48,72 @@ describe('Autorización: guard JWT, roles y tenant', () => {
 
   const ip = () => `10.50.${Math.floor(++n / 250)}.${(n % 250) + 1}`;
   const get = (url: string, token?: string, restaurante?: string) =>
-    app.inject({ method: 'GET', url, remoteAddress: ip(), headers: { ...(token && { authorization: `Bearer ${token}` }), ...(restaurante && { 'x-restaurant-id': restaurante }) } });
+    app.inject({
+      method: 'GET',
+      url,
+      remoteAddress: ip(),
+      headers: { ...(token && { authorization: `Bearer ${token}` }), ...(restaurante && { 'x-restaurant-id': restaurante }) },
+    });
 
   async function owner(nombreLocal: string) {
     const correo = `dueno_${unique()}@correo.com`;
-    const r = await app.inject({ method: 'POST', url: '/v1/auth/register-owner', remoteAddress: ip(), payload: { nombre: 'Dueño Prueba', correo, password: PASSWORD, aceptaTerminos: true, restaurante: { nombre: nombreLocal, ciudadId: 1 } } });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register-owner',
+      remoteAddress: ip(),
+      payload: {
+        nombre: 'Dueño Prueba',
+        correo,
+        password: PASSWORD,
+        aceptaTerminos: true,
+        restaurante: { nombre: nombreLocal, ciudadId: 1 },
+      },
+    });
     expect(r.statusCode).toBe(201);
-    const l = await app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress: ip(), payload: { identificador: correo, password: PASSWORD } });
-    return { correo, token: l.json().accessToken as string, publicRestaurante: r.json().restaurante.id as string, usuarioPublicId: r.json().usuario.id as string };
+    const l = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: ip(),
+      payload: { identificador: correo, password: PASSWORD },
+    });
+    return {
+      correo,
+      token: l.json().accessToken as string,
+      publicRestaurante: r.json().restaurante.id as string,
+      usuarioPublicId: r.json().usuario.id as string,
+    };
   }
   /** Cajero del restaurante dado, creado directamente en base (la invitación de personal llega en la fase 5). */
   async function cashier(restaurantePublicId: string, activo = true) {
     const correo = `cajero_${unique()}@correo.com`;
-    const r = await app.inject({ method: 'POST', url: '/v1/auth/register', remoteAddress: ip(), payload: { nombre: 'Cajero Prueba', correo, password: PASSWORD, aceptaTerminos: true } });
-    await db.service((q) => q.query(
-      `INSERT INTO personal_restaurante (restaurante_id, usuario_id, rol, nombre_visible, activo)
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      remoteAddress: ip(),
+      payload: { nombre: 'Cajero Prueba', correo, password: PASSWORD, aceptaTerminos: true },
+    });
+    await db.service((q) =>
+      q.query(
+        `INSERT INTO personal_restaurante (restaurante_id, usuario_id, rol, nombre_visible, activo)
        SELECT r.restaurante_id, u.usuario_id, 'CAJERO', 'Cajero', $3 FROM restaurante r, usuario u WHERE r.public_id = $1 AND u.public_id = $2`,
-      [restaurantePublicId, r.json().usuario.id, activo]));
-    const l = await app.inject({ method: 'POST', url: '/v1/auth/login', remoteAddress: ip(), payload: { identificador: correo, password: PASSWORD } });
+        [restaurantePublicId, r.json().usuario.id, activo],
+      ),
+    );
+    const l = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: ip(),
+      payload: { identificador: correo, password: PASSWORD },
+    });
     return { token: l.json().accessToken as string, usuarioPublicId: r.json().usuario.id as string };
   }
   const denied = (usuarioPublicId: string, motivo: string) =>
-    db.service((q) => q.query(`SELECT 1 FROM evento_seguridad e JOIN usuario u USING (usuario_id) WHERE e.tipo = 'ACCESO_DENEGADO' AND u.public_id = $1 AND e.detalle->>'motivo' = $2`, [usuarioPublicId, motivo]));
+    db.service((q) =>
+      q.query(
+        `SELECT 1 FROM evento_seguridad e JOIN usuario u USING (usuario_id) WHERE e.tipo = 'ACCESO_DENEGADO' AND u.public_id = $1 AND e.detalle->>'motivo' = $2`,
+        [usuarioPublicId, motivo],
+      ),
+    );
 
   it('guard global: sin token → 401; con @Public() entra; con token entra', async () => {
     const o = await owner('Local Guard');
@@ -113,8 +167,12 @@ describe('Autorización: guard JWT, roles y tenant', () => {
   it('cada restaurante ve solo sus clientes, también a través de la API', async () => {
     const a = await owner('Local Clientes A');
     const b = await owner('Local Clientes B');
-    await db.service((q) => q.query(
-      `INSERT INTO cliente_restaurante (restaurante_id, nombre) SELECT restaurante_id, 'Cliente de A' FROM restaurante WHERE public_id = $1`, [a.publicRestaurante]));
+    await db.service((q) =>
+      q.query(
+        `INSERT INTO cliente_restaurante (restaurante_id, nombre) SELECT restaurante_id, 'Cliente de A' FROM restaurante WHERE public_id = $1`,
+        [a.publicRestaurante],
+      ),
+    );
     expect((await get('/test-authz/clientes', a.token, a.publicRestaurante)).json()).toEqual({ n: 1 });
     expect((await get('/test-authz/clientes', b.token, b.publicRestaurante)).json()).toEqual({ n: 0 });
   });
@@ -122,13 +180,21 @@ describe('Autorización: guard JWT, roles y tenant', () => {
   it('aunque el guard fallara, RLS bloquea por id: el tenant A no lee el cliente de B', async () => {
     const a = await owner('Local RLS A');
     const b = await owner('Local RLS B');
-    const ids = await db.service((q) => q.query<{ cliente_id: string; restaurante_id: string }>(
-      `WITH x AS (INSERT INTO cliente_restaurante (restaurante_id, nombre) SELECT restaurante_id, 'Cliente de B' FROM restaurante WHERE public_id = $1 RETURNING cliente_id)
-       SELECT x.cliente_id, (SELECT restaurante_id FROM restaurante WHERE public_id = $2) AS restaurante_id FROM x`, [b.publicRestaurante, a.publicRestaurante]));
+    const ids = await db.service((q) =>
+      q.query<{ cliente_id: string; restaurante_id: string }>(
+        `WITH x AS (INSERT INTO cliente_restaurante (restaurante_id, nombre) SELECT restaurante_id, 'Cliente de B' FROM restaurante WHERE public_id = $1 RETURNING cliente_id)
+       SELECT x.cliente_id, (SELECT restaurante_id FROM restaurante WHERE public_id = $2) AS restaurante_id FROM x`,
+        [b.publicRestaurante, a.publicRestaurante],
+      ),
+    );
     const { cliente_id, restaurante_id } = ids.rows[0]!;
-    const leak = await db.scope({ tenantId: String(restaurante_id) }, (q) => q.query('SELECT * FROM cliente_restaurante WHERE cliente_id = $1', [cliente_id]));
+    const leak = await db.scope({ tenantId: String(restaurante_id) }, (q) =>
+      q.query('SELECT * FROM cliente_restaurante WHERE cliente_id = $1', [cliente_id]),
+    );
     expect(leak.rowCount).toBe(0);
-    const edit = await db.scope({ tenantId: String(restaurante_id) }, (q) => q.query("UPDATE cliente_restaurante SET nombre = 'x' WHERE cliente_id = $1", [cliente_id]));
+    const edit = await db.scope({ tenantId: String(restaurante_id) }, (q) =>
+      q.query("UPDATE cliente_restaurante SET nombre = 'x' WHERE cliente_id = $1", [cliente_id]),
+    );
     expect(edit.rowCount).toBe(0);
   });
 });

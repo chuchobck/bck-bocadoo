@@ -21,8 +21,7 @@ export class ProblemFilter implements ExceptionFilter {
     else if (body && typeof body === 'object' && 'message' in body) {
       const m = (body as { message: unknown }).message;
       detail = Array.isArray(m) ? m.join('; ') : String(m);
-    }
-    else if (exception instanceof Error) detail = exception.message;
+    } else if (exception instanceof Error) detail = exception.message;
 
     if (status >= 500) this.logger.error({ err: exception, requestId: req.id }, 'Excepción no controlada');
 

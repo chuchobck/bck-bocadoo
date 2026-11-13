@@ -46,7 +46,10 @@ export class DbService implements OnModuleDestroy {
   constructor(@Inject(ENV) env: Env, @Optional() @Inject(POOL_FACTORY) factory: PoolFactory = defaultPoolFactory) {
     this.appPool = factory(env.DATABASE_URL, env.DB_POOL_MAX);
     this.servicePool = factory(env.DATABASE_SERVICE_URL, Math.max(2, Math.ceil(env.DB_POOL_MAX / 2)));
-    for (const [name, pool] of [['app', this.appPool], ['service', this.servicePool]] as const) {
+    for (const [name, pool] of [
+      ['app', this.appPool],
+      ['service', this.servicePool],
+    ] as const) {
       // Un error en un cliente inactivo no debe tumbar el proceso.
       pool.on('error', (err) => this.logger.error({ err, pool: name }, 'Error en conexión inactiva'));
     }
@@ -61,7 +64,10 @@ export class DbService implements OnModuleDestroy {
     const userId = assertScopeId(options.userId, 'userId');
     return this.transaction(this.appPool, options.readOnly === true, fn, async (client) => {
       await client.query('SELECT set_config($1, $2, true), set_config($3, $4, true)', [
-        'app.current_tenant_id', tenantId, 'app.current_user_id', userId,
+        'app.current_tenant_id',
+        tenantId,
+        'app.current_user_id',
+        userId,
       ]);
     });
   }
@@ -77,7 +83,9 @@ export class DbService implements OnModuleDestroy {
     const actor = assertScopeId(options.actorUserId, 'actorUserId');
     // El actor llega a la auditoría de la base (log_actividad) aunque la operación corra con el rol de servicio.
     const setup = actor
-      ? async (client: PoolClient) => { await client.query("SELECT set_config('app.current_user_id', $1, true)", [actor]); }
+      ? async (client: PoolClient) => {
+          await client.query("SELECT set_config('app.current_user_id', $1, true)", [actor]);
+        }
       : undefined;
     return this.transaction(this.servicePool, false, fn, setup);
   }

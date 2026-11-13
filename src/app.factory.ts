@@ -22,7 +22,12 @@ export async function createApp(opts: { controllers?: Type<unknown>[] } = {}): P
   const env = loadEnv();
   const app = await NestFactory.create<NestFastifyApplication>(
     root,
-    new FastifyAdapter({ trustProxy: true, requestIdHeader: 'x-request-id', genReqId: () => randomUUID(), bodyLimit: env.BODY_LIMIT_BYTES }),
+    new FastifyAdapter({
+      trustProxy: true,
+      requestIdHeader: 'x-request-id',
+      genReqId: () => randomUUID(),
+      bodyLimit: env.BODY_LIMIT_BYTES,
+    }),
     { bufferLogs: true },
   );
   const logger = app.get(Logger);
@@ -35,7 +40,9 @@ export async function createApp(opts: { controllers?: Type<unknown>[] } = {}): P
   });
   // CORS con lista blanca: un origen que no esté en CORS_ORIGINS no recibe cabeceras de permiso.
   await app.register(fastifyCors, {
-    origin: env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
+    origin: env.CORS_ORIGINS.split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['authorization', 'content-type', 'x-restaurant-id', 'idempotency-key', 'x-request-id'],
     exposedHeaders: ['x-request-id', 'retry-after'],
@@ -62,7 +69,10 @@ export async function createApp(opts: { controllers?: Type<unknown>[] } = {}): P
   // Swagger UI necesita scripts y estilos propios: solo /docs lleva una CSP más abierta.
   fastify.addHook('onSend', (req, reply, _payload, done) => {
     if (req.url.startsWith('/docs')) {
-      void reply.header('content-security-policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'");
+      void reply.header(
+        'content-security-policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+      );
     }
     done();
   });

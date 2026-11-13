@@ -18,7 +18,12 @@
     "db:new": "node scripts/db.mjs new",
     "db:baseline": "node scripts/db.mjs baseline",
     "keys:generate": "node scripts/gen-jwt-key.mjs",
-    "db:demo-passwords": "node scripts/set-demo-passwords.mjs"
+    "db:demo-passwords": "node scripts/set-demo-passwords.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",
@@ -43,14 +48,34 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
     "@nestjs/cli": "^12.0.12",
     "@swc/core": "^1.16.22",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
     "dbmate": "^2.38.1",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
     "pino-pretty": "^13.2.0",
+    "prettier": "^3.10.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2",
     "unplugin-swc": "^2.0.0",
     "vitest": "^5.1.0"
+  },
+  "packageManager": "pnpm@11.28.11",
+  "lint-staged": {
+    "*.{ts,mjs,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   }
 }
