@@ -41,6 +41,10 @@ Registro, login con JWT ES256, refresh rotativo, roles y tenant, rate limit. Mod
 
 Endpoints nuevos: sin token no entra nadie salvo `@Public()`; los de un restaurante llevan `@Roles('DUENO', 'CAJERO')` y el encabezado `x-restaurant-id`.
 
+## Estado y API
+
+Estado de las fases, checklist y tabla de endpoints en `docs/estado.md`. Swagger en `/docs` (apagado en producción).
+
 ## Documentación
 
 Decisiones de arquitectura en `docs/adr/`.
