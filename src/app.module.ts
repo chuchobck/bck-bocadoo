@@ -5,6 +5,7 @@ import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { CheckoutModule } from './checkout/checkout.module';
 import { CustomersModule } from './customers/customers';
 import { PlansModule } from './plans/plans';
 import { SalesModule } from './sales/sales';
@@ -30,6 +31,7 @@ import { HealthController } from './health/health.controller';
     PlansModule,
     CustomersModule,
     SalesModule,
+    CheckoutModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
