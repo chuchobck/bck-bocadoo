@@ -18032,7 +18032,7 @@
   "info": {
     "title": "Bocadoo API",
     "description": "Backend de Bocadoo: planes de almuerzo prepago por QR.",
-    "version": "0.4.0",
+    "version": "1.0.0-rc.1",
     "contact": {}
   },
   "tags": [

@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-13 (fase 9). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-13 (fase 10). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -13,9 +13,27 @@
 | 5   | Restaurante, menú y vitrina  | ✅     | `v0.5.0`      | ver abajo                                                                                |
 | 6   | Clientes y planes            | ✅     | `v0.6.0`      | ver abajo                                                                                |
 | 7   | Caja                         | ✅     | `v0.7.0`      | ver abajo; carga en `docs/carga.md`                                                      |
-| 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; faltan las 6 migraciones en Neon (esperan confirmación) y el tag              |
-| 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; faltan las 3 migraciones en Neon (esperan confirmación), el merge y el tag    |
-| 10  | Documentación viva y Swagger | ⬜     | `v1.0.0-rc.1` |                                                                                          |
+| 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
+| 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
+| 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Fase 10: checklist
+
+Solo documentación, etiquetas, ejemplos y pruebas de contrato: ningún comportamiento de negocio cambió. Pruebas corridas contra un Postgres 16 local en Docker (`bocadoo-test-pg`), **nunca contra Neon**.
+
+- [x] **Cada endpoint documentado** (111 operaciones): resumen, respuesta de éxito con esquema, errores `application/problem+json` (`401`, `403`, `429`, `500` y los códigos de negocio) y ejemplo de petición y respuesta. Los errores y ejemplos comunes salen de `src/common/openapi-enrich.ts`. Evidencia: `test/unit/openapi-contract.spec.ts`
+- [x] **DTO duplicado resuelto**: `CanjeResponse` existía en ofertas y en pedidos con formas distintas y una pisaba a la otra en Swagger (`POST /v1/caja/pedidos/{id}/canjear` mostraba la forma de la oferta). Ahora `OfertaCanjeResponse` y `PedidoCanjeResponse`
+- [x] **Tipos corregidos en el contrato**: campos que aceptan `null` aparecían como `object` y las listas de números como listas de textos. El formato real de las respuestas no cambió
+- [x] **Grupos por rol**: `Público`, `Comensal`, `Caja` y `Dueño`, sacados de `@Roles` de cada handler; el módulo queda en `x-dominio`
+- [x] **Contrato revisado en CI**: Spectral (`pnpm openapi:lint`, reglas en `.spectral.yaml`) en el job `quality`, y job `contrato` con oasdiff contra la rama base (`pnpm openapi:breaking` en local, necesita Docker). Contra `main` marca 164 errores, todos correcciones de lo mal documentado: **la PR necesita la etiqueta `cambio-incompatible`**
+- [x] **Pruebas de contrato**: cada operación (resumen, un grupo por rol coherente con `x-restaurant-id` y seguridad, errores, 429/500, ejemplos válidos contra su esquema con ajv). No necesitan base de datos
+- [x] **Guía de Swagger**: `docs/swagger-guia.md` con las cuentas demo y los flujos de dueño, cajero y comensal
+- [x] **`docs/api-contrato.md` al día**: las migraciones de las fases 8 y 9 ya están aplicadas en Neon; sección Estado y cambios de la fase 10. `info.version` = `1.0.0-rc.1`
+- [x] **Sin tocar Neon**: `pnpm test:db` solo contra Postgres local en Docker; ninguna migración aplicada
+
+Límite conocido: las pruebas de contrato validan el documento, no las respuestas reales de la API; contrastar cada respuesta viva con su esquema (con el patrón _probe_) queda pendiente.
+
+Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm openapi:lint`, `pnpm test` (602 pruebas en 9 archivos) y `pnpm test:db` (239 pruebas en 33 archivos) en verde.
 
 ## Fase 9: checklist
 
@@ -32,7 +50,7 @@ Evidencia: archivo de prueba (`test/integration/…`) y, cuando aplica, el coman
 - [x] **Ingesta de eventos con límite de tamaño y de tasa, y rechazo de eventos a nombre de otro usuario**: máx. 50 eventos por lote, propiedades de 1 KB y 20 claves, cuerpo de 100 kB (413), 20 lotes y 500 eventos por usuario y minuto (429 `EVENTOS_LIMITE_TASA`), 60 lotes por IP y minuto (429 con `Retry-After`). Un `usuarioId` ajeno rechaza el lote entero (403) y la base lo exige con RLS (`42501`). Evidencia: `events.int.ts`, `events-concurrency.int.ts`
 - [x] **Jobs idempotentes, por CLI y documentados**: `node dist/jobs/cli.js <expire-plans|create-partitions|all>`; correrlos dos veces no cambia nada (segunda corrida: `vencidos: 0`, `creadas: []`, filas idénticas); doble disparo simultáneo → una copia se salta (`EN_EJECUCION`, candado de Postgres). Documentado en `docs/jobs.md`. Evidencia: `jobs.int.ts`, `jobs-concurrency.int.ts` y una corrida real del binario compilado sobre un clon de la base
 - [x] **Sin comisión (modelo SaaS)**: ningún endpoint, campo de respuesta ni parámetro habla de comisiones. Evidencia: `test/unit/openapi.spec.ts` (nombres de rutas y propiedades del contrato) y `saas.int.ts` (el cuerpo de la suscripción no contiene `comisi`, `commission` ni `tasa`). Las columnas `tasa_comision_*` de `catalogo_plan_saas` y la tabla `libro_comision_bocadoo` **siguen en el esquema** (vienen de la baseline y no se editan): la API no las lee ni las escribe
-- [x] **Migraciones creadas, no aplicadas a Neon**: `pnpm db:migrate` solo corrió contra el contenedor local, probadas up/down/up
+- [x] **Migraciones probadas en local** (up/down/up) y, después, aplicadas en Neon
 - [x] **Las pruebas que escriben limpian lo que crean**: casi todo usa el patrón _probe_ (rollback); las de concurrencia (`*-concurrency.int.ts`) usan un clon descartable de la base que se borra al terminar (`scratch-db.ts`). Conteos de las tablas de la fase iguales antes y después de `pnpm test:db`
 
 ### Endpoints de la fase 9
@@ -58,7 +76,7 @@ Evidencia: archivo de prueba (`test/integration/…`) y, cuando aplica, el coman
 - **SaaS**: la API solo lee la suscripción (RLS `tenant_lee`). Un local sin fila de suscripción responde `SIN_SUSCRIPCION` y se comporta como sin límite (igual que `fn_descontar_almuerzo`).
 - **Jobs**: la migración `20261118000200` hizo `SECURITY DEFINER` a `fn_crear_particion_mensual`: `bck_servicio` no es dueño de las tablas particionadas y no podía crear particiones. Los meses de las particiones son UTC; si la partición `DEFAULT` ya tiene filas del mes, el job lo informa por partición y sale con código 1.
 - **ESLint**: `src/jobs/**` quedó autorizado para `service()` (cron) y `src/jobs/cli.ts` para `console` (su salida son líneas JSON).
-- Migraciones nuevas (aplicadas y probadas up/down/up **solo en la base local**; **no** en Neon hasta que se confirme): `20261118000000_ofertas_flash`, `20261118000100_eventos_analitica`, `20261118000200_particiones_security_definer`.
+- Migraciones nuevas (probadas up/down/up en local y **ya aplicadas en Neon**): `20261118000000_ofertas_flash`, `20261118000100_eventos_analitica`, `20261118000200_particiones_security_definer`.
 - Pruebas de concurrencia con conexiones reales: `test/integration/scratch-db.ts` clona la base de `PROBE_DATABASE_URL` (`CREATE DATABASE … TEMPLATE`), corre contra el clon y lo borra. Postgres exige que **nadie más** esté conectado a la base original al clonar: con una sesión abierta (psql, un IDE) esas suites fallan con un mensaje claro. En `pnpm test:db` las suites corren una a la vez, así que se cumple.
 
 Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm test` (45 pruebas) y `pnpm test:db` (239 pruebas en 33 archivos) en verde.
@@ -105,7 +123,7 @@ Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm t
 - Los sellos solo cuentan almuerzos (`cuenta = ALMUERZO`); `PLATO` queda para después. Cambiar la meta no toca los premios ya ganados. El seed demo dejó de insertar sellos a mano: los crea el trigger.
 - El pase reutiliza `QrSecretService` de la fase 7 (usa el rol de servicio porque es parte de la autenticación del QR).
 - Se mantienen ids numéricos dentro del tenant en `/v1/clientes/:id/sellos` (como el resto de `/v1/clientes`).
-- Migraciones nuevas (aplicadas y probadas up/down/up **solo en la base local**; **no** en Neon hasta que se confirme):
+- Migraciones nuevas (probadas up/down/up en local y **ya aplicadas en Neon**):
   `20261117000000_preordenes_comensal`, `20261117000100_mesas_compartidas_comensal`, `20261117000200_opiniones_comensal`,
   `20261117000300_opiniones_respuesta`, `20261117000400_reclamos_comensal`, `20261117000500_tarjeta_sellos`.
   Además de columnas e índices, endurecen las políticas `comensal_crea` para que la base exija lo mismo que la API.
@@ -231,8 +249,10 @@ Los endpoints del personal llevan `Authorization: Bearer …` y `x-restaurant-id
 - ⬜ Correr en Neon las pruebas que escriben datos (registro, auth, menú…) usando una **rama de Neon** de prueba; hoy solo se corrieron ahí las de aislamiento y readiness.
 - ⬜ Prueba de carga contra Neon (ver `docs/carga.md`), con una rama de prueba.
 - ⬜ `QR_SECRET_KEY` y `JWT_PRIVATE_KEY` (`pnpm keys:generate`) en las variables de Render al desplegar.
-- ⬜ **Aplicar en Neon las 6 migraciones de la fase 8** (esperan confirmación del dueño del proyecto).
-- ⬜ **Aplicar en Neon las 3 migraciones de la fase 9** (`20261118000000`, `…0100`, `…0200`), después de las 6 de la fase 8 y con la misma confirmación del dueño del proyecto. Sin ellas, en Neon fallan con 500 publicar y canjear ofertas, `POST /v1/eventos` y el job de particiones (necesita el `SECURITY DEFINER`).
+- ✅ Las 6 migraciones de la fase 8 están aplicadas en Neon.
+- ✅ Las 3 migraciones de la fase 9 (`20261118000000`, `…0100`, `…0200`) están aplicadas en Neon.
+- ⬜ Poner la etiqueta `cambio-incompatible` a la PR de la fase 10 (el job `contrato` marca como incompatibles las correcciones de tipos del contrato).
+- ⬜ Tags `v0.8.0`, `v0.9.0` y `v1.0.0-rc.1` (esperan revisión y confirmación).
 - ⬜ **Crear el Cron Job en Render** (`node dist/jobs/cli.js all`, ver `docs/jobs.md`). Hasta entonces nadie vence planes en la base ni crea particiones: las ventanas actuales cubren hasta febrero de 2027.
 - ⬜ **Decisión de negocio: renovar el ciclo de la suscripción SaaS** (`inicio_ciclo_actual`, `fin_ciclo_actual`, `escaneos_usados_ciclo_actual`). Nada lo renueva: en un plan con tope, el contador no vuelve a cero y la caja respondería `LIMITE_SAAS` para siempre. Hoy no pasa porque solo existe el plan `FREEMIUM` sin tope; `GET /v1/suscripcion` ya marca `ciclo.vencido`.
 - ⬜ **Decisión de negocio: el registro de un dueño no crea su fila de `suscripcion_saas_restaurante`** (solo el seed lo hace): un local nuevo responde `SIN_SUSCRIPCION` y se comporta como sin límite. Además `permite_mesa_grupal` y `permite_reportes_avanzados` se informan pero no se exigen en ningún endpoint.

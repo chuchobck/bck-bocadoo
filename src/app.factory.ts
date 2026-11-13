@@ -102,7 +102,7 @@ export async function createApp(opts: { controllers?: Type<unknown>[]; poolFacto
       new DocumentBuilder()
         .setTitle('Bocadoo API')
         .setDescription('Backend de Bocadoo: planes de almuerzo prepago por QR.')
-        .setVersion('0.4.0')
+        .setVersion('1.0.0-rc.1')
         .addBearerAuth()
         .build(),
     ),
