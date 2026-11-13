@@ -167,8 +167,9 @@ export class CatalogService {
     const items = await fetchMenuItems(q, m.rows[0].menu_diario_id);
     const secciones = new Map<string, unknown[]>();
     for (const it of items) {
-      // Solo lo que ve el comensal: sin ids internos, porciones ni horas de agotado.
+      // Solo lo que ve el comensal: sin ids internos, porciones ni horas de agotado. `id` (public_id) sirve para pedir.
       const plato = {
+        id: it.plato_public_id,
         nombre: it.nombre,
         descripcion: it.descripcion,
         fotoUrl: it.foto_url,

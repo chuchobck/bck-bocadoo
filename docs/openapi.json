@@ -1,0 +1,5802 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Estado del servicio (liveness, no toca la base)",
+        "tags": ["salud"]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "HealthController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Listo para recibir tráfico (readiness): ambos roles de base de datos responden",
+        "tags": ["salud"]
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Registrar una cuenta de comensal",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/register-owner": {
+      "post": {
+        "operationId": "AuthController_registerOwner",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterOwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Registrar una cuenta de dueño con su restaurante (en borrador)",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Iniciar sesión con correo o nombre de usuario",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "description": "Cada refresh token sirve una sola vez. Reutilizar uno viejo revoca toda la sesión.",
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Rotar el refresh token y obtener un access token nuevo",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Cerrar la sesión de este dispositivo",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/logout-all": {
+      "post": {
+        "operationId": "AuthController_logoutAll",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar la sesión en todos los dispositivos",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "AuthController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mi usuario y los restaurantes donde trabajo",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/restaurante": {
+      "get": {
+        "operationId": "RestaurantController_get",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Perfil de mi restaurante (el de x-restaurant-id)",
+        "tags": ["restaurante"]
+      },
+      "patch": {
+        "description": "No cambia estado, slug, moneda ni país.",
+        "operationId": "RestaurantController_update",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRestauranteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar el perfil: nombre, contacto, puestos, precios, zona…",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/activar": {
+      "post": {
+        "description": "Exige precio de almuerzo suelto y al menos un horario.",
+        "operationId": "RestaurantController_activate",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publicar el local en la vitrina",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/pausar": {
+      "post": {
+        "operationId": "RestaurantController_pause",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sacar el local de la vitrina sin borrarlo",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/horarios": {
+      "get": {
+        "operationId": "RestaurantController_horarios",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Horarios de atención",
+        "tags": ["restaurante"]
+      },
+      "put": {
+        "description": "Varios tramos por día (p. ej. almuerzo y merienda); no se pueden traslapar.",
+        "operationId": "RestaurantController_replaceHorarios",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReemplazarHorariosDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reemplazar todos los horarios",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/mesas": {
+      "get": {
+        "operationId": "RestaurantController_mesas",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mesas del local",
+        "tags": ["restaurante"]
+      },
+      "post": {
+        "operationId": "RestaurantController_createMesa",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearMesaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una mesa",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/mesas/{id}": {
+      "patch": {
+        "operationId": "RestaurantController_updateMesa",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarMesaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar o desactivar una mesa",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/lleno": {
+      "post": {
+        "description": "Dura 20 minutos y expira solo.",
+        "operationId": "RestaurantController_setFull",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlenoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar o quitar \"Local lleno\"",
+        "tags": ["restaurante"]
+      }
+    },
+    "/v1/restaurante/personal": {
+      "get": {
+        "operationId": "StaffController_list",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Personal del restaurante (dueño y cajeros)",
+        "tags": ["personal"]
+      }
+    },
+    "/v1/restaurante/personal/cajeros": {
+      "post": {
+        "description": "La persona debe haberse registrado antes. Límite de intentos por hora.",
+        "operationId": "StaffController_invite",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCashierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Agregar un cajero por su correo",
+        "tags": ["personal"]
+      }
+    },
+    "/v1/restaurante/personal/{usuarioId}": {
+      "patch": {
+        "description": "Un cajero desactivado pierde el acceso de inmediato.",
+        "operationId": "StaffController_setActive",
+        "parameters": [
+          {
+            "name": "usuarioId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar o desactivar a un cajero",
+        "tags": ["personal"]
+      }
+    },
+    "/v1/menu/platos": {
+      "get": {
+        "operationId": "DishesController_list",
+        "parameters": [
+          {
+            "name": "categoria",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["ALMUERZO", "A_LA_CARTA", "EXTRA", "BEBIDA"]
+            }
+          },
+          {
+            "name": "soloActivos",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Catálogo de platos del restaurante",
+        "tags": ["menú"]
+      },
+      "post": {
+        "operationId": "DishesController_create",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearPlatoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear un plato en el catálogo",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/platos/{id}": {
+      "patch": {
+        "description": "Los platos no se borran: se desactivan.",
+        "operationId": "DishesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarPlatoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar o desactivar un plato",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/{fecha}": {
+      "get": {
+        "operationId": "DailyMenuController_get",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Menú de un día (incluye borrador)",
+        "tags": ["menú"]
+      },
+      "put": {
+        "description": "Lista completa y libre: sin límite de sopas o segundos. Lo que quede fuera se quita; lo que se mantiene conserva su estado de agotado.",
+        "operationId": "DailyMenuController_set",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinirMenuDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Definir el menú del día",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/{fecha}/publicar": {
+      "post": {
+        "operationId": "DailyMenuController_publish",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publicar el menú en la vitrina",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/{fecha}/despublicar": {
+      "post": {
+        "operationId": "DailyMenuController_unpublish",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sacar el menú de la vitrina",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/{fecha}/copiar": {
+      "post": {
+        "description": "Por defecto, el último menú anterior con platos. Queda como borrador y sin agotados.",
+        "operationId": "DailyMenuController_copy",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopiarMenuDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Copiar el menú de otro día",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/menu/{fecha}/items/{id}/agotado": {
+      "patch": {
+        "description": "Guarda a qué hora se acabó.",
+        "operationId": "DailyMenuController_setSoldOut",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (según la zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgotadoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar o quitar \"agotado\" en un plato del menú",
+        "tags": ["menú"]
+      }
+    },
+    "/v1/restaurantes": {
+      "get": {
+        "description": "Público, sin token. Solo restaurantes activos. Paginación por cursor: máximo 50 por página; pasa `nextCursor` como `cursor`.",
+        "operationId": "CatalogController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Texto a buscar en el nombre",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "zonaId",
+            "required": false,
+            "in": "query",
+            "description": "zona_id del catálogo",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ciudadId",
+            "required": false,
+            "in": "query",
+            "description": "ciudad_id del catálogo",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "etiqueta",
+            "required": false,
+            "in": "query",
+            "description": "Etiqueta del local",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Buscar restaurantes por zona, ciudad, texto o etiqueta",
+        "tags": ["vitrina"]
+      }
+    },
+    "/v1/restaurantes/{slug}": {
+      "get": {
+        "description": "Público, sin token. Un menú sin publicar o un local en borrador o pausado no aparecen.",
+        "operationId": "CatalogController_detail",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Detalle de un restaurante: horarios, menú publicado de hoy, planes visibles y ocupación",
+        "tags": ["vitrina"]
+      }
+    },
+    "/v1/planes": {
+      "get": {
+        "operationId": "PlansController_list",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas de plan del restaurante, con cupos disponibles",
+        "tags": ["planes"]
+      },
+      "post": {
+        "operationId": "PlansController_create",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearPlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una plantilla de plan",
+        "tags": ["planes"]
+      }
+    },
+    "/v1/planes/{id}": {
+      "patch": {
+        "description": "No cambia los planes ya vendidos.",
+        "operationId": "PlansController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarPlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar o desactivar una plantilla",
+        "tags": ["planes"]
+      }
+    },
+    "/v1/clientes": {
+      "get": {
+        "description": "Paginación por cursor (máximo 50). Incluye almuerzos disponibles.",
+        "operationId": "CustomersController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Nombre o teléfono",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Buscar clientes por nombre o teléfono",
+        "tags": ["clientes"]
+      },
+      "post": {
+        "description": "Teléfono en E.164; repetido en el mismo restaurante → 409.",
+        "operationId": "CustomersController_create",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearClienteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear un cliente",
+        "tags": ["clientes"]
+      }
+    },
+    "/v1/clientes/{id}": {
+      "get": {
+        "operationId": "CustomersController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ficha del cliente con todos sus planes",
+        "tags": ["clientes"]
+      },
+      "patch": {
+        "operationId": "CustomersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarClienteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar o desactivar un cliente",
+        "tags": ["clientes"]
+      }
+    },
+    "/v1/clientes/{id}/migrar-cartulina": {
+      "post": {
+        "description": "Crea un plan de origen MIGRADA, sin cobro.",
+        "operationId": "CustomersController_migrate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrarCartulinaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Migrar el saldo de una cartulina de papel",
+        "tags": ["clientes"]
+      }
+    },
+    "/v1/clientes/{id}/vincular": {
+      "post": {
+        "description": "Por el correo de la cuenta. Límite de intentos por hora.",
+        "operationId": "CustomersController_link",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VincularDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vincular el cliente con su cuenta de la app",
+        "tags": ["clientes"]
+      }
+    },
+    "/v1/clientes/{id}/desvincular": {
+      "post": {
+        "operationId": "CustomersController_unlink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Quitar el vínculo con la cuenta de la app",
+        "tags": ["clientes"]
+      }
+    },
+    "/v1/clientes/{id}/planes": {
+      "post": {
+        "description": "Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.",
+        "operationId": "SalesController_sell",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VenderPlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vender un plan a un cliente",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/planes-vendidos/{id}/deshacer": {
+      "post": {
+        "description": "Registra un pago inverso (nunca borra). Solo sin almuerzos consumidos; el cajero, solo el mismo día.",
+        "operationId": "SalesController_undo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeshacerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deshacer la venta de un plan",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/pagos/pendientes": {
+      "get": {
+        "operationId": "SalesController_pending",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Transferencias y pagos Deuna por confirmar",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/pagos/{id}/confirmar": {
+      "post": {
+        "operationId": "SalesController_confirm",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Confirmar un pago pendiente",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/pagos/{id}/rechazar": {
+      "post": {
+        "description": "Anula el plan asociado.",
+        "operationId": "SalesController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rechazar un pago pendiente",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/solicitudes-plan": {
+      "get": {
+        "operationId": "SalesController_requests",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Solicitudes de plan hechas por comensales desde la app",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/solicitudes-plan/{id}/cobrar": {
+      "post": {
+        "operationId": "SalesController_charge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CobroDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cobrar una solicitud: vende el plan y la marca cobrada",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/solicitudes-plan/{id}/rechazar": {
+      "post": {
+        "operationId": "SalesController_rejectRequest",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rechazar una solicitud de plan",
+        "tags": ["ventas"]
+      }
+    },
+    "/v1/restaurantes/{slug}/solicitudes-plan": {
+      "post": {
+        "description": "El local la ve en sus solicitudes y la cobra en caja.",
+        "operationId": "PlanRequestsController_request",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolicitarPlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pedir un plan a un restaurante (comensal con sesión)",
+        "tags": ["vitrina"]
+      }
+    },
+    "/v1/pase/codigo": {
+      "get": {
+        "description": "La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local.",
+        "operationId": "PassController_code",
+        "parameters": [
+          {
+            "name": "restaurante",
+            "required": false,
+            "in": "query",
+            "description": "public_id del restaurante: el código solo vale en ese local",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Código QR del comensal (cambia cada 30 segundos)",
+        "tags": ["pase"]
+      }
+    },
+    "/v1/pase/rotar": {
+      "post": {
+        "description": "Para un teléfono perdido o una captura de pantalla compartida.",
+        "operationId": "PassController_rotate",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invalidar todos mis códigos anteriores",
+        "tags": ["pase"]
+      }
+    },
+    "/v1/caja/validar": {
+      "post": {
+        "description": "Siempre responde 200 con un `resultado`. Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.",
+        "operationId": "CheckoutController_validate",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidacionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Validar un almuerzo por QR o por búsqueda manual",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/consumos/{id}/deshacer": {
+      "post": {
+        "description": "Solo en los 10 segundos siguientes; después → 409. Devuelve el almuerzo al plan.",
+        "operationId": "CheckoutController_undo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deshacer una validación",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/mesas/{id}": {
+      "get": {
+        "description": "Quiénes vienen, quién paga y cuántos almuerzos cubren los planes.",
+        "operationId": "CheckoutController_previewTable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vista previa de una mesa compartida",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/mesas/{id}/validar": {
+      "post": {
+        "description": "CADA_UNO: cada quien con su plan. INVITO_YO: paga el anfitrión. Sin plan → por cobrar.",
+        "operationId": "CheckoutController_validateTable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Validar toda la mesa de una vez",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/ventas": {
+      "get": {
+        "operationId": "PosController_today",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ventas sueltas de hoy",
+        "tags": ["caja"]
+      },
+      "post": {
+        "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.",
+        "operationId": "PosController_sell",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VentaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar una venta suelta (sin plan)",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/ventas/{id}/deshacer": {
+      "post": {
+        "description": "Registra una venta y un pago inversos. El cajero, solo las del mismo día.",
+        "operationId": "PosController_undo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deshacer una venta suelta",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/cierre/{fecha}": {
+      "get": {
+        "description": "Efectivo esperado = cobros confirmados en efectivo del día (planes + ventas sueltas + pedidos + ofertas), menos reversos.",
+        "operationId": "CashController_get",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Arqueo del día: lo esperado por método de pago y el cierre, si existe",
+        "tags": ["caja"]
+      },
+      "post": {
+        "description": "Un solo cierre activo por día (repetir → 409). El cajero solo cierra el día de hoy.",
+        "operationId": "CashController_close",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CerrarCajaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar la caja",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/cierre/{fecha}/reabrir": {
+      "post": {
+        "description": "El cierre anterior queda en el historial.",
+        "operationId": "CashController_reopen",
+        "parameters": [
+          {
+            "name": "fecha",
+            "required": true,
+            "in": "path",
+            "description": "AAAA-MM-DD o `hoy` (zona horaria del restaurante)",
+            "schema": {
+              "example": "hoy",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reabrir la caja de un día",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/reclamos": {
+      "get": {
+        "description": "Por defecto, los pendientes.",
+        "operationId": "ClaimsController_list",
+        "parameters": [
+          {
+            "name": "estado",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDIENTE", "DEVUELTO", "RECHAZADO"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reclamos de comensales sobre un almuerzo",
+        "tags": ["reclamos"]
+      }
+    },
+    "/v1/reclamos/{id}/devolver": {
+      "post": {
+        "operationId": "ClaimsController_refund",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevolverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Aceptar el reclamo y devolver el almuerzo al plan",
+        "tags": ["reclamos"]
+      }
+    },
+    "/v1/reclamos/{id}/rechazar": {
+      "post": {
+        "operationId": "ClaimsController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RechazarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rechazar el reclamo con una explicación",
+        "tags": ["reclamos"]
+      }
+    },
+    "/v1/pase": {
+      "get": {
+        "description": "El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO.",
+        "operationId": "DinerPassController_pass",
+        "parameters": [
+          {
+            "name": "restaurante",
+            "required": false,
+            "in": "query",
+            "description": "public_id del restaurante: el código solo valdrá en ese local",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pase del comensal: QR rotativo y planes vigentes por local",
+        "tags": ["pase"]
+      }
+    },
+    "/v1/mis/consumos": {
+      "get": {
+        "description": "Del más reciente al más antiguo, con paginación por cursor (máximo 50 por página).",
+        "operationId": "HistoryController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "restaurante",
+            "required": false,
+            "in": "query",
+            "description": "public_id del restaurante para filtrar",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorialResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `CURSOR_INVALIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis almuerzos consumidos (todos los locales)",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/consumos/{id}": {
+      "get": {
+        "operationId": "HistoryController_one",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumoItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CONSUMO_NO_ENCONTRADO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Un almuerzo consumido",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/reclamos": {
+      "get": {
+        "operationId": "DinerClaimsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReclamoResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis reclamos y cómo se resolvieron",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/consumos/{id}/reclamo": {
+      "post": {
+        "description": "Hasta 7 días después; uno por almuerzo. Si el restaurante lo acepta, el almuerzo vuelve al plan.",
+        "operationId": "DinerClaimsController_create",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReclamarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReclamoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `IDEMPOTENCY_KEY_INVALIDA`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CONSUMO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `CONSUMO_REVERTIDO`, `RECLAMO_VENCIDO`, `RECLAMO_YA_EXISTE`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reclamar por un almuerzo mío",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/pedidos": {
+      "post": {
+        "description": "El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. Un pedido en camino a la vez por local.",
+        "operationId": "DinerOrdersController_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearPedidoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `ALMUERZO_INVALIDO`, `IDEMPOTENCY_KEY_INVALIDA`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `IDEMPOTENCY_KEY_REUTILIZADA`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Hacer una preorden del menú de hoy",
+        "tags": ["comensal"]
+      },
+      "get": {
+        "operationId": "DinerOrdersController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidosResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `CURSOR_INVALIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis pedidos, del más reciente al más antiguo",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/pedidos/{id}": {
+      "get": {
+        "operationId": "DinerOrdersController_one",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_ENCONTRADO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Un pedido mío",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/pedidos/{id}/cancelar": {
+      "post": {
+        "operationId": "DinerOrdersController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `PEDIDO_EXPIRADO`, `PEDIDO_NO_CANCELABLE`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancelar mi pedido mientras está en camino",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/caja/pedidos": {
+      "get": {
+        "description": "Por defecto las activas, en orden de número (\"Pedido #N\").",
+        "operationId": "StaffOrdersController_list",
+        "parameters": [
+          {
+            "name": "estado",
+            "required": false,
+            "in": "query",
+            "description": "ACTIVOS = en camino (sin vencer) + canjeados sin servir",
+            "schema": {
+              "default": "ACTIVOS",
+              "type": "string",
+              "enum": ["ACTIVOS", "EN_CAMINO", "CANJEADA", "SERVIDA", "EXPIRADA", "CANCELADA", "TODOS"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PedidoCaja"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Preórdenes de hoy",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/pedidos/{id}": {
+      "get": {
+        "operationId": "StaffOrdersController_one",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoCaja"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_ENCONTRADO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver un pedido por su QR (public_id)",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/pedidos/{id}/canjear": {
+      "post": {
+        "description": "Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.",
+        "operationId": "StaffOrdersController_redeem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanjeResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `PEDIDO_EXPIRADO`, `PEDIDO_CANCELADO`, `IDEMPOTENCY_KEY_REUTILIZADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Canjear el QR del pedido",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/caja/pedidos/{id}/servir": {
+      "post": {
+        "operationId": "StaffOrdersController_serve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoCaja"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `PEDIDO_NO_CANJEADO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar el pedido como servido",
+        "tags": ["caja"]
+      }
+    },
+    "/v1/mis/mesas": {
+      "post": {
+        "description": "El anfitrión entra como primer miembro. Comparte `invitacion` en un link; la caja valida la mesa entera al llegar.",
+        "operationId": "TablesController_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearMesaCompartidaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `HORA_LLEGADA_INVALIDA`, `IDEMPOTENCY_KEY_INVALIDA`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `IDEMPOTENCY_KEY_REUTILIZADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una mesa compartida e invitar por link",
+        "tags": ["comensal"]
+      },
+      "get": {
+        "operationId": "TablesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MesaResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis mesas (como anfitrión o invitado)",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/mesas/{id}": {
+      "get": {
+        "operationId": "TablesController_one",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Una mesa mía, con sus miembros",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/mesas/{id}/cancelar": {
+      "post": {
+        "operationId": "TablesController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "application/problem+json con `code`: `SOLO_ANFITRION`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MESA_CERRADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancelar la mesa (solo el anfitrión, antes de la caja)",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mesas/invitacion/{id}": {
+      "get": {
+        "description": "Dice quién invita, a dónde y a qué hora, cuántos van y si todavía se puede (`puedeUnirse`, `motivo`).",
+        "operationId": "InvitationsController_preview",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitacionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Validar un link de invitación antes de unirse",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mesas/invitacion/{id}/unirse": {
+      "post": {
+        "description": "Vuelve a validar con la mesa bloqueada (cupo, estado, vencimiento). Unirse dos veces no duplica al miembro.",
+        "operationId": "InvitationsController_join",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnirseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MESA_CERRADA`, `MESA_VENCIDA`, `MESA_LLENA`, `RESTAURANTE_NO_DISPONIBLE`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Unirse a la mesa por su link",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/opiniones/pendientes": {
+      "get": {
+        "description": "Almuerzos propios no revertidos, de 25 minutos a 24 horas de antigüedad, sin opinión ni descarte.",
+        "operationId": "DinerFeedbackController_pending",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PendienteResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tarjetas \"¿Qué tal hoy?\" por responder",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/opiniones": {
+      "get": {
+        "operationId": "DinerFeedbackController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OpinionResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis opiniones enviadas, con la respuesta del restaurante",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/consumos/{id}/opinion": {
+      "post": {
+        "description": "Una por almuerzo. Etiquetas cerradas y comentario privado (solo lo lee el restaurante).",
+        "operationId": "DinerFeedbackController_submit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpinarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `OPINION_VACIA`, `IDEMPOTENCY_KEY_INVALIDA`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CONSUMO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `OPINION_AUN_NO_DISPONIBLE`, `OPINION_VENCIDA`, `OPINION_YA_ENVIADA`, `CONSUMO_REVERTIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Opinar sobre un almuerzo mío",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/mis/consumos/{id}/opinion/descartar": {
+      "post": {
+        "description": "Cuenta como la única opinión de ese almuerzo.",
+        "operationId": "DinerFeedbackController_dismiss",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CONSUMO_NO_ENCONTRADO`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `OPINION_AUN_NO_DISPONIBLE`, `OPINION_VENCIDA`, `OPINION_YA_ENVIADA`, `CONSUMO_REVERTIDO`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar la tarjeta sin opinar",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/opiniones": {
+      "get": {
+        "description": "Más recientes primero, con cursor. Incluye un resumen de los últimos 30 días por etiqueta.",
+        "operationId": "InboxController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "TODAS",
+              "type": "string",
+              "enum": ["TODAS", "SIN_RESPONDER", "RESPONDIDAS"]
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandejaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `CURSOR_INVALIDO`"
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bandeja de opiniones de los comensales",
+        "tags": ["opiniones"]
+      }
+    },
+    "/v1/opiniones/{id}/responder": {
+      "post": {
+        "description": "El comensal ve la respuesta en `GET /v1/mis/opiniones`. Una por opinión.",
+        "operationId": "InboxController_reply",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionBandeja"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `OPINION_NO_ENCONTRADA`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `OPINION_YA_RESPONDIDA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Responder una opinión",
+        "tags": ["opiniones"]
+      }
+    },
+    "/v1/mis/sellos": {
+      "get": {
+        "description": "Una por local donde soy cliente y que tiene la tarjeta activa (o donde tengo premios).",
+        "operationId": "DinerLoyaltyController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MiTarjeta"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mis tarjetas de sellos",
+        "tags": ["comensal"]
+      }
+    },
+    "/v1/sellos/config": {
+      "get": {
+        "operationId": "LoyaltyController_getConfig",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `TARJETA_NO_CONFIGURADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Configuración de la tarjeta de sellos",
+        "tags": ["sellos"]
+      },
+      "put": {
+        "description": "Cada almuerzo validado suma un sello; al llegar a la meta se gana un premio. Cambiar la meta no toca los sellos ya ganados.",
+        "operationId": "LoyaltyController_setConfig",
+        "parameters": [
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Configurar la tarjeta de sellos",
+        "tags": ["sellos"]
+      }
+    },
+    "/v1/clientes/{id}/sellos": {
+      "get": {
+        "operationId": "LoyaltyController_card",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TarjetaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CLIENTE_NO_ENCONTRADO`, `TARJETA_NO_CONFIGURADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tarjeta de sellos de un cliente",
+        "tags": ["sellos"]
+      }
+    },
+    "/v1/clientes/{id}/sellos/canjear": {
+      "post": {
+        "operationId": "LoyaltyController_redeem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TarjetaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CLIENTE_NO_ENCONTRADO`, `TARJETA_NO_CONFIGURADA`"
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `SIN_PREMIOS`, `IDEMPOTENCY_KEY_REUTILIZADA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Canjear un premio de la tarjeta de sellos",
+        "tags": ["sellos"]
+      }
+    }
+  },
+  "info": {
+    "title": "Bocadoo API",
+    "description": "Backend de Bocadoo: planes de almuerzo prepago por QR.",
+    "version": "0.4.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "María Guamán"
+          },
+          "correo": {
+            "type": "string",
+            "example": "maria@correo.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 128
+          },
+          "nombreUsuario": {
+            "type": "string",
+            "example": "maria.guaman"
+          },
+          "aceptaTerminos": {
+            "type": "boolean",
+            "description": "Debe ser true"
+          }
+        },
+        "required": ["nombre", "correo", "password", "aceptaTerminos"]
+      },
+      "RestauranteNuevoDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "La Cuchara de San Blas"
+          },
+          "ciudadId": {
+            "type": "number",
+            "description": "ciudad_id del catálogo (1 = Quito)",
+            "example": 1
+          }
+        },
+        "required": ["nombre", "ciudadId"]
+      },
+      "RegisterOwnerDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "María Guamán"
+          },
+          "correo": {
+            "type": "string",
+            "example": "maria@correo.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 128
+          },
+          "nombreUsuario": {
+            "type": "string",
+            "example": "maria.guaman"
+          },
+          "aceptaTerminos": {
+            "type": "boolean",
+            "description": "Debe ser true"
+          },
+          "restaurante": {
+            "$ref": "#/components/schemas/RestauranteNuevoDto"
+          }
+        },
+        "required": ["nombre", "correo", "password", "aceptaTerminos", "restaurante"]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "identificador": {
+            "type": "string",
+            "description": "Correo o nombre de usuario",
+            "example": "maria@correo.com"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": ["identificador", "password"]
+      },
+      "RefreshDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "Refresh token opaco recibido en el login o en el refresh anterior"
+          }
+        },
+        "required": ["refreshToken"]
+      },
+      "UpdateRestauranteDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "descripcionCorta": {
+            "type": "object",
+            "nullable": true
+          },
+          "etiquetas": {
+            "example": ["casero", "vegetariano"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "direccion": {
+            "type": "object",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "object",
+            "nullable": true
+          },
+          "longitud": {
+            "type": "object",
+            "nullable": true
+          },
+          "telefono": {
+            "type": "object",
+            "nullable": true,
+            "example": "+593990000001"
+          },
+          "logoUrl": {
+            "type": "object",
+            "nullable": true
+          },
+          "puestos": {
+            "type": "number",
+            "description": "Puestos del local; base del cálculo de ocupación"
+          },
+          "anotarMesa": {
+            "type": "boolean"
+          },
+          "momentoCobro": {
+            "type": "string",
+            "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
+          },
+          "precioSueltoCentavos": {
+            "type": "number",
+            "description": "Precio del almuerzo suelto, en centavos"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "description": "Recargo por llevar, en centavos"
+          },
+          "zonaId": {
+            "type": "object",
+            "nullable": true,
+            "description": "zona_id del catálogo (debe ser de la ciudad del local)"
+          }
+        }
+      },
+      "HorarioDto": {
+        "type": "object",
+        "properties": {
+          "diaSemana": {
+            "type": "number",
+            "description": "ISO: 1 = lunes … 7 = domingo"
+          },
+          "abre": {
+            "type": "string",
+            "example": "12:00"
+          },
+          "cierra": {
+            "type": "string",
+            "example": "15:30"
+          }
+        },
+        "required": ["diaSemana", "abre", "cierra"]
+      },
+      "ReemplazarHorariosDto": {
+        "type": "object",
+        "properties": {
+          "horarios": {
+            "description": "Reemplaza todos los horarios; [] los deja sin horario",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HorarioDto"
+            }
+          }
+        },
+        "required": ["horarios"]
+      },
+      "CrearMesaDto": {
+        "type": "object",
+        "properties": {
+          "etiqueta": {
+            "type": "string",
+            "example": "Mesa 4"
+          },
+          "capacidad": {
+            "type": "number",
+            "example": 4
+          }
+        },
+        "required": ["etiqueta", "capacidad"]
+      },
+      "ActualizarMesaDto": {
+        "type": "object",
+        "properties": {
+          "etiqueta": {
+            "type": "string"
+          },
+          "capacidad": {
+            "type": "number"
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LlenoDto": {
+        "type": "object",
+        "properties": {
+          "lleno": {
+            "type": "boolean",
+            "description": "true marca \"Local lleno\" por 20 minutos; false lo quita"
+          }
+        },
+        "required": ["lleno"]
+      },
+      "InviteCashierDto": {
+        "type": "object",
+        "properties": {
+          "correo": {
+            "type": "string",
+            "example": "cajero@correo.com"
+          },
+          "nombreVisible": {
+            "type": "string",
+            "description": "Nombre que verá el local; por defecto, el de su cuenta"
+          }
+        },
+        "required": ["correo"]
+      },
+      "SetActiveDto": {
+        "type": "object",
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          }
+        },
+        "required": ["activo"]
+      },
+      "CrearPlatoDto": {
+        "type": "object",
+        "properties": {
+          "categoria": {
+            "type": "string",
+            "enum": ["ALMUERZO", "A_LA_CARTA", "EXTRA", "BEBIDA"]
+          },
+          "seccion": {
+            "type": "string",
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE", "ADICIONAL"],
+            "nullable": true,
+            "description": "Sección habitual dentro del almuerzo"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Seco de pollo"
+          },
+          "descripcion": {
+            "type": "object",
+            "nullable": true
+          },
+          "precioCentavos": {
+            "type": "object",
+            "nullable": true,
+            "description": "Centavos. Vacío = solo se sirve dentro del almuerzo"
+          },
+          "fotoUrl": {
+            "type": "object",
+            "nullable": true
+          },
+          "etiquetas": {
+            "example": ["vegetariano", "picante"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["categoria", "nombre"]
+      },
+      "ActualizarPlatoDto": {
+        "type": "object",
+        "properties": {
+          "categoria": {
+            "type": "string",
+            "enum": ["ALMUERZO", "A_LA_CARTA", "EXTRA", "BEBIDA"]
+          },
+          "seccion": {
+            "type": "string",
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE", "ADICIONAL"],
+            "nullable": true
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "object",
+            "nullable": true
+          },
+          "precioCentavos": {
+            "type": "object",
+            "nullable": true
+          },
+          "fotoUrl": {
+            "type": "object",
+            "nullable": true
+          },
+          "etiquetas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ItemMenuDto": {
+        "type": "object",
+        "properties": {
+          "platoId": {
+            "type": "string",
+            "description": "Id del plato del catálogo"
+          },
+          "seccion": {
+            "type": "string",
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE", "ADICIONAL"]
+          },
+          "precioCentavos": {
+            "type": "object",
+            "nullable": true,
+            "description": "Precio de ese día si difiere del catálogo (centavos)"
+          },
+          "porciones": {
+            "type": "object",
+            "nullable": true,
+            "description": "Porciones disponibles; vacío = sin límite"
+          },
+          "orden": {
+            "type": "number"
+          }
+        },
+        "required": ["platoId", "seccion"]
+      },
+      "DefinirMenuDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "Menú completo del día, sin límite por sección. Quita lo que no esté en la lista.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemMenuDto"
+            }
+          }
+        },
+        "required": ["items"]
+      },
+      "CopiarMenuDto": {
+        "type": "object",
+        "properties": {
+          "desde": {
+            "type": "string",
+            "example": "2026-11-12",
+            "description": "Fecha de origen; por defecto, el último menú anterior con platos"
+          },
+          "reemplazar": {
+            "type": "boolean",
+            "description": "Si el día destino ya tiene platos, true los reemplaza"
+          }
+        }
+      },
+      "AgotadoDto": {
+        "type": "object",
+        "properties": {
+          "agotado": {
+            "type": "boolean"
+          }
+        },
+        "required": ["agotado"]
+      },
+      "CrearPlanDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": ["SEMANAL", "QUINCENAL", "MENSUAL", "LIBRE"]
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Plan semanal"
+          },
+          "almuerzos": {
+            "type": "number",
+            "example": 5
+          },
+          "precioCentavos": {
+            "type": "number",
+            "example": 1500,
+            "description": "Centavos"
+          },
+          "vigenciaDias": {
+            "type": "number",
+            "example": 7,
+            "description": "Días de vigencia desde la compra"
+          },
+          "cupos": {
+            "type": "object",
+            "nullable": true,
+            "description": "Máximo de planes activos vendidos a la vez; vacío = sin límite"
+          },
+          "diasValidos": {
+            "example": [1, 2, 3, 4, 5],
+            "description": "ISO: 1 = lunes … 7 = domingo",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "incluye": {
+            "example": ["jugo", "sopa", "segundo"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "visibleEnMarketplace": {
+            "type": "boolean",
+            "description": "Mostrar en la vitrina pública"
+          }
+        },
+        "required": ["tipo", "nombre", "almuerzos", "precioCentavos", "vigenciaDias"]
+      },
+      "ActualizarPlanDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": ["SEMANAL", "QUINCENAL", "MENSUAL", "LIBRE"]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "almuerzos": {
+            "type": "number"
+          },
+          "precioCentavos": {
+            "type": "number"
+          },
+          "vigenciaDias": {
+            "type": "number"
+          },
+          "cupos": {
+            "type": "object",
+            "nullable": true
+          },
+          "diasValidos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "incluye": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "visibleEnMarketplace": {
+            "type": "boolean"
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CrearClienteDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Juan Pérez"
+          },
+          "telefono": {
+            "type": "object",
+            "example": "+593990000123",
+            "description": "E.164; único por restaurante"
+          },
+          "correo": {
+            "type": "object"
+          },
+          "nota": {
+            "type": "object"
+          }
+        },
+        "required": ["nombre"]
+      },
+      "ActualizarClienteDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "telefono": {
+            "type": "object",
+            "nullable": true
+          },
+          "correo": {
+            "type": "object",
+            "nullable": true
+          },
+          "nota": {
+            "type": "object",
+            "nullable": true
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MigrarCartulinaDto": {
+        "type": "object",
+        "properties": {
+          "almuerzosRestantes": {
+            "type": "number",
+            "example": 7,
+            "description": "Almuerzos que le quedan en la cartulina de papel"
+          },
+          "venceEl": {
+            "type": "string",
+            "example": "2026-12-15",
+            "description": "Último día válido"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "example": 300,
+            "description": "Valor de cada almuerzo (centavos): es lo que el local le debe al cliente"
+          },
+          "nombrePlan": {
+            "type": "string",
+            "example": "Cartulina de papel"
+          },
+          "diasValidos": {
+            "example": [1, 2, 3, 4, 5],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "anotacion": {
+            "type": "string"
+          }
+        },
+        "required": ["almuerzosRestantes", "venceEl", "precioUnitarioCentavos"]
+      },
+      "VincularDto": {
+        "type": "object",
+        "properties": {
+          "correo": {
+            "type": "string",
+            "description": "Correo de la cuenta de la app del comensal"
+          }
+        },
+        "required": ["correo"]
+      },
+      "VenderPlanDto": {
+        "type": "object",
+        "properties": {
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "pagoConfirmado": {
+            "type": "boolean",
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+          },
+          "comprobanteUrl": {
+            "type": "string",
+            "description": "Foto del comprobante (https)"
+          },
+          "referenciaExterna": {
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna"
+          },
+          "planId": {
+            "type": "string",
+            "description": "Id de la plantilla de plan"
+          }
+        },
+        "required": ["metodoPago", "planId"]
+      },
+      "DeshacerDto": {
+        "type": "object",
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "example": "Se cobró al cliente equivocado"
+          }
+        }
+      },
+      "CobroDto": {
+        "type": "object",
+        "properties": {
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "pagoConfirmado": {
+            "type": "boolean",
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+          },
+          "comprobanteUrl": {
+            "type": "string",
+            "description": "Foto del comprobante (https)"
+          },
+          "referenciaExterna": {
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna"
+          }
+        },
+        "required": ["metodoPago"]
+      },
+      "SolicitarPlanDto": {
+        "type": "object",
+        "properties": {
+          "planId": {
+            "type": "string",
+            "description": "Id del plan, tal como aparece en la vitrina"
+          }
+        },
+        "required": ["planId"]
+      },
+      "ValidarDto": {
+        "type": "object",
+        "properties": {
+          "codigoQr": {
+            "type": "string",
+            "description": "Contenido del QR del comensal (canal QR)"
+          },
+          "clienteId": {
+            "type": "string",
+            "description": "Id del cliente elegido en la búsqueda manual (canal MANUAL)"
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "mesaLocalId": {
+            "type": "string",
+            "description": "Mesa del local donde se sirve"
+          }
+        }
+      },
+      "ValidacionResponse": {
+        "type": "object",
+        "properties": {
+          "resultado": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "OK_ADVERTENCIA",
+              "DUPLICADO",
+              "SIN_PLAN",
+              "SIN_SALDO",
+              "VENCIDO",
+              "DIA_NO_VALIDO",
+              "OTRO_LOCAL",
+              "QR_EXPIRADO",
+              "QR_INVALIDO",
+              "LIMITE_SAAS"
+            ],
+            "example": "OK"
+          },
+          "mensaje": {
+            "type": "string",
+            "example": "Almuerzo descontado."
+          },
+          "descontado": {
+            "type": "boolean",
+            "description": "true solo si se descontó un almuerzo (OK u OK_ADVERTENCIA)"
+          },
+          "cliente": {
+            "type": "object",
+            "example": {
+              "id": "12",
+              "nombre": "Ana Pérez"
+            }
+          },
+          "consumo": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "creadoEn": "2026-11-13T17:00:00Z",
+              "deshacerHasta": "2026-11-13T17:00:10Z"
+            }
+          },
+          "plan": {
+            "type": "object",
+            "example": {
+              "nombre": "Plan semanal",
+              "venceEl": "2026-11-20"
+            }
+          },
+          "almuerzosRestantes": {
+            "type": "object",
+            "example": 4
+          },
+          "diasParaVencer": {
+            "type": "object",
+            "example": 6
+          }
+        },
+        "required": ["resultado", "mensaje", "descontado"]
+      },
+      "ItemVentaDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": ["ALMUERZO", "PLATO", "LIBRE"],
+            "description": "ALMUERZO: almuerzo suelto al precio del local. PLATO: del catálogo. LIBRE: cobro suelto con nombre y precio."
+          },
+          "platoId": {
+            "type": "string",
+            "description": "Obligatorio en PLATO"
+          },
+          "nombre": {
+            "type": "string",
+            "description": "Obligatorio en LIBRE"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "description": "Centavos; obligatorio en LIBRE"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["tipo", "cantidad"]
+      },
+      "VentaDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemVentaDto"
+            }
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "paraLlevar": {
+            "type": "boolean",
+            "description": "Suma el recargo para llevar del local por cada almuerzo"
+          },
+          "mesaTexto": {
+            "type": "string",
+            "example": "Mesa 3"
+          },
+          "pagoConfirmado": {
+            "type": "boolean",
+            "description": "Transferencia o Deuna ya verificada; si no, queda pendiente"
+          },
+          "comprobanteUrl": {
+            "type": "string"
+          },
+          "referenciaExterna": {
+            "type": "string"
+          }
+        },
+        "required": ["items", "metodoPago"]
+      },
+      "CerrarCajaDto": {
+        "type": "object",
+        "properties": {
+          "efectivoContadoCentavos": {
+            "type": "number",
+            "example": 4550,
+            "description": "Efectivo contado en la gaveta, en centavos"
+          },
+          "nota": {
+            "type": "string"
+          }
+        },
+        "required": ["efectivoContadoCentavos"]
+      },
+      "DevolverDto": {
+        "type": "object",
+        "properties": {
+          "respuesta": {
+            "type": "string",
+            "example": "Tienes razón, te devolvimos el almuerzo."
+          }
+        }
+      },
+      "RechazarDto": {
+        "type": "object",
+        "properties": {
+          "respuesta": {
+            "type": "string",
+            "example": "El almuerzo sí se sirvió ese día."
+          }
+        },
+        "required": ["respuesta"]
+      },
+      "PlanPase": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id del plan vendido"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Plan semanal"
+          },
+          "almuerzosRestantes": {
+            "type": "number",
+            "example": 4
+          },
+          "almuerzosTotales": {
+            "type": "number",
+            "example": 5
+          },
+          "venceEl": {
+            "type": "string",
+            "example": "2026-11-20"
+          },
+          "diasParaVencer": {
+            "type": "number",
+            "example": 6
+          },
+          "diasValidos": {
+            "example": [1, 2, 3, 4, 5],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "valeHoy": {
+            "type": "boolean",
+            "description": "El plan vale hoy (día de la semana permitido)"
+          }
+        },
+        "required": ["id", "nombre", "almuerzosRestantes", "almuerzosTotales", "venceEl", "diasParaVencer", "diasValidos", "valeHoy"]
+      },
+      "LocalPase": {
+        "type": "object",
+        "properties": {
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa",
+              "logoUrl": null
+            }
+          },
+          "hoy": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "Hoy en la zona horaria del local"
+          },
+          "almuerzosDisponibles": {
+            "type": "number",
+            "example": 9,
+            "description": "Suma de los planes vigentes"
+          },
+          "planes": {
+            "description": "En orden FIFO: el primero es el que se descuenta",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanPase"
+            }
+          }
+        },
+        "required": ["restaurante", "hoy", "almuerzosDisponibles", "planes"]
+      },
+      "PaseResponse": {
+        "type": "object",
+        "properties": {
+          "usuario": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Ana Pérez"
+            }
+          },
+          "codigo": {
+            "type": "object",
+            "example": {
+              "codigo": "BCD1.…",
+              "validoSegundos": 30,
+              "expiraEn": "2026-11-13T17:00:30Z"
+            }
+          },
+          "locales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LocalPase"
+            }
+          }
+        },
+        "required": ["usuario", "codigo", "locales"]
+      },
+      "ConsumoItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id del consumo"
+          },
+          "fecha": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fechaLocal": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "Día del almuerzo en la hora local del restaurante"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          },
+          "plan": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Plan semanal"
+            }
+          },
+          "canal": {
+            "type": "string",
+            "enum": ["QR", "MANUAL", "PREORDEN", "MESA"]
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "revertido": {
+            "type": "boolean",
+            "description": "El almuerzo se devolvió al plan (deshacer en caja o reclamo aceptado)"
+          },
+          "revertidoEn": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "fecha", "fechaLocal", "restaurante", "plan", "canal", "paraLlevar", "revertido"]
+      },
+      "HistorialResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumoItem"
+            }
+          },
+          "nextCursor": {
+            "type": "object",
+            "description": "null si no hay más páginas"
+          }
+        },
+        "required": ["items"]
+      },
+      "ReclamoResponse": {
+        "type": "object",
+        "properties": {
+          "consumo": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "fecha": "2026-11-13T17:00:00Z",
+              "restaurante": {
+                "id": "uuid",
+                "nombre": "Doña Rosa",
+                "slug": "dona-rosa"
+              }
+            }
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["PENDIENTE", "DEVUELTO", "RECHAZADO"],
+            "description": "DEVUELTO: el almuerzo volvió a tu plan"
+          },
+          "mensaje": {
+            "type": "string"
+          },
+          "respuesta": {
+            "type": "object",
+            "description": "Respuesta del restaurante"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "resueltoEn": {
+            "type": "object"
+          }
+        },
+        "required": ["consumo", "estado", "mensaje", "creadoEn"]
+      },
+      "ReclamarDto": {
+        "type": "object",
+        "properties": {
+          "mensaje": {
+            "type": "string",
+            "example": "Me descontaron el almuerzo pero ese día no fui.",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "required": ["mensaje"]
+      },
+      "AlmuerzoDto": {
+        "type": "object",
+        "properties": {
+          "platos": {
+            "description": "public_id de los platos elegidos del menú de hoy, uno por sección (JUGO, SOPA, FUERTE, POSTRE)",
+            "example": ["uuid-sopa", "uuid-fuerte"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["platos"]
+      },
+      "ExtraDto": {
+        "type": "object",
+        "properties": {
+          "plato": {
+            "type": "string",
+            "description": "public_id del plato (con precio) del menú de hoy"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": ["plato", "cantidad"]
+      },
+      "CrearPedidoDto": {
+        "type": "object",
+        "properties": {
+          "restaurante": {
+            "type": "string",
+            "description": "public_id del restaurante"
+          },
+          "paraLlevar": {
+            "type": "boolean",
+            "description": "Suma el recargo para llevar del local al almuerzo"
+          },
+          "almuerzo": {
+            "$ref": "#/components/schemas/AlmuerzoDto"
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraDto"
+            }
+          }
+        },
+        "required": ["restaurante"]
+      },
+      "ExtraPedido": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "cantidad": {
+            "type": "number"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number"
+          },
+          "subtotalCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["id", "nombre", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
+      },
+      "PedidoResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id del pedido"
+          },
+          "qr": {
+            "type": "string",
+            "description": "Contenido del QR que la caja escanea: es el public_id del pedido"
+          },
+          "numero": {
+            "type": "number",
+            "example": 7,
+            "description": "\"Pedido #7\" del día"
+          },
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["EN_CAMINO", "CANJEADA", "SERVIDA", "EXPIRADA", "CANCELADA"]
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "almuerzo": {
+            "type": "object",
+            "description": "null si solo pidió extras",
+            "example": {
+              "platos": [
+                {
+                  "id": "uuid",
+                  "nombre": "Seco de pollo",
+                  "seccion": "FUERTE"
+                }
+              ],
+              "precioCentavos": 0,
+              "cubiertoPorPlan": true
+            }
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraPedido"
+            }
+          },
+          "recargoLlevarCentavos": {
+            "type": "number"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "description": "Lo que se pagaría en caja según lo conocido al pedir"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "venceEn": {
+            "format": "date-time",
+            "type": "string",
+            "description": "creadoEn + 30 minutos"
+          },
+          "canjeadoEn": {
+            "type": "object"
+          },
+          "servidoEn": {
+            "type": "object"
+          },
+          "canceladoEn": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "qr",
+          "numero",
+          "fecha",
+          "restaurante",
+          "estado",
+          "paraLlevar",
+          "extras",
+          "recargoLlevarCentavos",
+          "totalCentavos",
+          "monedaCodigo",
+          "creadoEn",
+          "venceEn"
+        ]
+      },
+      "PedidosResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PedidoResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "object"
+          }
+        },
+        "required": ["items"]
+      },
+      "PedidoCaja": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id del pedido"
+          },
+          "qr": {
+            "type": "string",
+            "description": "Contenido del QR que la caja escanea: es el public_id del pedido"
+          },
+          "numero": {
+            "type": "number",
+            "example": 7,
+            "description": "\"Pedido #7\" del día"
+          },
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["EN_CAMINO", "CANJEADA", "SERVIDA", "EXPIRADA", "CANCELADA"]
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "almuerzo": {
+            "type": "object",
+            "description": "null si solo pidió extras",
+            "example": {
+              "platos": [
+                {
+                  "id": "uuid",
+                  "nombre": "Seco de pollo",
+                  "seccion": "FUERTE"
+                }
+              ],
+              "precioCentavos": 0,
+              "cubiertoPorPlan": true
+            }
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraPedido"
+            }
+          },
+          "recargoLlevarCentavos": {
+            "type": "number"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "description": "Lo que se pagaría en caja según lo conocido al pedir"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "venceEn": {
+            "format": "date-time",
+            "type": "string",
+            "description": "creadoEn + 30 minutos"
+          },
+          "canjeadoEn": {
+            "type": "object"
+          },
+          "servidoEn": {
+            "type": "object"
+          },
+          "canceladoEn": {
+            "type": "object"
+          },
+          "comensal": {
+            "type": "object",
+            "example": {
+              "nombre": "Ana Pérez"
+            },
+            "description": "Quién pidió (nombre de su cuenta)"
+          },
+          "cliente": {
+            "type": "object",
+            "example": {
+              "nombre": "Ana Pérez",
+              "almuerzosDisponibles": 4
+            },
+            "description": "Su ficha de cliente en este local; null si no es cliente"
+          }
+        },
+        "required": [
+          "id",
+          "qr",
+          "numero",
+          "fecha",
+          "restaurante",
+          "estado",
+          "paraLlevar",
+          "extras",
+          "recargoLlevarCentavos",
+          "totalCentavos",
+          "monedaCodigo",
+          "creadoEn",
+          "venceEn",
+          "comensal"
+        ]
+      },
+      "CanjeResponse": {
+        "type": "object",
+        "properties": {
+          "pedido": {
+            "$ref": "#/components/schemas/PedidoCaja"
+          },
+          "yaCanjeado": {
+            "type": "boolean",
+            "description": "El pedido ya estaba canjeado: no se descontó nada esta vez"
+          },
+          "almuerzo": {
+            "type": "object",
+            "description": "null si el pedido no lleva almuerzo. `resultado` es null al repetir un canje ya hecho.",
+            "example": {
+              "resultado": "OK",
+              "mensaje": "Almuerzo descontado.",
+              "descontado": true,
+              "consumoId": "uuid"
+            }
+          },
+          "porCobrarCentavos": {
+            "type": "number",
+            "description": "Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió"
+          }
+        },
+        "required": ["pedido", "yaCanjeado", "porCobrarCentavos"]
+      },
+      "CrearMesaCompartidaDto": {
+        "type": "object",
+        "properties": {
+          "restaurante": {
+            "type": "string",
+            "description": "public_id del restaurante"
+          },
+          "horaLlegada": {
+            "type": "string",
+            "example": "2026-11-13T17:30:00Z",
+            "description": "Hora de llegada (de ahora a 12 horas)"
+          },
+          "modo": {
+            "type": "string",
+            "enum": ["CADA_UNO", "INVITO_YO"],
+            "default": "CADA_UNO",
+            "description": "CADA_UNO: cada quien con su plan. INVITO_YO: paga el anfitrión."
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          }
+        },
+        "required": ["restaurante", "horaLlegada"]
+      },
+      "MiembroMesa": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "esAnfitrion": {
+            "type": "boolean"
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "soyYo": {
+            "type": "boolean",
+            "description": "Es el comensal que consulta"
+          }
+        },
+        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo"]
+      },
+      "MesaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "public_id de la mesa"
+          },
+          "invitacion": {
+            "type": "string",
+            "description": "Lo que va en el link de invitación (bocadoo://mesa/<invitacion>): el public_id de la mesa"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          },
+          "anfitrion": {
+            "type": "object",
+            "example": {
+              "nombre": "Ana Pérez"
+            }
+          },
+          "soyAnfitrion": {
+            "type": "boolean"
+          },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "modo": {
+            "type": "string",
+            "enum": ["CADA_UNO", "INVITO_YO"]
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["ABIERTA", "EN_CAMINO", "EN_MESA", "FINALIZADA", "CANCELADA"]
+          },
+          "validadaEn": {
+            "type": "object",
+            "description": "Cuándo la validó la caja"
+          },
+          "miembros": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MiembroMesa"
+            }
+          }
+        },
+        "required": ["id", "invitacion", "restaurante", "anfitrion", "soyAnfitrion", "horaLlegada", "modo", "estado", "miembros"]
+      },
+      "InvitacionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          },
+          "anfitrion": {
+            "type": "object",
+            "example": {
+              "nombre": "Ana Pérez"
+            }
+          },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "modo": {
+            "type": "string",
+            "enum": ["CADA_UNO", "INVITO_YO"]
+          },
+          "estado": {
+            "type": "string"
+          },
+          "personas": {
+            "type": "number"
+          },
+          "capacidad": {
+            "type": "number"
+          },
+          "puedeUnirse": {
+            "type": "boolean"
+          },
+          "motivo": {
+            "type": "string",
+            "enum": ["MESA_CERRADA", "MESA_VENCIDA", "MESA_LLENA", "RESTAURANTE_NO_DISPONIBLE", "YA_ERES_MIEMBRO"],
+            "description": "Por qué no puede unirse; null si puede"
+          }
+        },
+        "required": ["id", "restaurante", "anfitrion", "horaLlegada", "modo", "estado", "personas", "capacidad", "puedeUnirse"]
+      },
+      "UnirseDto": {
+        "type": "object",
+        "properties": {
+          "paraLlevar": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PendienteResponse": {
+        "type": "object",
+        "properties": {
+          "consumo": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "fecha": "2026-11-13T17:00:00Z",
+              "restaurante": {
+                "id": "uuid",
+                "nombre": "Doña Rosa",
+                "slug": "dona-rosa"
+              }
+            }
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "etiquetasDisponibles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "RICO",
+                "BUENA_PORCION",
+                "RAPIDO",
+                "BUENA_ATENCION",
+                "LIMPIO",
+                "FRIO",
+                "SALADO",
+                "PORCION_PEQUENA",
+                "DEMORA",
+                "MALA_ATENCION"
+              ]
+            }
+          }
+        },
+        "required": ["consumo", "expiraEn", "etiquetasDisponibles"]
+      },
+      "OpinionResponse": {
+        "type": "object",
+        "properties": {
+          "consumo": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "fecha": "2026-11-13T17:00:00Z",
+              "restaurante": {
+                "id": "uuid",
+                "nombre": "Doña Rosa",
+                "slug": "dona-rosa"
+              }
+            }
+          },
+          "etiquetas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "RICO",
+                "BUENA_PORCION",
+                "RAPIDO",
+                "BUENA_ATENCION",
+                "LIMPIO",
+                "FRIO",
+                "SALADO",
+                "PORCION_PEQUENA",
+                "DEMORA",
+                "MALA_ATENCION"
+              ]
+            }
+          },
+          "comentario": {
+            "type": "object"
+          },
+          "descartada": {
+            "type": "boolean",
+            "description": "Cerró la tarjeta sin opinar"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "respuesta": {
+            "type": "object",
+            "example": {
+              "texto": "¡Gracias! Lo corregimos.",
+              "respondidoEn": "2026-11-13T18:00:00Z"
+            }
+          }
+        },
+        "required": ["consumo", "etiquetas", "descartada", "creadoEn"]
+      },
+      "OpinarDto": {
+        "type": "object",
+        "properties": {
+          "etiquetas": {
+            "type": "array",
+            "example": ["RICO", "BUENA_PORCION"],
+            "items": {
+              "type": "string",
+              "enum": [
+                "RICO",
+                "BUENA_PORCION",
+                "RAPIDO",
+                "BUENA_ATENCION",
+                "LIMPIO",
+                "FRIO",
+                "SALADO",
+                "PORCION_PEQUENA",
+                "DEMORA",
+                "MALA_ATENCION"
+              ]
+            }
+          },
+          "comentario": {
+            "type": "string",
+            "description": "Solo lo lee el restaurante; no se publica",
+            "example": "La sopa llegó tibia."
+          }
+        }
+      },
+      "OpinionBandeja": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "La opinión se identifica por el public_id de su almuerzo (una por almuerzo)"
+          },
+          "cliente": {
+            "type": "object",
+            "example": {
+              "nombre": "Ana Pérez"
+            }
+          },
+          "almuerzoEn": {
+            "format": "date-time",
+            "type": "string",
+            "description": "Cuándo almorzó"
+          },
+          "plan": {
+            "type": "object",
+            "example": {
+              "nombre": "Plan semanal"
+            }
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "etiquetas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "RICO",
+                "BUENA_PORCION",
+                "RAPIDO",
+                "BUENA_ATENCION",
+                "LIMPIO",
+                "FRIO",
+                "SALADO",
+                "PORCION_PEQUENA",
+                "DEMORA",
+                "MALA_ATENCION"
+              ]
+            }
+          },
+          "comentario": {
+            "type": "object"
+          },
+          "respuesta": {
+            "type": "object",
+            "example": {
+              "texto": "¡Gracias!",
+              "respondidoEn": "2026-11-13T18:00:00Z"
+            }
+          }
+        },
+        "required": ["id", "cliente", "almuerzoEn", "plan", "creadoEn", "etiquetas"]
+      },
+      "BandejaResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpinionBandeja"
+            }
+          },
+          "nextCursor": {
+            "type": "object"
+          },
+          "resumen": {
+            "type": "object",
+            "description": "Últimos 30 días (sin descartes)",
+            "example": {
+              "total": 12,
+              "sinResponder": 3,
+              "conComentario": 5,
+              "etiquetas": {
+                "RICO": 8,
+                "FRIO": 2
+              }
+            }
+          }
+        },
+        "required": ["items", "resumen"]
+      },
+      "ResponderDto": {
+        "type": "object",
+        "properties": {
+          "respuesta": {
+            "type": "string",
+            "example": "¡Gracias por avisar! Mañana la sopa sale bien caliente."
+          }
+        },
+        "required": ["respuesta"]
+      },
+      "MiTarjeta": {
+        "type": "object",
+        "properties": {
+          "sellos": {
+            "type": "number"
+          },
+          "meta": {
+            "type": "number"
+          },
+          "faltan": {
+            "type": "number",
+            "description": "Sellos que faltan para el próximo premio"
+          },
+          "premiosDisponibles": {
+            "type": "number"
+          },
+          "premio": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "object"
+          },
+          "activa": {
+            "type": "boolean",
+            "description": "false si el local apagó la tarjeta (los premios ya ganados se pueden canjear)"
+          },
+          "restaurante": {
+            "type": "object",
+            "example": {
+              "id": "uuid",
+              "nombre": "Doña Rosa",
+              "slug": "dona-rosa"
+            }
+          }
+        },
+        "required": ["sellos", "meta", "faltan", "premiosDisponibles", "premio", "activa", "restaurante"]
+      },
+      "ConfigResponse": {
+        "type": "object",
+        "properties": {
+          "activa": {
+            "type": "boolean"
+          },
+          "meta": {
+            "type": "number"
+          },
+          "premio": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "object"
+          },
+          "cuenta": {
+            "type": "string",
+            "enum": ["ALMUERZO", "PLATO"]
+          }
+        },
+        "required": ["activa", "meta", "premio", "cuenta"]
+      },
+      "ConfigDto": {
+        "type": "object",
+        "properties": {
+          "activa": {
+            "type": "boolean",
+            "description": "Encender o apagar la tarjeta"
+          },
+          "meta": {
+            "type": "number",
+            "example": 10,
+            "minimum": 2,
+            "maximum": 50,
+            "description": "Sellos para ganar un premio"
+          },
+          "premio": {
+            "type": "string",
+            "example": "Un almuerzo gratis"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Tarjeta Doña Rosa"
+          },
+          "cuenta": {
+            "type": "string",
+            "enum": ["ALMUERZO"],
+            "default": "ALMUERZO",
+            "description": "Qué suma un sello. Por ahora, cada almuerzo validado."
+          }
+        },
+        "required": ["activa", "meta", "premio"]
+      },
+      "TarjetaResponse": {
+        "type": "object",
+        "properties": {
+          "sellos": {
+            "type": "number"
+          },
+          "meta": {
+            "type": "number"
+          },
+          "faltan": {
+            "type": "number",
+            "description": "Sellos que faltan para el próximo premio"
+          },
+          "premiosDisponibles": {
+            "type": "number"
+          },
+          "premio": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "object"
+          },
+          "activa": {
+            "type": "boolean",
+            "description": "false si el local apagó la tarjeta (los premios ya ganados se pueden canjear)"
+          }
+        },
+        "required": ["sellos", "meta", "faltan", "premiosDisponibles", "premio", "activa"]
+      }
+    }
+  }
+}

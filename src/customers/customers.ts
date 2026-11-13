@@ -98,14 +98,15 @@ export class VincularDto {
 }
 
 class BuscarQuery {
-  @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
+  @ApiPropertyOptional({ description: 'Nombre o teléfono' }) @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
+  @ApiPropertyOptional({ minimum: 1, maximum: 50 })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value))
   @IsInt()
   @Min(1)
   @Max(50)
   limit?: number;
-  @IsOptional() @IsString() @Length(1, 300) cursor?: string;
+  @ApiPropertyOptional({ description: 'nextCursor de la página anterior' }) @IsOptional() @IsString() @Length(1, 300) cursor?: string;
 }
 
 interface ClienteRow {

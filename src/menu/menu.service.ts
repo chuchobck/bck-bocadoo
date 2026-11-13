@@ -44,6 +44,7 @@ const PLATO_UPDATABLE: Record<keyof ActualizarPlatoDto, string> = {
 export interface MenuItemRow {
   menu_diario_detalle_id: string;
   plato_id: string;
+  plato_public_id: string;
   nombre: string;
   categoria: string;
   descripcion: string | null;
@@ -61,7 +62,7 @@ export interface MenuItemRow {
 /** Platos de un menú ya identificado. Sirve tanto al personal (por tenant) como a la vitrina pública. */
 export async function fetchMenuItems(q: Queryable, menuDiarioId: string): Promise<MenuItemRow[]> {
   const r = await q.query<MenuItemRow>(
-    `SELECT d.menu_diario_detalle_id, d.plato_id, p.nombre, p.categoria, p.descripcion, p.foto_url, p.etiquetas, d.seccion,
+    `SELECT d.menu_diario_detalle_id, d.plato_id, p.public_id AS plato_public_id, p.nombre, p.categoria, p.descripcion, p.foto_url, p.etiquetas, d.seccion,
             d.precio_centavos AS precio_dia, COALESCE(d.precio_centavos, p.precio_centavos) AS precio,
             d.porciones, d.agotado, d.agotado_en, d.orden
        FROM menu_diario_detalle d JOIN plato p ON p.plato_id = d.plato_id

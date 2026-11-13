@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { FechaOHoyPipe, IdPipe } from '../common/pipes';
@@ -7,8 +7,8 @@ import { ActualizarPlatoDto, AgotadoDto, CATEGORIAS, CopiarMenuDto, CrearPlatoDt
 import { MenuService } from './menu.service';
 
 class ListarPlatosQuery {
-  @IsOptional() @IsIn(CATEGORIAS) categoria?: string;
-  @IsOptional() @IsIn(['true', 'false']) soloActivos?: string;
+  @ApiPropertyOptional({ enum: CATEGORIAS }) @IsOptional() @IsIn(CATEGORIAS) categoria?: string;
+  @ApiPropertyOptional({ enum: ['true', 'false'] }) @IsOptional() @IsIn(['true', 'false']) soloActivos?: string;
 }
 
 @ApiTags('menú')

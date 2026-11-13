@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { mapPgError } from '../db/pg-errors';
+import { problemCode } from './errors';
 
 /** Respuesta de error según RFC 9457 (application/problem+json). */
 @Catch()
@@ -34,6 +35,7 @@ export class ProblemFilter implements ExceptionFilter {
         type: 'about:blank',
         title: HttpStatus[status]?.replaceAll('_', ' ') ?? 'Error',
         status,
+        code: status >= 500 ? 'ERROR_INTERNO' : problemCode(status, body),
         detail,
         instance: req.url,
         requestId: req.id,

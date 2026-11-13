@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
 import { Public } from '../authz/public.decorator';
@@ -7,17 +7,24 @@ import { Text } from '../security/sanitize';
 import { CatalogService } from './catalog.service';
 
 class SearchQuery {
-  @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
-  @IsOptional() @Matches(/^[1-9][0-9]{0,17}$/, { message: 'zonaId inválido' }) zonaId?: string;
-  @IsOptional() @Matches(/^[1-9][0-9]{0,17}$/, { message: 'ciudadId inválido' }) ciudadId?: string;
-  @IsOptional() @Text() @IsString() @Length(1, 30) etiqueta?: string;
+  @ApiPropertyOptional({ description: 'Texto a buscar en el nombre' }) @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
+  @ApiPropertyOptional({ description: 'zona_id del catálogo' })
+  @IsOptional()
+  @Matches(/^[1-9][0-9]{0,17}$/, { message: 'zonaId inválido' })
+  zonaId?: string;
+  @ApiPropertyOptional({ description: 'ciudad_id del catálogo' })
+  @IsOptional()
+  @Matches(/^[1-9][0-9]{0,17}$/, { message: 'ciudadId inválido' })
+  ciudadId?: string;
+  @ApiPropertyOptional({ description: 'Etiqueta del local' }) @IsOptional() @Text() @IsString() @Length(1, 30) etiqueta?: string;
+  @ApiPropertyOptional({ minimum: 1, maximum: 50, default: 20 })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value))
   @IsInt()
   @Min(1)
   @Max(50)
   limit?: number;
-  @IsOptional() @IsString() @Length(1, 300) cursor?: string;
+  @ApiPropertyOptional({ description: 'nextCursor de la página anterior' }) @IsOptional() @IsString() @Length(1, 300) cursor?: string;
 }
 
 @Public()
