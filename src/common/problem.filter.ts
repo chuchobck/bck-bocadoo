@@ -1,12 +1,14 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { mapPgError } from '../db/pg-errors';
 
 /** Respuesta de error según RFC 9457 (application/problem+json). */
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemFilter.name);
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  catch(raw: unknown, host: ArgumentsHost): void {
+    const exception = mapPgError(raw) ?? raw;
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<FastifyReply>();
     const req = ctx.getRequest<FastifyRequest>();
@@ -23,7 +25,7 @@ export class ProblemFilter implements ExceptionFilter {
       detail = Array.isArray(m) ? m.join('; ') : String(m);
     } else if (exception instanceof Error) detail = exception.message;
 
-    if (status >= 500) this.logger.error({ err: exception, requestId: req.id }, 'Excepción no controlada');
+    if (status >= 500) this.logger.error({ err: raw, requestId: req.id }, 'Excepción no controlada');
 
     void res
       .status(status)

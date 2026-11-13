@@ -6,6 +6,7 @@ import { loadEnv } from './config/env';
 import { AuthModule } from './auth/auth.module';
 import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
+import { RestaurantModule } from './restaurant/restaurant.module';
 import { SecurityModule } from './security/security.module';
 import { HealthController } from './health/health.controller';
 
@@ -16,6 +17,7 @@ import { HealthController } from './health/health.controller';
     SecurityModule,
     AuthModule,
     AuthzModule,
+    RestaurantModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
