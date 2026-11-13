@@ -4610,6 +4610,63 @@ Response `200`:
 - `rechazadosPorLimite`: escaneos de la caja rechazados por `LIMITE_SAAS` desde que empezó el ciclo.
 - Sin suscripción: todo en cero/`null` y `nivel: "ILIMITADO"`.
 
+### Fase 9 · Eventos de producto
+
+#### `POST /v1/eventos`
+
+**Enviar eventos de producto en lote**
+
+- **Rol:** cualquier usuario con sesión (`Authorization`), sin `x-restaurant-id`
+- **Estado:** En revisión (fase 9)
+- **Encabezado obligatorio:** `Idempotency-Key` (UUID). Misma llave (del mismo usuario) → misma respuesta y **ningún evento duplicado**, aunque el cuerpo cambie: manda el primer lote.
+
+Materia prima de analítica (qué miró, qué buscó, qué oferta vio). Todo el lote se guarda o se rechaza.
+
+Request:
+
+```json
+{
+  "sesionId": "uuid de la sesión de la app (opcional)",
+  "plataforma": "ANDROID",
+  "versionApp": "1.4.2",
+  "eventos": [
+    { "tipo": "oferta.impresion", "restauranteId": "uuid del local (opcional)", "propiedades": { "posicion": 2 } },
+    { "tipo": "menu.visto", "ocurridoEn": "2026-11-18T15:04:05Z", "usuarioId": "uuid propio (opcional)" }
+  ]
+}
+```
+
+Response `201`:
+
+```json
+{ "aceptados": 2, "anonimizado": false }
+```
+
+**Límites**
+
+| Qué              | Límite                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| Eventos por lote | 1 a 50 (si no, 400)                                                                       |
+| Cuerpo           | 100 kB (413)                                                                              |
+| `tipo`           | 3–60 caracteres: minúsculas, dígitos, `_` y puntos (`menu.visto`)                         |
+| `propiedades`    | objeto de hasta 20 claves y 1024 bytes (422 `EVENTO_MUY_GRANDE`)                          |
+| `ocurridoEn`     | de hace 7 días a 5 minutos en el futuro; por defecto, ahora (422 `EVENTO_FECHA_INVALIDA`) |
+| Tasa por usuario | 20 lotes y 500 eventos por minuto (429 `EVENTOS_LIMITE_TASA`)                             |
+| Tasa por IP      | 60 lotes por minuto, con o sin sesión (429, con `Retry-After`)                            |
+
+**Identidad.** El evento es siempre de la sesión. `usuarioId` es opcional y solo sirve para verificar: si es de otro usuario, el lote completo se rechaza con 403 `EVENTO_USUARIO_AJENO` (y la base lo exige también con RLS). **Consentimiento:** si el usuario no aceptó la analítica (`consiente_analitica`), los eventos se guardan **anonimizados** (sin usuario ni sesión) y la respuesta trae `anonimizado: true`. Reintentar un lote ya aceptado no cuenta contra el límite de tasa.
+
+Errores posibles (además de los comunes: 401, 400 de validación, 413, 5xx):
+
+| HTTP | `code`                      | Cuándo                                           |
+| ---- | --------------------------- | ------------------------------------------------ |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA`  | Falta la llave o no es UUID                      |
+| 403  | `EVENTO_USUARIO_AJENO`      | Un evento nombra a otro usuario                  |
+| 404  | `RESTAURANTE_NO_ENCONTRADO` | Un `restauranteId` no existe                     |
+| 422  | `EVENTO_MUY_GRANDE`         | Propiedades por encima de 20 claves o 1024 bytes |
+| 422  | `EVENTO_FECHA_INVALIDA`     | `ocurridoEn` fuera de la ventana                 |
+| 429  | `EVENTOS_LIMITE_TASA`       | Más de 20 lotes o 500 eventos en un minuto       |
+
 ### Salud
 
 #### `GET /health`

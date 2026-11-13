@@ -4661,6 +4661,64 @@
         "summary": "Uso de escaneos del ciclo",
         "tags": ["saas"]
       }
+    },
+    "/v1/eventos": {
+      "post": {
+        "description": "Hasta 50 eventos por lote (cuerpo máximo 100 kB). Todo el lote se guarda o se rechaza. Los eventos son siempre de la sesión: si uno nombra a otro usuario, se rechaza el lote. La misma `Idempotency-Key` devuelve el mismo resultado sin duplicar eventos.",
+        "operationId": "EventsController_ingest",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoteEventosDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoteResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "application/problem+json con `code`: `EVENTO_USUARIO_AJENO`"
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`"
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `EVENTO_MUY_GRANDE`, `EVENTO_FECHA_INVALIDA`"
+          },
+          "429": {
+            "description": "application/problem+json con `code`: `EVENTOS_LIMITE_TASA`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enviar eventos de producto en lote",
+        "tags": ["eventos"]
+      }
     }
   },
   "info": {
@@ -7327,6 +7385,81 @@
           }
         },
         "required": ["escaneosUsados", "nivel", "rechazadosPorLimite"]
+      },
+      "EventoDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "example": "oferta.impresion",
+            "description": "minúsculas, dígitos y `_`, con puntos para agrupar (`menu.visto`)",
+            "maxLength": 60
+          },
+          "ocurridoEn": {
+            "type": "string",
+            "example": "2026-11-18T15:04:05Z",
+            "description": "Cuándo ocurrió en el dispositivo. De hace 7 días a 5 minutos en el futuro; por defecto, ahora."
+          },
+          "restauranteId": {
+            "type": "string",
+            "description": "Local al que se refiere (public_id)"
+          },
+          "usuarioId": {
+            "type": "string",
+            "description": "Solo para verificar: si se manda, debe ser el usuario de la sesión; el de otro se rechaza"
+          },
+          "propiedades": {
+            "type": "object",
+            "example": {
+              "oferta": "uuid",
+              "posicion": 2
+            },
+            "description": "Objeto plano, hasta 20 claves y 1024 bytes"
+          }
+        },
+        "required": ["tipo"]
+      },
+      "LoteEventosDto": {
+        "type": "object",
+        "properties": {
+          "sesionId": {
+            "type": "string",
+            "description": "Sesión de la app (UUID generado por el cliente)"
+          },
+          "plataforma": {
+            "type": "string",
+            "enum": ["ANDROID", "IOS", "WEB"]
+          },
+          "versionApp": {
+            "type": "string",
+            "example": "1.4.2",
+            "maxLength": 20
+          },
+          "eventos": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventoDto"
+            }
+          }
+        },
+        "required": ["eventos"]
+      },
+      "LoteResponse": {
+        "type": "object",
+        "properties": {
+          "aceptados": {
+            "type": "number",
+            "example": 12,
+            "description": "Eventos guardados de este lote"
+          },
+          "anonimizado": {
+            "type": "boolean",
+            "description": "true si el usuario no dio su consentimiento de analítica: los eventos se guardaron sin su identidad (sin usuario ni sesión)"
+          }
+        },
+        "required": ["aceptados", "anonimizado"]
       }
     }
   }
