@@ -1,12 +1,14 @@
-import { Body, Controller, Get, HttpCode, Injectable, Module, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Injectable, Module, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsOptional, IsString, Length } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
-import { ApiProblems, badRequest, conflict } from '../common/errors';
+import { Roles } from '../authz/roles.decorator';
+import { PERSONAL_ACTUAL } from '../checkout/checkout';
+import { ApiProblems, badRequest, conflict, notFound } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
-import { restauranteRef } from '../diner/common';
+import { CURSOR_TS, PageQuery, decodeCursor, encodeCursor, restauranteRef } from '../diner/common';
 import { CONSUMOS_DEL_COMENSAL, ConsumoRow, ownLunch } from '../diner/history';
 import { Text } from '../security/sanitize';
 
@@ -244,5 +246,169 @@ export class DinerFeedbackController {
   }
 }
 
-@Module({ controllers: [DinerFeedbackController], providers: [DinerFeedbackService] })
+// --- Bandeja del dueño ------------------------------------------------------------------------------------------
+
+const FILTROS = ['TODAS', 'SIN_RESPONDER', 'RESPONDIDAS'] as const;
+
+class BandejaQuery extends PageQuery {
+  @ApiPropertyOptional({ enum: FILTROS, default: 'TODAS' }) @IsOptional() @IsIn(FILTROS) estado?: (typeof FILTROS)[number];
+}
+class ResponderDto {
+  @ApiProperty({ example: '¡Gracias por avisar! Mañana la sopa sale bien caliente.' })
+  @Text()
+  @IsString()
+  @Length(1, 500)
+  respuesta!: string;
+}
+
+class OpinionBandeja {
+  @ApiProperty({ description: 'La opinión se identifica por el public_id de su almuerzo (una por almuerzo)' }) id!: string;
+  @ApiProperty({ example: { nombre: 'Ana Pérez' } }) cliente!: { nombre: string };
+  @ApiProperty({ description: 'Cuándo almorzó' }) almuerzoEn!: Date;
+  @ApiProperty({ example: { nombre: 'Plan semanal' } }) plan!: { nombre: string };
+  @ApiProperty() creadoEn!: Date;
+  @ApiProperty({ enum: ETIQUETAS, isArray: true }) etiquetas!: string[];
+  @ApiPropertyOptional() comentario!: string | null;
+  @ApiPropertyOptional({ example: { texto: '¡Gracias!', respondidoEn: '2026-11-13T18:00:00Z' } }) respuesta!: {
+    texto: string;
+    respondidoEn: Date;
+  } | null;
+}
+class BandejaResponse {
+  @ApiProperty({ type: [OpinionBandeja] }) items!: OpinionBandeja[];
+  @ApiPropertyOptional() nextCursor!: string | null;
+  @ApiProperty({
+    description: 'Últimos 30 días (sin descartes)',
+    example: { total: 12, sinResponder: 3, conComentario: 5, etiquetas: { RICO: 8, FRIO: 2 } },
+  })
+  resumen!: { total: number; sinResponder: number; conComentario: number; etiquetas: Record<string, number> };
+}
+
+interface InboxRow {
+  consumo_public_id: string;
+  cliente_nombre: string;
+  consumo_en: Date;
+  nombre_plan: string;
+  creado_en: Date;
+  etiquetas: string[];
+  comentario_privado: string | null;
+  respuesta_restaurante: string | null;
+  respondido_en: Date | null;
+  cursor_t: string;
+}
+
+const INBOX = `SELECT k.public_id AS consumo_public_id, c.nombre AS cliente_nombre, k.creado_en AS consumo_en, s.nombre_plan, o.creado_en,
+       o.etiquetas, o.comentario_privado, o.respuesta_restaurante, o.respondido_en, ${CURSOR_TS('o.creado_en')} AS cursor_t
+  FROM opinion o
+  JOIN consumo_almuerzo k ON k.restaurante_id = o.restaurante_id AND k.consumo_id = o.consumo_id
+  JOIN suscripcion_plan s ON s.suscripcion_id = k.suscripcion_id
+  JOIN cliente_restaurante c ON c.restaurante_id = o.restaurante_id AND c.cliente_id = o.cliente_id
+ WHERE o.restaurante_id = app_tenant_id() AND NOT o.descartada`;
+
+const toInbox = (o: InboxRow): OpinionBandeja => ({
+  id: o.consumo_public_id,
+  cliente: { nombre: o.cliente_nombre },
+  almuerzoEn: o.consumo_en,
+  plan: { nombre: o.nombre_plan },
+  creadoEn: o.creado_en,
+  etiquetas: o.etiquetas,
+  comentario: o.comentario_privado,
+  respuesta: o.respuesta_restaurante === null ? null : { texto: o.respuesta_restaurante, respondidoEn: o.respondido_en! },
+});
+
+/** Bandeja de opiniones del dueño (con tenant: RLS tenant_total). Los descartes no se muestran. */
+@Injectable()
+export class InboxService {
+  constructor(private readonly db: DbService) {}
+
+  list(f: BandejaQuery): Promise<BandejaResponse> {
+    const limit = f.limit ?? 20;
+    const cur = f.cursor ? decodeCursor(f.cursor) : null;
+    return this.db.forRequest(
+      async (q) => {
+        const r = await q.query<InboxRow>(
+          `${INBOX}
+             AND ($1 = 'TODAS' OR ($1 = 'SIN_RESPONDER') = (o.respuesta_restaurante IS NULL))
+             AND ($2::timestamptz IS NULL OR (o.creado_en, k.public_id) < ($2::timestamptz, $3::uuid))
+           ORDER BY o.creado_en DESC, k.public_id DESC LIMIT $4`,
+          [f.estado ?? 'TODAS', cur?.t ?? null, cur?.p ?? null, limit + 1],
+        );
+        const sum = (
+          await q.query<{ total: number; sin_responder: number; con_comentario: number; etiquetas: Record<string, number> | null }>(
+            `SELECT count(*)::int AS total, count(*) FILTER (WHERE respuesta_restaurante IS NULL)::int AS sin_responder,
+                    count(*) FILTER (WHERE comentario_privado IS NOT NULL)::int AS con_comentario,
+                    (SELECT jsonb_object_agg(e, n) FROM (SELECT e, count(*)::int AS n FROM opinion o2, unnest(o2.etiquetas) e
+                       WHERE o2.restaurante_id = app_tenant_id() AND NOT o2.descartada AND o2.creado_en > CURRENT_TIMESTAMP - interval '30 days'
+                       GROUP BY e) t) AS etiquetas
+               FROM opinion WHERE restaurante_id = app_tenant_id() AND NOT descartada AND creado_en > CURRENT_TIMESTAMP - interval '30 days'`,
+          )
+        ).rows[0]!;
+        const page = r.rows.slice(0, limit);
+        const last = page.at(-1);
+        return {
+          items: page.map(toInbox),
+          nextCursor: r.rows.length > limit && last ? encodeCursor(last.cursor_t, last.consumo_public_id) : null,
+          resumen: { total: sum.total, sinResponder: sum.sin_responder, conComentario: sum.con_comentario, etiquetas: sum.etiquetas ?? {} },
+        };
+      },
+      { readOnly: true },
+    );
+  }
+
+  /** Una respuesta por opinión. Reenviar el mismo texto no falla; otro texto → 409. */
+  reply(id: string, respuesta: string): Promise<OpinionBandeja> {
+    return this.db.forRequest(async (q) => {
+      const o = (
+        await q.query<{ opinion_id: string; respuesta_restaurante: string | null }>(
+          `SELECT o.opinion_id, o.respuesta_restaurante FROM opinion o JOIN consumo_almuerzo k ON k.consumo_id = o.consumo_id
+            WHERE o.restaurante_id = app_tenant_id() AND k.public_id = $1 AND NOT o.descartada FOR UPDATE OF o`,
+          [id],
+        )
+      ).rows[0];
+      if (!o) throw notFound('OPINION_NO_ENCONTRADA', 'Opinión no encontrada.');
+      if (o.respuesta_restaurante !== null && o.respuesta_restaurante !== respuesta)
+        throw conflict('OPINION_YA_RESPONDIDA', 'Esa opinión ya tiene respuesta.');
+      if (o.respuesta_restaurante === null)
+        await q.query(
+          `UPDATE opinion SET respuesta_restaurante = $2, respondido_en = CURRENT_TIMESTAMP, respondido_por_personal_id = ${PERSONAL_ACTUAL}
+            WHERE restaurante_id = app_tenant_id() AND opinion_id = $1`,
+          [o.opinion_id, respuesta],
+        );
+      return toInbox((await q.query<InboxRow>(`${INBOX} AND o.opinion_id = $1`, [o.opinion_id])).rows[0]!);
+    });
+  }
+}
+
+@ApiTags('opiniones')
+@Controller('v1/opiniones')
+export class InboxController {
+  constructor(private readonly svc: InboxService) {}
+
+  @Roles('DUENO')
+  @Get()
+  @ApiOperation({
+    summary: 'Bandeja de opiniones de los comensales',
+    description: 'Más recientes primero, con cursor. Incluye un resumen de los últimos 30 días por etiqueta.',
+  })
+  @ApiOkResponse({ type: BandejaResponse })
+  @ApiProblems({ 400: ['CURSOR_INVALIDO'] })
+  list(@Query() q: BandejaQuery) {
+    return this.svc.list(q);
+  }
+
+  @Roles('DUENO')
+  @Post(':id/responder')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Responder una opinión',
+    description: 'El comensal ve la respuesta en `GET /v1/mis/opiniones`. Una por opinión.',
+  })
+  @ApiOkResponse({ type: OpinionBandeja })
+  @ApiProblems({ 404: ['OPINION_NO_ENCONTRADA'], 409: ['OPINION_YA_RESPONDIDA'] })
+  reply(@Param('id', UuidPipe) id: string, @Body() dto: ResponderDto) {
+    return this.svc.reply(id, dto.respuesta);
+  }
+}
+
+@Module({ controllers: [DinerFeedbackController, InboxController], providers: [DinerFeedbackService, InboxService] })
 export class FeedbackModule {}
