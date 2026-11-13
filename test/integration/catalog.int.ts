@@ -141,6 +141,7 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     expect(draft.horarios).toHaveLength(7);
     expect(draft.planes).toEqual([
       {
+        id: expect.stringMatching(/^[1-9][0-9]*$/),
         tipo: 'SEMANAL',
         nombre: 'Plan semanal',
         almuerzos: 5,
