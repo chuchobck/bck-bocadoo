@@ -17,6 +17,7 @@ import { OrdersModule } from './orders/orders';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { SecurityModule } from './security/security.module';
 import { StaffModule } from './staff/staff.module';
+import { TablesModule } from './tables/tables';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -36,6 +37,7 @@ import { HealthController } from './health/health.controller';
     CheckoutModule,
     DinerModule,
     OrdersModule,
+    TablesModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
