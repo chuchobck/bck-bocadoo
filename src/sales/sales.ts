@@ -12,7 +12,9 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { SolicitudPlanCreadaResponse } from '../catalog/dto';
+import { ApiProblems } from '../common/errors';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUrl, Length, Matches, MaxLength } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
@@ -22,6 +24,7 @@ import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
 import { SUBS_SELECT, SubRow, toSub } from './subscriptions';
+import { PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
 
 const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
 const ID = /^[1-9][0-9]{0,17}$/;
@@ -430,6 +433,7 @@ export class SalesController {
     description:
       'Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.',
   })
+  @ApiCreatedResponse({ type: PlanVendidoResponse })
   sell(@Param('id', IdPipe) clienteId: string, @Body() dto: VenderPlanDto, @IdempotencyKey() key: string) {
     return this.sales.sell({ ...dto, clienteId }, key);
   }
@@ -442,6 +446,7 @@ export class SalesController {
     summary: 'Deshacer la venta de un plan',
     description: 'Registra un pago inverso (nunca borra). Solo sin almuerzos consumidos; el cajero, solo el mismo día.',
   })
+  @ApiOkResponse({ type: PlanVendidoResponse })
   undo(@Param('id', UuidPipe) id: string, @Body() dto: DeshacerDto, @IdempotencyKey() key: string) {
     return this.sales.undo(id, key, dto.motivo);
   }
@@ -449,6 +454,7 @@ export class SalesController {
   @Roles('DUENO')
   @Get('pagos/pendientes')
   @ApiOperation({ summary: 'Transferencias y pagos Deuna por confirmar' })
+  @ApiOkResponse({ type: PlanVendidoResponse, isArray: true })
   pending() {
     return this.sales.pendingPayments();
   }
@@ -457,6 +463,7 @@ export class SalesController {
   @Post('pagos/:id/confirmar')
   @HttpCode(200)
   @ApiOperation({ summary: 'Confirmar un pago pendiente' })
+  @ApiOkResponse({ type: PlanVendidoResponse })
   confirm(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'CONFIRMADO');
   }
@@ -465,6 +472,7 @@ export class SalesController {
   @Post('pagos/:id/rechazar')
   @HttpCode(200)
   @ApiOperation({ summary: 'Rechazar un pago pendiente', description: 'Anula el plan asociado.' })
+  @ApiOkResponse({ type: PlanVendidoResponse })
   reject(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'RECHAZADO');
   }
@@ -472,6 +480,7 @@ export class SalesController {
   @Roles('DUENO', 'CAJERO')
   @Get('solicitudes-plan')
   @ApiOperation({ summary: 'Solicitudes de plan hechas por comensales desde la app' })
+  @ApiOkResponse({ type: SolicitudPendienteResponse, isArray: true })
   requests() {
     return this.sales.pendingRequests();
   }
@@ -481,6 +490,7 @@ export class SalesController {
   @HttpCode(200)
   @ApiIdempotent()
   @ApiOperation({ summary: 'Cobrar una solicitud: vende el plan y la marca cobrada' })
+  @ApiOkResponse({ type: PlanVendidoResponse })
   charge(@Param('id', IdPipe) id: string, @Body() dto: CobroDto, @IdempotencyKey() key: string) {
     return this.sales.chargeRequest(id, dto, key);
   }
@@ -489,6 +499,7 @@ export class SalesController {
   @Post('solicitudes-plan/:id/rechazar')
   @HttpCode(200)
   @ApiOperation({ summary: 'Rechazar una solicitud de plan' })
+  @ApiOkResponse({ type: SolicitudRechazadaResponse })
   rejectRequest(@Param('id', IdPipe) id: string) {
     return this.sales.rejectRequest(id);
   }
@@ -505,6 +516,8 @@ export class PlanRequestsController {
     summary: 'Pedir un plan a un restaurante (comensal con sesión)',
     description: 'El local la ve en sus solicitudes y la cobra en caja.',
   })
+  @ApiCreatedResponse({ type: SolicitudPlanCreadaResponse })
+  @ApiProblems({ 404: ['NOT_FOUND'], 409: ['CONFLICT'] })
   request(@Param('slug') slug: string, @Body() dto: SolicitarPlanDto, @CurrentUser() user: AuthUser) {
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || slug.length > 80) throw new NotFoundException('Restaurante no encontrado.');
     return this.sales.requestPlan(slug, dto.planId, user);

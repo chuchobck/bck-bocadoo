@@ -800,7 +800,7 @@ Response `200`:
 **Detalle de un restaurante: horarios, menú publicado de hoy, planes visibles y ocupación**
 
 - **Rol:** Público (sin token)
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Público, sin token. Un menú sin publicar o un local en borrador o pausado no aparecen.
 
@@ -1094,7 +1094,7 @@ Response `200`:
 **Menú de un día (incluye borrador)**
 
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 > `{fecha}` es `hoy` (en la zona horaria del local) o `AAAA-MM-DD`. Los renglones del menú usan ids numéricos del tenant; `platoId` también.
 
@@ -1137,7 +1137,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 **Definir el menú del día**
 
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Lista completa y libre: sin límite de sopas o segundos. Lo que quede fuera se quita; lo que se mantiene conserva su estado de agotado.
 
@@ -1191,7 +1191,7 @@ Response `200`:
 **Publicar el menú en la vitrina**
 
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Request: sin cuerpo (no envíes `content-type`).
 
@@ -1228,7 +1228,7 @@ Response `200`:
 **Sacar el menú de la vitrina**
 
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Request: sin cuerpo (no envíes `content-type`).
 
@@ -1265,7 +1265,7 @@ Response `200`:
 **Copiar el menú de otro día**
 
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Por defecto, el último menú anterior con platos. Queda como borrador y sin agotados.
 
@@ -1310,7 +1310,7 @@ Response `200`:
 **Marcar o quitar "agotado" en un plato del menú**
 
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
-- **Estado:** Estable · depende de la migración 20261117000000 en esta rama
+- **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
 Guarda a qué hora se acabó.
 
@@ -4707,7 +4707,7 @@ Response `200`:
 
 ## 4. Estado
 
-Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de las fases 8 y 9: la 8 ya está mezclada en `main` pero sin tag, y la 9 vive en la rama `fase-9/offers-reports`, sin merge ni tag; su contrato puede cambiar tras la revisión.
+Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de las fases 8 y 9: ambas ya están mezcladas en `main` y sus migraciones aplicadas en Neon, pero aún sin tag (`v0.8.0`, `v0.9.0`); su contrato puede cambiar tras la revisión. La fase 10 (`v1.0.0-rc.1`) solo documenta: no cambia ningún comportamiento.
 
 | Módulo                                                                                                                                                                                                                                                                                                                      | Estado                   |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
@@ -4717,16 +4717,20 @@ Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` 
 
 Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 
-### Dependencia de las migraciones de la fase 8
+### Migraciones de las fases 8 y 9
 
-- Los endpoints de la fase 8 **solo funcionan en una base con las migraciones `20261117000000` a `20261117000500` aplicadas**: `preordenes_comensal`, `mesas_compartidas_comensal`, `opiniones_comensal`, `opiniones_respuesta`, `reclamos_comensal` y `tarjeta_sellos`. A la fecha de este documento esas migraciones están aplicadas **solo en la base local de pruebas, no en Neon** (esperan confirmación del responsable del proyecto). Sin ellas no están garantizadas: las que usan columnas, tablas o funciones nuevas fallan con 500.
-- **También afecta a endpoints estables, en esta rama:** `GET /v1/menu/{fecha}`, `PUT /v1/menu/{fecha}`, `POST /v1/menu/{fecha}/publicar`, `…/despublicar`, `…/copiar`, `PATCH /v1/menu/{fecha}/items/{id}/agotado` y `GET /v1/restaurantes/{slug}` leen `plato.public_id`, columna que crea la migración `20261117000000`. Con el código de la rama `fase-8/diner` sobre una base sin esa migración, esos siete endpoints fallan con 500. Con el código de `main` (sin la fase 8) funcionan igual que antes.
-- Además la migración `20261117000500` agrega un trigger sobre `consumo_almuerzo`: con la tarjeta de sellos activa, `POST /v1/caja/validar` y el canje de pedidos suman sellos en la misma transacción.
-
-### Dependencia de las migraciones de la fase 9
-
-- Los endpoints de la fase 9 **solo funcionan en una base con las migraciones `20261118000000` a `20261118000200` aplicadas** (después de las seis de la fase 8): `ofertas_flash` (`public_id` del canje, `Idempotency-Key` de la oferta y permisos por columnas), `eventos_analitica` (`evento_lote` y `fn_consiente_analitica()`) y `particiones_security_definer` (solo la usa el job de particiones). A la fecha de este documento están aplicadas **solo en la base local de pruebas, no en Neon**. En Neon, sin ellas fallan con 500 `POST /v1/ofertas`, `POST /v1/ofertas/{id}/canjear` y `POST /v1/eventos`; las lecturas (listar ofertas, vitrina, reportes, suscripción) no usan columnas nuevas.
+- Las **seis migraciones de la fase 8** (`20261117000000` a `20261117000500`: `preordenes_comensal`, `mesas_compartidas_comensal`, `opiniones_comensal`, `opiniones_respuesta`, `reclamos_comensal` y `tarjeta_sellos`) y las **tres de la fase 9** (`20261118000000` a `20261118000200`: `ofertas_flash`, `eventos_analitica` y `particiones_security_definer`) **ya están aplicadas en Neon**. Los endpoints de ambas fases funcionan allí; una base nueva debe correr todas las migraciones en orden (`pnpm db:migrate`) antes de levantar la API.
+- Algunos endpoints estables también dependen de ellas: `GET /v1/menu/{fecha}`, `PUT /v1/menu/{fecha}`, `POST /v1/menu/{fecha}/publicar`, `…/despublicar`, `…/copiar`, `PATCH /v1/menu/{fecha}/items/{id}/agotado` y `GET /v1/restaurantes/{slug}` leen `plato.public_id` (migración `20261117000000`). Sobre una base sin ella fallan con 500.
+- La migración `20261117000500` agrega un trigger sobre `consumo_almuerzo`: con la tarjeta de sellos activa, `POST /v1/caja/validar` y el canje de pedidos suman sellos en la misma transacción.
 - No hay ningún endpoint ni campo de comisión: el modelo es SaaS (el local paga una mensualidad).
+
+### Cambios de documentación de la fase 10
+
+- `docs/openapi.json` ahora documenta, en **todas** las operaciones, la respuesta de éxito con su esquema, los errores (`401`, `403`, `429`, `500` y los códigos de negocio) como `application/problem+json` (esquema `ProblemDetails`) y un ejemplo de cada petición y respuesta.
+- Los endpoints se agrupan por **rol** (`Público`, `Comensal`, `Caja`, `Dueño`) en lugar de por módulo; el módulo queda en `x-dominio`. Si tu generador de clientes agrupaba por la etiqueta anterior, regenera.
+- El esquema `CanjeResponse` estaba duplicado (ofertas y pedidos): ahora son `OfertaCanjeResponse` y `PedidoCanjeResponse`. Antes, `POST /v1/caja/pedidos/{id}/canjear` mostraba en Swagger la forma de la oferta, que no era la real.
+- Se corrigieron tipos mal declarados (campos que aceptan `null` aparecían como `object`; `diasValidos` aparecía como lista de textos y es de números). **El formato real de las respuestas no cambió.**
+- Guía para probar en Swagger con las cuentas demo: [`docs/swagger-guia.md`](./swagger-guia.md).
 
 ### Limitaciones conocidas (pueden cambiar el contrato)
 
@@ -4736,11 +4740,11 @@ Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 - La tarjeta de sellos solo cuenta almuerzos (`cuenta: "ALMUERZO"`); `PLATO` queda para después.
 - Los límites de uso por IP viven en memoria de cada instancia; el límite por usuario de `POST /v1/eventos` está en la base y vale para todas.
 - Los reportes son solo para el dueño y usan la zona horaria del local; no hay gating por plan SaaS (`limites.reportesAvanzados` se informa, pero no se exige).
-- El campo `info.version` del OpenAPI (`0.4.0`) no se actualiza por fase: no lo uses como versión del contrato.
+- `info.version` del OpenAPI es `1.0.0-rc.1` (candidata de la fase 10); aún no hay tag.
 - `POST /v1/auth/register*` no devuelve tokens; el comensal debe iniciar sesión tras registrarse.
 
 ## 5. Mantenimiento de este contrato
 
-- Cada cambio de endpoint o DTO exige `pnpm openapi:export` y commitear `docs/openapi.json`; `pnpm test` falla si no se hizo.
+- Cada cambio de endpoint o DTO exige `pnpm openapi:export` y commitear `docs/openapi.json`; `pnpm test` falla si no se hizo. En CI, `pnpm openapi:lint` (Spectral) revisa el contrato y el job `contrato` (oasdiff) falla ante cambios incompatibles contra la rama base; `pnpm openapi:breaking` lo corre en local (necesita Docker).
 - `pnpm openapi:export` arranca la app sin base de datos ni `.env` (variables ficticias) y escribe el documento de `GET /docs-json`.
 - Los ejemplos de este archivo se capturaron de la API real; si un DTO cambia, hay que volver a revisarlos.

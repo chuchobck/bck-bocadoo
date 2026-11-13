@@ -1,10 +1,12 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
 import { Public } from '../authz/public.decorator';
+import { ApiProblems } from '../common/errors';
 import { Text } from '../security/sanitize';
 import { CatalogService } from './catalog.service';
+import { RestauranteBusquedaResponse, RestauranteDetalleResponse } from './dto';
 
 class SearchQuery {
   @ApiPropertyOptional({ description: 'Texto a buscar en el nombre' }) @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
@@ -39,6 +41,7 @@ export class CatalogController {
     description:
       'Público, sin token. Solo restaurantes activos. Paginación por cursor: máximo 50 por página; pasa `nextCursor` como `cursor`.',
   })
+  @ApiOkResponse({ type: RestauranteBusquedaResponse })
   search(@Query() q: SearchQuery) {
     return this.catalog.search({
       q: q.q,
@@ -55,6 +58,8 @@ export class CatalogController {
     summary: 'Detalle de un restaurante: horarios, menú publicado de hoy, planes visibles y ocupación',
     description: 'Público, sin token. Un menú sin publicar o un local en borrador o pausado no aparecen.',
   })
+  @ApiOkResponse({ type: RestauranteDetalleResponse })
+  @ApiProblems({ 404: ['NOT_FOUND'] })
   detail(@Param('slug') slug: string) {
     return this.catalog.detail(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && slug.length <= 80 ? slug : '');
   }

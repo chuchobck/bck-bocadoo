@@ -73,7 +73,7 @@ export class CrearPedidoDto {
 class PlatoPedido {
   @ApiProperty() id!: string;
   @ApiProperty() nombre!: string;
-  @ApiProperty({ nullable: true, enum: LUNCH_SECTIONS }) seccion!: string | null;
+  @ApiProperty({ type: String, nullable: true, enum: LUNCH_SECTIONS }) seccion!: string | null;
 }
 class ExtraPedido {
   @ApiProperty() id!: string;
@@ -105,13 +105,13 @@ export class PedidoResponse {
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
-  @ApiPropertyOptional() canjeadoEn!: Date | null;
-  @ApiPropertyOptional() servidoEn!: Date | null;
-  @ApiPropertyOptional() canceladoEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true }) canjeadoEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true }) servidoEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true }) canceladoEn!: Date | null;
 }
 class PedidosResponse {
   @ApiProperty({ type: [PedidoResponse] }) items!: PedidoResponse[];
-  @ApiPropertyOptional() nextCursor!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) nextCursor!: string | null;
 }
 
 export interface OrderRow {
@@ -485,7 +485,7 @@ class PedidoCaja extends PedidoResponse {
   cliente!: { nombre: string; almuerzosDisponibles: number } | null;
 }
 
-class CanjeResponse {
+class PedidoCanjeResponse {
   @ApiProperty({ type: PedidoCaja }) pedido!: PedidoCaja;
   @ApiProperty({ description: 'El pedido ya estaba canjeado: no se descontó nada esta vez' }) yaCanjeado!: boolean;
   @ApiPropertyOptional({
@@ -541,7 +541,7 @@ export class StaffOrdersService {
   }
 
   /** Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras tanto. */
-  redeem(id: string, key: string): Promise<CanjeResponse> {
+  redeem(id: string, key: string): Promise<PedidoCanjeResponse> {
     return this.db.forRequest(async (q) => {
       const o = await this.load(q, id, true);
       if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
@@ -570,7 +570,7 @@ export class StaffOrdersService {
         };
       }
 
-      let almuerzo: CanjeResponse['almuerzo'] = null;
+      let almuerzo: PedidoCanjeResponse['almuerzo'] = null;
       if (hasLunch) {
         if (o.cliente_id) {
           // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
@@ -671,7 +671,7 @@ export class StaffOrdersController {
       'Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados ' +
       'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.',
   })
-  @ApiOkResponse({ type: CanjeResponse })
+  @ApiOkResponse({ type: PedidoCanjeResponse })
   @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'], 409: ['PEDIDO_EXPIRADO', 'PEDIDO_CANCELADO', 'IDEMPOTENCY_KEY_REUTILIZADA'] })
   redeem(@Param('id', UuidPipe) id: string, @IdempotencyKey() key: string) {
     return this.svc.redeem(id, key);

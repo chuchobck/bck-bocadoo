@@ -50,7 +50,7 @@ class MesaResponse {
   @ApiProperty() horaLlegada!: Date;
   @ApiProperty({ enum: MODOS }) modo!: string;
   @ApiProperty({ enum: ['ABIERTA', 'EN_CAMINO', 'EN_MESA', 'FINALIZADA', 'CANCELADA'] }) estado!: string;
-  @ApiPropertyOptional({ description: 'Cuándo la validó la caja' }) validadaEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true, description: 'Cuándo la validó la caja' }) validadaEn!: Date | null;
   @ApiProperty({ type: [MiembroMesa] }) miembros!: MiembroMesa[];
 }
 class InvitacionResponse {
@@ -68,6 +68,8 @@ class InvitacionResponse {
   @ApiProperty() capacidad!: number;
   @ApiProperty() puedeUnirse!: boolean;
   @ApiPropertyOptional({
+    type: String,
+    nullable: true,
     enum: ['MESA_CERRADA', 'MESA_VENCIDA', 'MESA_LLENA', 'RESTAURANTE_NO_DISPONIBLE', 'YA_ERES_MIEMBRO'],
     description: 'Por qué no puede unirse; null si puede',
   })

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, Patch, Post } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -19,6 +19,7 @@ import { Roles } from '../authz/roles.decorator';
 import { IdPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
+import { PlantillaPlanResponse } from './responses';
 
 const TIPOS = ['SEMANAL', 'QUINCENAL', 'MENSUAL', 'LIBRE'] as const;
 const present = () => ValidateIf((_: unknown, v: unknown) => v !== undefined);
@@ -29,7 +30,7 @@ export class CrearPlanDto {
   @ApiProperty({ example: 5 }) @IsInt() @Min(1) @Max(200) almuerzos!: number;
   @ApiProperty({ example: 1500, description: 'Centavos' }) @IsInt() @Min(1) @Max(100_000_000) precioCentavos!: number;
   @ApiProperty({ example: 7, description: 'Días de vigencia desde la compra' }) @IsInt() @Min(1) @Max(366) vigenciaDias!: number;
-  @ApiPropertyOptional({ nullable: true, description: 'Máximo de planes activos vendidos a la vez; vacío = sin límite' })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Máximo de planes activos vendidos a la vez; vacío = sin límite' })
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -62,7 +63,7 @@ export class ActualizarPlanDto {
   @ApiPropertyOptional() @present() @IsInt() @Min(1) @Max(200) almuerzos?: number;
   @ApiPropertyOptional() @present() @IsInt() @Min(1) @Max(100_000_000) precioCentavos?: number;
   @ApiPropertyOptional() @present() @IsInt() @Min(1) @Max(366) vigenciaDias?: number;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @Min(1) @Max(100_000) cupos?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsInt() @Min(1) @Max(100_000) cupos?: number | null;
   @ApiPropertyOptional()
   @present()
   @IsArray()
@@ -203,6 +204,7 @@ export class PlansController {
   @Roles('DUENO', 'CAJERO')
   @Get()
   @ApiOperation({ summary: 'Plantillas de plan del restaurante, con cupos disponibles' })
+  @ApiOkResponse({ type: PlantillaPlanResponse, isArray: true })
   list() {
     return this.plans.list();
   }
@@ -210,6 +212,7 @@ export class PlansController {
   @Roles('DUENO')
   @Post()
   @ApiOperation({ summary: 'Crear una plantilla de plan' })
+  @ApiCreatedResponse({ type: PlantillaPlanResponse })
   create(@Body() dto: CrearPlanDto) {
     return this.plans.create(dto);
   }
@@ -217,6 +220,7 @@ export class PlansController {
   @Roles('DUENO')
   @Patch(':id')
   @ApiOperation({ summary: 'Editar o desactivar una plantilla', description: 'No cambia los planes ya vendidos.' })
+  @ApiOkResponse({ type: PlantillaPlanResponse })
   update(@Param('id', IdPipe) id: string, @Body() dto: ActualizarPlanDto) {
     return this.plans.update(id, dto);
   }

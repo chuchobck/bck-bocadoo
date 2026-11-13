@@ -65,6 +65,21 @@ export class TokenResponseDto {
   @ApiProperty() usuario!: { id: string; nombre: string };
 }
 
+export class MeRestauranteDto {
+  @ApiProperty({ format: 'uuid', description: 'public_id del restaurante: va en el encabezado `x-restaurant-id`' }) id!: string;
+  @ApiProperty({ example: 'Doña Rosa' }) nombre!: string;
+  @ApiProperty({ enum: ['DUENO', 'CAJERO'] }) rol!: string;
+}
+
+export class MeResponseDto {
+  @ApiProperty({ example: { id: '0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10', nombre: 'María Guamán' } }) usuario!: {
+    id: string;
+    nombre: string;
+  };
+  @ApiProperty({ type: [MeRestauranteDto], description: 'Vacío para un comensal sin trabajo en ningún local' })
+  restaurantes!: MeRestauranteDto[];
+}
+
 export class RegisterResponseDto {
   @ApiProperty() usuario!: { id: string; nombre: string; correo: string };
   @ApiPropertyOptional() restaurante?: { id: string; nombre: string; slug: string; estado: string };

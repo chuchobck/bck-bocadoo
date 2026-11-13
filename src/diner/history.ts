@@ -27,11 +27,11 @@ export class ConsumoItem {
   @ApiProperty({ enum: ['QR', 'MANUAL', 'PREORDEN', 'MESA'] }) canal!: string;
   @ApiProperty() paraLlevar!: boolean;
   @ApiProperty({ description: 'El almuerzo se devolvió al plan (deshacer en caja o reclamo aceptado)' }) revertido!: boolean;
-  @ApiPropertyOptional() revertidoEn!: Date | null;
+  @ApiPropertyOptional({ type: Date, nullable: true }) revertidoEn!: Date | null;
 }
 class HistorialResponse {
   @ApiProperty({ type: [ConsumoItem] }) items!: ConsumoItem[];
-  @ApiPropertyOptional({ description: 'null si no hay más páginas' }) nextCursor!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'null si no hay más páginas' }) nextCursor!: string | null;
 }
 
 export interface ConsumoRow {

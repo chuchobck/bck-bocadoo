@@ -10,7 +10,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { FechaOHoyPipe } from '../common/pipes';
@@ -18,6 +18,7 @@ import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
 import { PERSONAL_ACTUAL } from './checkout';
+import { CierreCajaResponse } from './responses';
 
 const HOY = `(SELECT (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date FROM restaurante WHERE restaurante_id = app_tenant_id())`;
 
@@ -208,6 +209,7 @@ export class CashController {
     description:
       'Efectivo esperado = cobros confirmados en efectivo del día (planes + ventas sueltas + pedidos + ofertas), menos reversos.',
   })
+  @ApiOkResponse({ type: CierreCajaResponse })
   get(@Param('fecha', FechaOHoyPipe) fecha: string) {
     return this.cash.get(fecha);
   }
@@ -219,6 +221,7 @@ export class CashController {
     summary: 'Cerrar la caja',
     description: 'Un solo cierre activo por día (repetir → 409). El cajero solo cierra el día de hoy.',
   })
+  @ApiCreatedResponse({ type: CierreCajaResponse })
   close(@Param('fecha', FechaOHoyPipe) fecha: string, @Body() dto: CerrarCajaDto) {
     return this.cash.close(fecha, dto);
   }
@@ -228,6 +231,7 @@ export class CashController {
   @HttpCode(200)
   @ApiParam(FECHA)
   @ApiOperation({ summary: 'Reabrir la caja de un día', description: 'El cierre anterior queda en el historial.' })
+  @ApiOkResponse({ type: CierreCajaResponse })
   reopen(@Param('fecha', FechaOHoyPipe) fecha: string) {
     return this.cash.reopen(fecha);
   }

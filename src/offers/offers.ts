@@ -51,7 +51,7 @@ class OfertasQuery extends PageQuery {
 class OfertaResponse {
   @ApiProperty({ description: 'public_id' }) id!: string;
   @ApiProperty() titulo!: string;
-  @ApiPropertyOptional() descripcion!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) descripcion!: string | null;
   @ApiPropertyOptional({ example: { id: 'uuid', nombre: 'Churrasco' } }) plato!: { id: string; nombre: string } | null;
   @ApiProperty({ description: 'Centavos' }) precioCentavos!: number;
   @ApiProperty({ description: 'Centavos' }) precioOriginalCentavos!: number;
@@ -67,7 +67,7 @@ class OfertaResponse {
 }
 class OfertasPage {
   @ApiProperty({ type: [OfertaResponse] }) items!: OfertaResponse[];
-  @ApiPropertyOptional() nextCursor!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) nextCursor!: string | null;
 }
 class OfertasPublicas {
   @ApiProperty({ type: [OfertaResponse], description: 'Solo vigentes con stock' }) items!: OfertaResponse[];
@@ -91,14 +91,15 @@ class CanjearOfertaDto {
   comensalId?: string;
 }
 
-class CanjeResponse {
+class OfertaCanjeResponse {
   @ApiProperty({ description: 'public_id del canje' }) id!: string;
   @ApiProperty() cantidad!: number;
   @ApiProperty({ description: 'Precio de la oferta × cantidad, en centavos. Es todo lo que cobra el local: sin comisión.' })
   montoCentavos!: number;
   @ApiProperty({ example: 'USD' }) moneda!: string;
   @ApiProperty({ enum: METODOS }) metodoPago!: string;
-  @ApiPropertyOptional({ description: 'public_id del comensal, si se identificó' }) comensalId!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'public_id del comensal, si se identificó' }) comensalId!:
+    string | null;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ type: OfertaResponse, description: 'La oferta tal como quedó después del canje (stock actualizado)' })
   oferta!: OfertaResponse;
@@ -280,7 +281,7 @@ export class OffersService {
    * fila de la oferta, así que dos canjes a la vez se turnan y el segundo ve el stock ya descontado. Si la oferta no
    * alcanza, ese UPDATE no toca ninguna fila y nada se cobra; el CHECK de la tabla es la última barrera.
    */
-  async redeem(offerId: string, dto: CanjearOfertaDto, key: string): Promise<CanjeResponse> {
+  async redeem(offerId: string, dto: CanjearOfertaDto, key: string): Promise<OfertaCanjeResponse> {
     const cantidad = dto.cantidad ?? 1;
     try {
       return await this.db.forRequest(async (q) => {
@@ -362,7 +363,7 @@ export class OffersService {
     return r.rows[0];
   }
 
-  private async renderCanje(q: Queryable, c: CanjeRow): Promise<CanjeResponse> {
+  private async renderCanje(q: Queryable, c: CanjeRow): Promise<OfertaCanjeResponse> {
     return {
       id: c.public_id,
       cantidad: c.cantidad,
@@ -453,7 +454,7 @@ export class OffersController {
     description:
       'Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.',
   })
-  @ApiCreatedResponse({ type: CanjeResponse })
+  @ApiCreatedResponse({ type: OfertaCanjeResponse })
   @ApiProblems({
     404: ['OFERTA_NO_ENCONTRADA', 'COMENSAL_NO_ENCONTRADO'],
     409: ['OFERTA_AGOTADA', 'STOCK_INSUFICIENTE', 'OFERTA_CERRADA', 'OFERTA_EXPIRADA', 'OFERTA_NO_INICIADA', 'IDEMPOTENCY_KEY_REUTILIZADA'],

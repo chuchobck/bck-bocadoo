@@ -31,15 +31,18 @@ export class CrearPlatoDto {
   @IsIn(SECCIONES)
   seccion?: (typeof SECCIONES)[number] | null;
   @ApiProperty({ example: 'Seco de pollo' }) @Text() @IsString() @Length(1, 100) nombre!: string;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) descripcion?: string | null;
-  @ApiPropertyOptional({ nullable: true, description: 'Centavos. Vacío = solo se sirve dentro del almuerzo' })
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) descripcion?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Centavos. Vacío = solo se sirve dentro del almuerzo' })
   @IsOptional()
   @IsInt()
   @Min(0)
   @Max(100_000_000)
   precioCentavos?: number | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(500) fotoUrl?:
-    string | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(500)
+  fotoUrl?: string | null;
   @ApiPropertyOptional({ type: [String], example: ['vegetariano', 'picante'] })
   @IsOptional()
   @IsArray()
@@ -54,10 +57,13 @@ export class ActualizarPlatoDto {
   @ApiPropertyOptional({ enum: CATEGORIAS }) @present() @IsIn(CATEGORIAS) categoria?: (typeof CATEGORIAS)[number];
   @ApiPropertyOptional({ enum: SECCIONES, nullable: true }) @IsOptional() @IsIn(SECCIONES) seccion?: (typeof SECCIONES)[number] | null;
   @ApiPropertyOptional() @present() @Text() @IsString() @Length(1, 100) nombre?: string;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) descripcion?: string | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsInt() @Min(0) @Max(100_000_000) precioCentavos?: number | null;
-  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(500) fotoUrl?:
-    string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(300) descripcion?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsInt() @Min(0) @Max(100_000_000) precioCentavos?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(500)
+  fotoUrl?: string | null;
   @ApiPropertyOptional({ type: [String] })
   @present()
   @IsArray()
@@ -75,13 +81,13 @@ export class ItemMenuDto {
   @Matches(/^[1-9][0-9]{0,17}$/, { message: 'platoId inválido' })
   platoId!: string;
   @ApiProperty({ enum: SECCIONES }) @IsIn(SECCIONES) seccion!: (typeof SECCIONES)[number];
-  @ApiPropertyOptional({ nullable: true, description: 'Precio de ese día si difiere del catálogo (centavos)' })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Precio de ese día si difiere del catálogo (centavos)' })
   @IsOptional()
   @IsInt()
   @Min(0)
   @Max(100_000_000)
   precioCentavos?: number | null;
-  @ApiPropertyOptional({ nullable: true, description: 'Porciones disponibles; vacío = sin límite' })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: 'Porciones disponibles; vacío = sin límite' })
   @IsOptional()
   @IsInt()
   @Min(0)

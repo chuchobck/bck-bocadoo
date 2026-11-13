@@ -53,13 +53,24 @@ class SeguimientoQuery {
 class ClienteSeguimiento {
   @ApiProperty({ example: '12', description: 'Id del cliente dentro del local (el mismo de /v1/clientes)' }) clienteId!: string;
   @ApiProperty() nombre!: string;
-  @ApiPropertyOptional({ example: '+593990000123' }) telefono!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, example: '+593990000123' }) telefono!: string | null;
   @ApiProperty({ enum: MOTIVOS, isArray: true, description: 'Por qué aparece; puede tener más de uno. El primero es el más urgente.' })
   motivos!: Motivo[];
   @ApiProperty({ description: 'Almuerzos que le quedan en planes vigentes (0 si no tiene)' }) almuerzosRestantes!: number;
-  @ApiPropertyOptional({ example: '2026-11-15', description: 'Vencimiento más próximo entre sus planes vigentes' }) venceEl!: string | null;
-  @ApiPropertyOptional({ example: '2026-11-06', description: 'Último almuerzo servido (día local); null si nunca' }) ultimaVisita!:
-    string | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '2026-11-15',
+    description: 'Vencimiento más próximo entre sus planes vigentes',
+  })
+  venceEl!: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '2026-11-06',
+    description: 'Último almuerzo servido (día local); null si nunca',
+  })
+  ultimaVisita!: string | null;
   @ApiProperty({ description: 'Días desde su última actividad (último almuerzo o última compra de plan)' }) diasSinActividad!: number;
 }
 class SeguimientoResponse {
