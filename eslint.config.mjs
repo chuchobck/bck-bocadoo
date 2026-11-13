@@ -42,5 +42,7 @@ export default tseslint.config(
     files: ['test/**', 'scripts/**', '*.config.*'],
     rules: { 'no-restricted-syntax': 'off', 'no-restricted-imports': 'off', 'no-console': 'off' },
   },
+  // Scripts de k6: corren en el runtime de k6, con sus propios globales.
+  { files: ['test/load/**'], languageOptions: { globals: { __ENV: 'readonly', open: 'readonly' } } },
   prettier,
 );

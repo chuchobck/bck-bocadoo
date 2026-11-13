@@ -5,3 +5,4 @@ coverage/
 .env.*
 !.env.example
 *.log
+test/load/.data.json
