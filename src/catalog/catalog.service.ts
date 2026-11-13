@@ -183,6 +183,7 @@ export class CatalogService {
 
   private async plans(q: Queryable, id: string) {
     const r = await q.query<{
+      plantilla_plan_id: string;
       tipo: string;
       nombre: string;
       almuerzos: number;
@@ -191,11 +192,12 @@ export class CatalogService {
       dias_validos: number[];
       incluye: string[];
     }>(
-      `SELECT tipo, nombre, almuerzos, precio_centavos, vigencia_dias, dias_validos, incluye
+      `SELECT plantilla_plan_id, tipo, nombre, almuerzos, precio_centavos, vigencia_dias, dias_validos, incluye
          FROM plantilla_plan WHERE restaurante_id = $1 AND activo AND visible_en_marketplace ORDER BY almuerzos, precio_centavos`,
       [id],
     );
     return r.rows.map((p) => ({
+      id: String(p.plantilla_plan_id),
       tipo: p.tipo,
       nombre: p.nombre,
       almuerzos: p.almuerzos,
