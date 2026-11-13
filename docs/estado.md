@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-12 (fase 8). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-13 (fase 9). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -14,8 +14,54 @@
 | 6   | Clientes y planes            | ✅     | `v0.6.0`      | ver abajo                                                                                |
 | 7   | Caja                         | ✅     | `v0.7.0`      | ver abajo; carga en `docs/carga.md`                                                      |
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; faltan las 6 migraciones en Neon (esperan confirmación) y el tag              |
-| 9   | Ofertas, reportes y SaaS     | ⬜     | `v0.9.0`      |                                                                                          |
+| 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; faltan las 3 migraciones en Neon (esperan confirmación), el merge y el tag    |
 | 10  | Documentación viva y Swagger | ⬜     | `v1.0.0-rc.1` |                                                                                          |
+
+## Fase 9: checklist
+
+Evidencia: archivo de prueba (`test/integration/…`) y, cuando aplica, el comando. Todo corrido contra un Postgres 16 local (`bocadoo-test-pg`), **nunca contra Neon**.
+
+- [x] **`DbService` en todo, nunca `service()` en negocio**: ofertas, reportes, SaaS y eventos usan `forRequest()` / `scope()`. `service()` solo aparece en `src/jobs/` (cron), que la regla de ESLint autoriza junto a auth y seguridad. Evidencia: `pnpm lint` (regla `no-restricted-syntax`)
+- [x] **Solo `public_id` hacia afuera**: ofertas, canjes, platos y usuarios salen con `public_id` (`expectOnlyPublicIds` en `offers*.int.ts`). Excepción heredada: `clienteId` en `GET /v1/reportes/clientes-a-contactar` es el id numérico del cliente dentro del local, el mismo de `/v1/clientes` (ver "Pendientes transversales")
+- [x] **DTO con whitelist y errores `problem+json` con código estable**: `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `RANGO_INVALIDO`, `EVENTO_USUARIO_AJENO`, `EVENTOS_LIMITE_TASA`… (`offers*.int.ts`, `reports-*.int.ts`, `events.int.ts`: campos de más → 400)
+- [x] **`Idempotency-Key` en los POST que crean**: publicar oferta, canjear oferta y enviar un lote de eventos (misma llave → misma respuesta; otra oferta → 409 `IDEMPOTENCY_KEY_REUTILIZADA`). Cerrar una oferta no crea nada y es repetible. Evidencia: `offers.int.ts`, `offers-redeem.int.ts`, `events.int.ts`
+- [x] **Todo en Swagger**: `docs/openapi.json` regenerado en cada commit (`pnpm openapi:export`); `test/unit/openapi.spec.ts` falla si está desactualizado
+- [x] **Stock de ofertas nunca negativo con canjes concurrentes**: `UPDATE … WHERE stock_restante >= cantidad` (bloqueo de fila) más el `CHECK` de la tabla. Prueba concurrente con conexiones reales sobre un clon descartable de la base: 20 canjes a la vez sobre 5 unidades → exactamente 5 pasan, stock 0, 5 canjes, 5 cobros; mezcla de cantidades; 6 peticiones con la misma llave → un solo canje. Evidencia: `offers-concurrency.int.ts`
+- [x] **Reportes en la zona horaria del restaurante**: "hoy" y los días de un rango son locales (`restaurante.zona_horaria`). Evidencia: `reports-summary.int.ts` (compra a las 23:30 locales cuenta en su día local; cambiar la zona del local cambia el día) y `reports-seed.int.ts`
+- [x] **Las cifras cuadran con SQL directo sobre la demo**: cada día del seed (≈52 días) contra sumas de sus filas y el efectivo contra los 43 cierres de caja sembrados; ventas de planes, horas pico (también contra `vw_consumo_por_hora`), almuerzos pendientes (contra `vw_pasivo_almuerzos`), clientes a contactar, ofertas y uso de escaneos. Evidencia: `reports-seed.int.ts`
+- [x] **Ingesta de eventos con límite de tamaño y de tasa, y rechazo de eventos a nombre de otro usuario**: máx. 50 eventos por lote, propiedades de 1 KB y 20 claves, cuerpo de 100 kB (413), 20 lotes y 500 eventos por usuario y minuto (429 `EVENTOS_LIMITE_TASA`), 60 lotes por IP y minuto (429 con `Retry-After`). Un `usuarioId` ajeno rechaza el lote entero (403) y la base lo exige con RLS (`42501`). Evidencia: `events.int.ts`, `events-concurrency.int.ts`
+- [x] **Jobs idempotentes, por CLI y documentados**: `node dist/jobs/cli.js <expire-plans|create-partitions|all>`; correrlos dos veces no cambia nada (segunda corrida: `vencidos: 0`, `creadas: []`, filas idénticas); doble disparo simultáneo → una copia se salta (`EN_EJECUCION`, candado de Postgres). Documentado en `docs/jobs.md`. Evidencia: `jobs.int.ts`, `jobs-concurrency.int.ts` y una corrida real del binario compilado sobre un clon de la base
+- [x] **Sin comisión (modelo SaaS)**: ningún endpoint, campo de respuesta ni parámetro habla de comisiones. Evidencia: `test/unit/openapi.spec.ts` (nombres de rutas y propiedades del contrato) y `saas.int.ts` (el cuerpo de la suscripción no contiene `comisi`, `commission` ni `tasa`). Las columnas `tasa_comision_*` de `catalogo_plan_saas` y la tabla `libro_comision_bocadoo` **siguen en el esquema** (vienen de la baseline y no se editan): la API no las lee ni las escribe
+- [x] **Migraciones creadas, no aplicadas a Neon**: `pnpm db:migrate` solo corrió contra el contenedor local, probadas up/down/up
+- [x] **Las pruebas que escriben limpian lo que crean**: casi todo usa el patrón _probe_ (rollback); las de concurrencia (`*-concurrency.int.ts`) usan un clon descartable de la base que se borra al terminar (`scratch-db.ts`). Conteos de las tablas de la fase iguales antes y después de `pnpm test:db`
+
+### Endpoints de la fase 9
+
+| Ruta                                                                        | Quién                                   | Para qué                                                          |
+| --------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| `POST /v1/ofertas`, `GET /v1/ofertas`, `POST …/:id/cerrar`                  | publicar y cerrar: dueño                | Ofertas flash (publicar con `Idempotency-Key`, listar con cursor) |
+| `POST /v1/ofertas/:id/canjear`                                              | dueño, cajero                           | Canje en caja con control de stock (`Idempotency-Key`)            |
+| `GET /v1/restaurantes/:slug/ofertas`                                        | público                                 | Ofertas vigentes con stock de un local                            |
+| `GET /v1/reportes/resumen-diario`, `…/ventas-planes`                        | dueño                                   | Resumen del día y ventas de planes                                |
+| `GET /v1/reportes/horas-pico`, `…/ranking-platos`, `…/almuerzos-pendientes` | dueño                                   | Horas pico, platos más pedidos y lo que se debe en almuerzos      |
+| `GET /v1/reportes/clientes-a-contactar`                                     | dueño                                   | Planes por vencer, clientes que no vienen y por renovar           |
+| `GET /v1/suscripcion`, `GET /v1/suscripcion/uso`                            | suscripción: dueño; uso: dueño y cajero | Plan SaaS, ciclo, límites y escaneos usados                       |
+| `POST /v1/eventos`                                                          | usuario con sesión                      | Eventos de producto en lote (`Idempotency-Key`)                   |
+
+### Decisiones de la fase
+
+- **Canje de ofertas en caja**: lo registra el personal (dueño o cajero), con el comensal opcional por `public_id`. El cobro se guarda `CONFIRMADO` en la misma transacción (la oferta se entrega al pagar), así que entra al arqueo de caja del día; no usa el flujo de pagos pendientes. Las ofertas no tienen deshacer.
+- **Estado de una oferta** calculado con la hora de la base: `CERRADA` > `AGOTADA` > `EXPIRADA` > `PROGRAMADA` > `VIGENTE`. La API solo puede cambiar `activa` y `stock_restante` de una oferta publicada (permiso por columnas); el canje es de solo inserción (trigger de la baseline).
+- **Reportes solo para el dueño.** Definiciones: almuerzos servidos = consumos netos de devoluciones (igual que el cierre de caja); horas pico cuentan almuerzos y tickets que **no** fueron devueltos/deshechos (un reverso no mueve la hora); pasivo = planes `ACTIVA` con saldo y que no pasaron su último día local (no se cuenta un plan vencido que espera al job); ranking de platos = ventas sueltas netas + pedidos canjeados (las dos fuentes por separado: un plato cobrado en caja y en el pedido cuenta en ambas).
+- **Clientes a contactar**: tres motivos (`POR_VENCER`, `SIN_VENIR`, `PARA_RENOVAR`), umbrales por query, un cliente con todos sus motivos, sin paginación (`limit` y `total`). La actividad es lo más reciente entre el último almuerzo servido y la última compra.
+- **Eventos**: sin consentimiento de analítica (`usuario.consiente_analitica`) los eventos se guardan **anonimizados** (sin usuario ni sesión) en vez de descartarse. `fn_consiente_analitica()` (SECURITY DEFINER) devuelve solo el consentimiento del propio usuario, porque `bck_api` no puede leer esa columna. `evento_lote` guarda cada lote (idempotencia y tasa por usuario entre instancias).
+- **SaaS**: la API solo lee la suscripción (RLS `tenant_lee`). Un local sin fila de suscripción responde `SIN_SUSCRIPCION` y se comporta como sin límite (igual que `fn_descontar_almuerzo`).
+- **Jobs**: la migración `20261118000200` hizo `SECURITY DEFINER` a `fn_crear_particion_mensual`: `bck_servicio` no es dueño de las tablas particionadas y no podía crear particiones. Los meses de las particiones son UTC; si la partición `DEFAULT` ya tiene filas del mes, el job lo informa por partición y sale con código 1.
+- **ESLint**: `src/jobs/**` quedó autorizado para `service()` (cron) y `src/jobs/cli.ts` para `console` (su salida son líneas JSON).
+- Migraciones nuevas (aplicadas y probadas up/down/up **solo en la base local**; **no** en Neon hasta que se confirme): `20261118000000_ofertas_flash`, `20261118000100_eventos_analitica`, `20261118000200_particiones_security_definer`.
+- Pruebas de concurrencia con conexiones reales: `test/integration/scratch-db.ts` clona la base de `PROBE_DATABASE_URL` (`CREATE DATABASE … TEMPLATE`), corre contra el clon y lo borra. Postgres exige que **nadie más** esté conectado a la base original al clonar: con una sesión abierta (psql, un IDE) esas suites fallan con un mensaje claro. En `pnpm test:db` las suites corren una a la vez, así que se cumple.
+
+Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm test` (45 pruebas) y `pnpm test:db` (239 pruebas en 33 archivos) en verde.
 
 ## Fase 8: checklist
 
@@ -186,7 +232,14 @@ Los endpoints del personal llevan `Authorization: Bearer …` y `x-restaurant-id
 - ⬜ Prueba de carga contra Neon (ver `docs/carga.md`), con una rama de prueba.
 - ⬜ `QR_SECRET_KEY` y `JWT_PRIVATE_KEY` (`pnpm keys:generate`) en las variables de Render al desplegar.
 - ⬜ **Aplicar en Neon las 6 migraciones de la fase 8** (esperan confirmación del dueño del proyecto).
-- ⬜ CI: definir `PROBE_DATABASE_URL` (el superusuario `postgres` del servicio) para que las suites de la fase 8 corran y no se salten.
+- ⬜ **Aplicar en Neon las 3 migraciones de la fase 9** (`20261118000000`, `…0100`, `…0200`), después de las 6 de la fase 8 y con la misma confirmación del dueño del proyecto. Sin ellas, en Neon fallan con 500 publicar y canjear ofertas, `POST /v1/eventos` y el job de particiones (necesita el `SECURITY DEFINER`).
+- ⬜ **Crear el Cron Job en Render** (`node dist/jobs/cli.js all`, ver `docs/jobs.md`). Hasta entonces nadie vence planes en la base ni crea particiones: las ventanas actuales cubren hasta febrero de 2027.
+- ⬜ **Decisión de negocio: renovar el ciclo de la suscripción SaaS** (`inicio_ciclo_actual`, `fin_ciclo_actual`, `escaneos_usados_ciclo_actual`). Nada lo renueva: en un plan con tope, el contador no vuelve a cero y la caja respondería `LIMITE_SAAS` para siempre. Hoy no pasa porque solo existe el plan `FREEMIUM` sin tope; `GET /v1/suscripcion` ya marca `ciclo.vencido`.
+- ⬜ **Decisión de negocio: el registro de un dueño no crea su fila de `suscripcion_saas_restaurante`** (solo el seed lo hace): un local nuevo responde `SIN_SUSCRIPCION` y se comporta como sin límite. Además `permite_mesa_grupal` y `permite_reportes_avanzados` se informan pero no se exigen en ningún endpoint.
+- ⬜ Columnas y tabla de comisión de la baseline (`catalogo_plan_saas.tasa_comision_*`, `libro_comision_bocadoo`): la API no las usa ni las expone (modelo SaaS), pero siguen en el esquema; quitarlas pide una migración y una decisión.
+- ⬜ `evento_lote` crece sin límite (una fila pequeña por lote): falta una retención (por ejemplo, borrar lotes de más de 30 días en un job).
+- ⬜ Un cliente numérico en `/v1/reportes/clientes-a-contactar` (`clienteId`) se suma a la lista de ids numéricos dentro del tenant de más abajo; se pasará a `public_id` junto con `/v1/clientes`.
+- ⬜ CI: definir `PROBE_DATABASE_URL` (el superusuario `postgres` del servicio) para que las suites de las fases 8 y 9 corran y no se salten. Las de concurrencia de la fase 9 clonan la base con `CREATE DATABASE … TEMPLATE`, que exige que nadie más esté conectado a ella.
 - ⬜ Pasar al patrón _probe_ las suites de las fases 1–7 que hoy dejan datos (por eso no se corren contra Neon).
 - ⬜ Revisar en Neon el aumento de filas del 2026-11-12 entre 02:30 y 03:04 UTC (≈66 restaurantes y ≈100 usuarios con prefijos de correo de las pruebas de integración); no vino de las corridas de la fase 8, que fueron contra la base local.
 - ⬜ Ids numéricos dentro del tenant en `/v1/clientes`, reclamos y plantillas de plan: evaluar pasarlos a `public_id`.

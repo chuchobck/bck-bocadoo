@@ -4707,12 +4707,13 @@ Response `200`:
 
 ## 4. Estado
 
-Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de la fase 8, que vive en la rama `fase-8/diner`, aún sin merge ni tag, y cuyo contrato puede cambiar tras la revisión.
+Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de las fases 8 y 9: la 8 ya está mezclada en `main` pero sin tag, y la 9 vive en la rama `fase-9/offers-reports`, sin merge ni tag; su contrato puede cambiar tras la revisión.
 
 | Módulo                                                                                                                                                                                                                                                                                                                      | Estado                   |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | Auth, restaurante, personal, menú, catálogo y vitrina, planes, pagos, solicitudes, clientes, caja (validar, deshacer, mesas, ventas, cierre), reclamos del personal, `GET /v1/pase/codigo`, `POST /v1/pase/rotar`, salud                                                                                                    | **Estable**              |
 | `GET /v1/pase`, `/v1/mis/consumos*`, `/v1/mis/pedidos*`, `/v1/caja/pedidos*`, `/v1/mis/mesas*`, `/v1/mesas/invitacion/*`, `/v1/mis/opiniones*`, `/v1/mis/consumos/{id}/opinion*`, `/v1/opiniones*`, `/v1/mis/reclamos`, `/v1/mis/consumos/{id}/reclamo`, `/v1/mis/sellos`, `/v1/sellos/config`, `/v1/clientes/{id}/sellos*` | **En revisión (fase 8)** |
+| `/v1/ofertas*`, `GET /v1/restaurantes/{slug}/ofertas`, `/v1/reportes/*`, `GET /v1/suscripcion`, `GET /v1/suscripcion/uso`, `POST /v1/eventos`                                                                                                                                                                               | **En revisión (fase 9)** |
 
 Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 
@@ -4722,13 +4723,19 @@ Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 - **También afecta a endpoints estables, en esta rama:** `GET /v1/menu/{fecha}`, `PUT /v1/menu/{fecha}`, `POST /v1/menu/{fecha}/publicar`, `…/despublicar`, `…/copiar`, `PATCH /v1/menu/{fecha}/items/{id}/agotado` y `GET /v1/restaurantes/{slug}` leen `plato.public_id`, columna que crea la migración `20261117000000`. Con el código de la rama `fase-8/diner` sobre una base sin esa migración, esos siete endpoints fallan con 500. Con el código de `main` (sin la fase 8) funcionan igual que antes.
 - Además la migración `20261117000500` agrega un trigger sobre `consumo_almuerzo`: con la tarjeta de sellos activa, `POST /v1/caja/validar` y el canje de pedidos suman sellos en la misma transacción.
 
+### Dependencia de las migraciones de la fase 9
+
+- Los endpoints de la fase 9 **solo funcionan en una base con las migraciones `20261118000000` a `20261118000200` aplicadas** (después de las seis de la fase 8): `ofertas_flash` (`public_id` del canje, `Idempotency-Key` de la oferta y permisos por columnas), `eventos_analitica` (`evento_lote` y `fn_consiente_analitica()`) y `particiones_security_definer` (solo la usa el job de particiones). A la fecha de este documento están aplicadas **solo en la base local de pruebas, no en Neon**. En Neon, sin ellas fallan con 500 `POST /v1/ofertas`, `POST /v1/ofertas/{id}/canjear` y `POST /v1/eventos`; las lecturas (listar ofertas, vitrina, reportes, suscripción) no usan columnas nuevas.
+- No hay ningún endpoint ni campo de comisión: el modelo es SaaS (el local paga una mensualidad).
+
 ### Limitaciones conocidas (pueden cambiar el contrato)
 
 - Las fases 5–7 no tienen códigos de negocio propios (`CONFLICT`, `NOT_FOUND`, `BAD_REQUEST` genéricos con `detail`); la fase 8 sí. Migrarlos a códigos estables cambiaría el `code` de esos errores, no el status.
-- Ids numéricos del tenant en `/v1/clientes`, plantillas de plan, solicitudes y reclamos del personal; la fase 8 los mantiene en `/v1/clientes/{id}/sellos*` por coherencia. Se evalúa pasarlos a `public_id`.
+- Ids numéricos del tenant en `/v1/clientes`, plantillas de plan, solicitudes y reclamos del personal; la fase 8 los mantiene en `/v1/clientes/{id}/sellos*` y la 9 en `clienteId` de `/v1/reportes/clientes-a-contactar` por coherencia. Se evalúa pasarlos a `public_id`.
 - En esta rama `GET /v1/pase/codigo` con un restaurante inexistente responde 404 `RESTAURANTE_NO_ENCONTRADO` (antes `NOT_FOUND`) y la falta de `Idempotency-Key` da `IDEMPOTENCY_KEY_INVALIDA` (antes `BAD_REQUEST`); el status no cambia.
 - La tarjeta de sellos solo cuenta almuerzos (`cuenta: "ALMUERZO"`); `PLATO` queda para después.
-- Los límites de uso viven en memoria de cada instancia.
+- Los límites de uso por IP viven en memoria de cada instancia; el límite por usuario de `POST /v1/eventos` está en la base y vale para todas.
+- Los reportes son solo para el dueño y usan la zona horaria del local; no hay gating por plan SaaS (`limites.reportesAvanzados` se informa, pero no se exige).
 - El campo `info.version` del OpenAPI (`0.4.0`) no se actualiza por fase: no lo uses como versión del contrato.
 - `POST /v1/auth/register*` no devuelve tokens; el comensal debe iniciar sesión tras registrarse.
 
