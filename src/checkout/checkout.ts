@@ -412,7 +412,10 @@ export class CheckoutService {
 }
 
 class CodigoQuery {
-  @IsOptional() @Matches(UUID, { message: 'restaurante debe ser un UUID' }) restaurante?: string;
+  @ApiPropertyOptional({ description: 'public_id del restaurante: el código solo vale en ese local' })
+  @IsOptional()
+  @Matches(UUID, { message: 'restaurante debe ser un UUID' })
+  restaurante?: string;
 }
 
 @ApiTags('pase')

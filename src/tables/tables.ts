@@ -12,7 +12,7 @@ const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
 /** La hora de llegada va de 5 minutos atrás a 12 horas adelante. */
 const ARRIVAL_WINDOW = { pastMs: 5 * 60_000, futureMs: 12 * 3_600_000 };
 
-class CrearMesaDto {
+class CrearMesaCompartidaDto {
   @ApiProperty({ description: 'public_id del restaurante' })
   @Matches(UUID_RE, { message: 'restaurante debe ser un UUID' })
   restaurante!: string;
@@ -113,7 +113,7 @@ const MESA_SELECT = `SELECT m.mesa_compartida_id, m.public_id, m.modo, m.estado,
 export class TablesService {
   constructor(private readonly db: DbService) {}
 
-  async create(user: AuthUser, dto: CrearMesaDto, key: string): Promise<MesaResponse> {
+  async create(user: AuthUser, dto: CrearMesaCompartidaDto, key: string): Promise<MesaResponse> {
     const llegada = new Date(dto.horaLlegada);
     const now = Date.now();
     if (llegada.getTime() < now - ARRIVAL_WINDOW.pastMs || llegada.getTime() > now + ARRIVAL_WINDOW.futureMs)
@@ -284,7 +284,7 @@ export class TablesController {
     404: ['RESTAURANTE_NO_ENCONTRADO'],
     409: ['IDEMPOTENCY_KEY_REUTILIZADA'],
   })
-  create(@CurrentUser() user: AuthUser, @Body() dto: CrearMesaDto, @IdempotencyKey() key: string) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CrearMesaCompartidaDto, @IdempotencyKey() key: string) {
     return this.svc.create(user, dto, key);
   }
 

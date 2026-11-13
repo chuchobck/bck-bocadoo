@@ -10,7 +10,10 @@ import { PERSONAL_ACTUAL } from './checkout';
 const ESTADOS = ['PENDIENTE', 'DEVUELTO', 'RECHAZADO'] as const;
 
 class ListarQuery {
-  @IsOptional() @IsIn(ESTADOS) estado?: string;
+  @ApiPropertyOptional({ enum: ESTADOS })
+  @IsOptional()
+  @IsIn(ESTADOS)
+  estado?: string;
 }
 class DevolverDto {
   @ApiPropertyOptional({ example: 'Tienes razón, te devolvimos el almuerzo.' })
