@@ -29,6 +29,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Lint del contrato OpenAPI (Spectral)
+        run: pnpm openapi:lint
 
   integration:
     name: Integración contra Postgres 16 (RLS, auth, multi-tenant)
@@ -70,6 +72,23 @@ jobs:
           SQL
           psql -h localhost -U postgres -d bocadoo -v ON_ERROR_STOP=1 -q -f db/seeds/demo.sql
       - run: pnpm test:db
+
+  contrato:
+    name: Cambios incompatibles en el contrato (oasdiff)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Comparar docs/openapi.json con la rama base
+        # Falla ante rutas o campos quitados, tipos cambiados, campos nuevos obligatorios… Si el cambio es deliberado
+        # (o corrige un contrato que estaba mal documentado), ponle a la PR la etiqueta `cambio-incompatible`.
+        continue-on-error: ${{ contains(github.event.pull_request.labels.*.name, 'cambio-incompatible') }}
+        run: |
+          git show "origin/${{ github.base_ref }}:docs/openapi.json" > "$RUNNER_TEMP/base.json" || { echo "La base no tiene contrato: nada que comparar."; exit 0; }
+          cp docs/openapi.json "$RUNNER_TEMP/actual.json"
+          docker run --rm -v "$RUNNER_TEMP:/specs:ro" tufin/oasdiff:latest breaking /specs/base.json /specs/actual.json --fail-on ERR
 
   secrets:
     name: Búsqueda de secretos (gitleaks)

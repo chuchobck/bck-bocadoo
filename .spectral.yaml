@@ -1,0 +1,50 @@
+# Reglas del contrato (docs/openapi.json). Se corren con `pnpm openapi:lint` y en CI.
+extends: ['spectral:oas']
+
+rules:
+  # Todo endpoint se entiende sin leer el código.
+  operation-summary-obligatorio:
+    description: Cada operación necesita un resumen.
+    severity: error
+    given: '$.paths[*][get,post,put,patch,delete]'
+    then: { field: summary, function: truthy }
+
+  operation-un-grupo:
+    description: Cada operación pertenece a exactamente un grupo por rol (Público, Comensal, Caja o Dueño).
+    severity: error
+    given: '$.paths[*][get,post,put,patch,delete].tags'
+    then: { function: length, functionOptions: { min: 1, max: 1 } }
+
+  errores-problem-json:
+    description: Las respuestas de error se documentan como application/problem+json.
+    severity: error
+    given: '$.paths[*][*].responses[?(@property >= 400)]'
+    then: { field: content.application/problem+json, function: truthy }
+
+  respuesta-429-y-500:
+    description: Todo endpoint documenta 429 (tope por IP) y 500.
+    severity: error
+    given: '$.paths[*][get,post,put,patch,delete].responses'
+    then:
+      - { field: '429', function: truthy }
+      - { field: '500', function: truthy }
+
+  ejemplo-en-respuestas-con-cuerpo:
+    description: Las respuestas con cuerpo JSON llevan ejemplo.
+    severity: error
+    given: '$.paths[*][*].responses[*].content.application/json'
+    then: { field: example, function: truthy }
+
+  sin-comisiones:
+    description: Modelo SaaS, sin comisiones. Ninguna ruta habla de comisiones.
+    severity: error
+    given: '$.paths'
+    then: { field: '@key', function: pattern, functionOptions: { notMatch: '/comisi|commission/i' } }
+
+  # Se desactivan reglas que no aplican a este contrato.
+  info-contact: off
+  info-description: off
+  oas3-api-servers: off
+  operation-description: off
+  operation-operationId: warn
+  oas3-unused-component: warn
