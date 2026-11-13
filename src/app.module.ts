@@ -8,6 +8,7 @@ import { AuthzModule } from './authz/authz.module';
 import { DbModule } from './db/db.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { SecurityModule } from './security/security.module';
+import { StaffModule } from './staff/staff.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -18,6 +19,7 @@ import { HealthController } from './health/health.controller';
     AuthModule,
     AuthzModule,
     RestaurantModule,
+    StaffModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: loadEnv().LOG_LEVEL,
