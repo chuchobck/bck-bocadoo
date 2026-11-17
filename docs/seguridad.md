@@ -58,6 +58,7 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 | Campos extra / mass assignment                                                                         | `ValidationPipe` con `whitelist` + `forbidNonWhitelisted`                                        | `abuse.int.ts`                         |
 | Cuerpos enormes                                                                                        | Límite de 100 kB → 413                                                                           | `abuse.int.ts`                         |
 | Otros orígenes en el navegador                                                                         | CORS con lista blanca (`CORS_ORIGINS`)                                                           | `abuse.int.ts`                         |
+| IP falsificada con `x-forwarded-for` para esquivar rate limits                                         | `trustProxy` por número de saltos (`TRUST_PROXY_HOPS`), no `true`                                | `trust-proxy.spec.ts`                  |
 | Filtración de secretos en logs                                                                         | pino redacta `authorization`, `password`, `refreshToken`, `accessToken`                          | prueba manual                          |
 
 ## QR del comensal (fase 7)
@@ -75,6 +76,23 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 | Doble cobro por reintento de red | `Idempotency-Key` obligatoria en caja y pagos                              | `checkout.int.ts`, `plans.int.ts`      |
 | Dos cajas a la vez               | Bloqueo de fila del cliente en la función atómica                          | `checkout.int.ts`                      |
 | Cajero que altera precios        | Los precios de almuerzo y platos los pone el servidor                      | `checkout.int.ts`                      |
+
+## IP del cliente y proxies (`TRUST_PROXY_HOPS`)
+
+Los rate limits por IP (login incluido) dependen de `request.ip`, que Fastify saca de `x-forwarded-for`. Con `trustProxy: true` se confía en toda la cabecera, y el cliente puede mandar la suya ("1.2.3.4") para parecer otra IP en cada petición y esquivar los límites.
+
+Ahora `trustProxy` es un **número de saltos** (`TRUST_PROXY_HOPS`, entero 0-5): solo se confía en los últimos N saltos, contando desde el socket, y `request.ip` es la primera dirección que queda fuera de ellos. Lo que el cliente anteponga a la cadena queda más allá de esa dirección y se ignora.
+
+| Entorno             | Valor por defecto | Motivo                                                                                           |
+| ------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| Producción (Render) | 3                 | Cadena real: cliente → Cloudflare → proxy interno de Render; la app ve `remoteAddress` 127.0.0.1 |
+| Desarrollo y test   | 0                 | Sin proxy: `x-forwarded-for` se ignora y `request.ip` es la IP del socket                        |
+
+Ejemplo con 3 saltos: `x-forwarded-for: cliente, cf, interno` → `request.ip = cliente`. Si el atacante manda `1.2.3.4, cliente, cf, interno`, sigue siendo `cliente`.
+
+- Si cambia la infraestructura (se quita Cloudflare, otro proveedor), **revisa el valor**: demasiado alto permite falsificar la IP; demasiado bajo hace que todos los clientes compartan la IP de un proxy y se bloqueen entre sí.
+- Verificación en producción: haz una petición con `x-forwarded-for: 1.2.3.4` y comprueba en `evento_seguridad`/logs que la IP registrada no es `1.2.3.4`.
+- Pruebas: `test/trust-proxy.spec.ts`.
 
 ## Llaves JWT
 
