@@ -36,7 +36,8 @@ export async function createApp(opts: { controllers?: Type<unknown>[]; poolFacto
   const app = await NestFactory.create<NestFastifyApplication>(
     root,
     new FastifyAdapter({
-      trustProxy: true,
+      // Solo los primeros N saltos desde el socket (Fastify 5 ignora un número suelto), nunca `true`: con `true` el cliente podría mandar su propio x-forwarded-for y falsificar su IP.
+      trustProxy: (_addr: string, hop: number) => hop < env.TRUST_PROXY_HOPS,
       requestIdHeader: 'x-request-id',
       genReqId: () => randomUUID(),
       bodyLimit: env.BODY_LIMIT_BYTES,

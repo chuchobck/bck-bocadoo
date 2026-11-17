@@ -27,6 +27,9 @@ const schema = z
     EVENTS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60), // lotes de eventos por IP y minuto
     EVENTS_USER_BATCHES_PER_MINUTE: z.coerce.number().int().min(1).default(20), // lotes por usuario y minuto
     SIGNUP_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10), // registros por IP y hora
+    // Saltos de proxy de confianza para req.ip (x-forwarded-for). Por defecto: 3 en producción (Cloudflare + proxy de Render + el
+    // último salto), 0 en desarrollo y test. Vacío = por defecto.
+    TRUST_PROXY_HOPS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(5).optional()),
     SWAGGER_ENABLED: z.enum(['true', 'false']).optional(), // por defecto: encendido salvo en producción
   })
   .superRefine((env, ctx) => {
@@ -36,7 +39,8 @@ const schema = z
     if (env.NODE_ENV === 'production' && !env.QR_SECRET_KEY) {
       ctx.addIssue({ code: 'custom', path: ['QR_SECRET_KEY'], message: 'es obligatoria en producción' });
     }
-  });
+  })
+  .transform((env) => ({ ...env, TRUST_PROXY_HOPS: env.TRUST_PROXY_HOPS ?? (env.NODE_ENV === 'production' ? 3 : 0) }));
 
 export type Env = z.infer<typeof schema>;
 
