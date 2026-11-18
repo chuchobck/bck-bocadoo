@@ -8013,6 +8013,110 @@
         "x-dominio": "vitrina"
       }
     },
+    "/v1/pase/eventos": {
+      "get": {
+        "description": "Conexión abierta `text/event-stream` con los eventos **del usuario del token**: `CANJE_REGISTRADO` (la caja descontó un almuerzo) y `CANJE_REVERTIDO` (la caja lo deshizo), con el saldo que queda en ese local. `LATIDO` cada 20 s. `FIN` con `motivo` antes de que el servidor cierre: `REEMPLAZADA` (se abrió una 3.ª conexión del mismo usuario: máximo 2), `TOKEN_VENCIDO` (renovar el token y reconectar) o `APAGADO`. Sin historial: al (re)conectar, la app vuelve a pedir `GET /v1/pase`. 503 `EVENTOS_SATURADO` si la instancia está llena.",
+        "operationId": "PassEventsController_stream",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Flujo SSE: `event:` con el tipo y `data:` con un JSON",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "retry: 5000\n: conectado\n\nevent: CANJE_REGISTRADO\ndata: {\"tipo\":\"CANJE_REGISTRADO\",\"consumoId\":\"62fb9399-5082-4571-9169-55b77c49e676\",\"restauranteNombre\":\"La Sazón\",\"saldoRestante\":4,\"platoNombre\":null,\"hora\":\"2026-11-13T17:00:00.000Z\"}\n\nevent: LATIDO\ndata: {\"hora\":\"2026-11-13T17:00:20.000Z\"}\n\nevent: CANJE_REVERTIDO\ndata: {\"tipo\":\"CANJE_REVERTIDO\",\"consumoId\":\"62fb9399-5082-4571-9169-55b77c49e676\",\"restauranteNombre\":\"La Sazón\",\"saldoRestante\":5,\"hora\":\"2026-11-13T17:00:06.000Z\"}\n\nevent: FIN\ndata: {\"motivo\":\"TOKEN_VENCIDO\"}\n\n"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "application/problem+json con `code`: `EVENTOS_SATURADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Service Unavailable",
+                  "status": 503,
+                  "code": "EVENTOS_SATURADO",
+                  "detail": "Servicio no disponible.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Eventos del pase en tiempo real (Server-Sent Events)",
+        "tags": ["Comensal"],
+        "x-dominio": "pase"
+      }
+    },
     "/v1/pase/codigo": {
       "get": {
         "description": "La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local y el local debe haber publicado el menú de hoy (409 `MENU_NO_PUBLICADO`).",

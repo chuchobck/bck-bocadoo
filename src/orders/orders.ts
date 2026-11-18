@@ -23,6 +23,7 @@ import { ApiProblems, badRequest, conflict, notFound, unprocessable } from '../c
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
+import { PassEventBus } from '../pass-events/bus';
 import { CURSOR_TS, HOY_LOCAL, PageQuery, assertMenuPublicado, UUID_RE, decodeCursor, encodeCursor, restauranteRef } from '../diner/common';
 
 /** Minutos que vive una preorden: después la caja ya no la canjea. */
@@ -519,6 +520,7 @@ export class StaffOrdersService {
   constructor(
     private readonly db: DbService,
     private readonly checkout: CheckoutService,
+    private readonly passEvents: PassEventBus,
   ) {}
 
   list(estado: (typeof FILTROS)[number] = 'ACTIVOS') {
@@ -542,8 +544,9 @@ export class StaffOrdersService {
   }
 
   /** Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras tanto. */
-  redeem(id: string, key: string): Promise<PedidoCanjeResponse> {
-    return this.db.forRequest(async (q) => {
+  async redeem(id: string, key: string): Promise<PedidoCanjeResponse> {
+    const eventos = this.passEvents.pending();
+    const res = await this.db.forRequest(async (q): Promise<PedidoCanjeResponse> => {
       const o = await this.load(q, id, true);
       if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
       if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
@@ -591,6 +594,8 @@ export class StaffOrdersService {
             canal: 'PREORDEN',
             paraLlevar: o.tipo === 'LLEVAR',
             ordenId: String(o.orden_id),
+            eventos,
+            platoNombre,
           });
           almuerzo = { resultado: r.resultado, mensaje: r.mensaje, descontado: r.descontado, consumoId: r.consumo?.id ?? null };
         } else {
@@ -610,6 +615,8 @@ export class StaffOrdersService {
         porCobrarCentavos: due(almuerzo?.descontado ?? false),
       };
     });
+    eventos.flush(); // CANJE_REGISTRADO (con los platos) al comensal: solo con el COMMIT hecho
+    return res;
   }
 
   serve(id: string) {

@@ -27,6 +27,7 @@ const schema = z
     EVENTS_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60), // lotes de eventos por IP y minuto
     EVENTS_USER_BATCHES_PER_MINUTE: z.coerce.number().int().min(1).default(20), // lotes por usuario y minuto
     SIGNUP_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10), // registros por IP y hora
+    PASS_EVENTS_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(50_000).default(1000), // conexiones SSE de /v1/pase/eventos por instancia
     // Saltos de proxy de confianza para req.ip (x-forwarded-for). Por defecto: 3 en producción (Cloudflare + proxy de Render + el
     // último salto), 0 en desarrollo y test. Vacío = por defecto.
     TRUST_PROXY_HOPS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(5).optional()),
