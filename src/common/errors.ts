@@ -18,6 +18,7 @@ export class BusinessError extends HttpException {
 export const notFound = (code: string, detail: string) => new BusinessError(HttpStatus.NOT_FOUND, code, detail);
 export const conflict = (code: string, detail: string) => new BusinessError(HttpStatus.CONFLICT, code, detail);
 export const badRequest = (code: string, detail: string) => new BusinessError(HttpStatus.BAD_REQUEST, code, detail);
+export const forbidden = (code: string, detail: string) => new BusinessError(HttpStatus.FORBIDDEN, code, detail);
 export const unprocessable = (code: string, detail: string) => new BusinessError(HttpStatus.UNPROCESSABLE_ENTITY, code, detail);
 
 /** Código de un error sin código propio: el nombre del estado HTTP (NOT_FOUND, BAD_REQUEST…), también estable. */
