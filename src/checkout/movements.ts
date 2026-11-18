@@ -36,9 +36,17 @@ class MovimientoResponse {
     nullable: true,
     example: 750,
     description:
-      'Centavos. VENTA: total del ticket. PEDIDO: `totalCentavos` del pedido (valor de la preorden: lo que se cobra aparte sale de `porCobrarCentavos` al canjear). CANJE_DIRECTO: null (ya está prepagado en el plan)',
+      'Centavos cobrados. Solo VENTA: total del ticket. PEDIDO y CANJE_DIRECTO: null (el valor de una preorden va en `valorPedidoCentavos`)',
   })
   montoCentavos!: number | null;
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    example: 125,
+    description:
+      'Centavos. Solo PEDIDO: `totalCentavos` de la preorden. Es el valor del pedido, NO dinero cobrado (lo que se cobra aparte sale de `porCobrarCentavos` al canjear y ya es una VENTA). VENTA y CANJE_DIRECTO: null',
+  })
+  valorPedidoCentavos!: number | null;
   @ApiProperty({ type: String, nullable: true, example: 'EFECTIVO', description: 'Solo VENTA; null en los demás tipos' }) medioPago!:
     string | null;
   @ApiProperty({
@@ -106,6 +114,7 @@ const EJEMPLO_ITEMS = [
     tipo: 'CANJE_DIRECTO',
     hora: '2026-11-13T17:05:12.000Z',
     montoCentavos: null,
+    valorPedidoCentavos: null,
     medioPago: null,
     pagoEstado: null,
     platoNombre: null,
@@ -116,7 +125,8 @@ const EJEMPLO_ITEMS = [
     id: 'b1070383-90ef-4353-b00d-9019fcf067c2',
     tipo: 'PEDIDO',
     hora: '2026-11-13T16:48:30.000Z',
-    montoCentavos: 125,
+    montoCentavos: null,
+    valorPedidoCentavos: 125,
     medioPago: null,
     pagoEstado: null,
     platoNombre: 'Sopa de quinua + Seco de pollo',
@@ -128,6 +138,7 @@ const EJEMPLO_ITEMS = [
     tipo: 'VENTA',
     hora: '2026-11-13T16:20:05.000Z',
     montoCentavos: 700,
+    valorPedidoCentavos: null,
     medioPago: 'EFECTIVO',
     pagoEstado: 'CONFIRMADO',
     platoNombre: null,
@@ -158,6 +169,7 @@ interface Row {
   public_id: string;
   hora: Date;
   monto: string | null;
+  valor_pedido: string | null;
   medio_pago: string | null;
   pago_estado: string | null;
   plato_nombre: string | null;
@@ -179,7 +191,7 @@ const MOVIMIENTOS = `
            COALESCE($1::date, (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date) AS dia
       FROM restaurante WHERE restaurante_id = app_tenant_id()
   ), mov AS (
-    SELECT 'VENTA'::text AS tipo, v.public_id, v.creado_en AS hora, v.total_centavos AS monto, m.codigo AS medio_pago, p.estado::text AS pago_estado,
+    SELECT 'VENTA'::text AS tipo, v.public_id, v.creado_en AS hora, v.total_centavos AS monto, NULL::bigint AS valor_pedido, m.codigo AS medio_pago, p.estado::text AS pago_estado,
            NULL::text AS plato_nombre, NULL::text AS comensal,
            EXISTS (SELECT 1 FROM venta_pos_cabecera x WHERE x.restaurante_id = v.restaurante_id AND x.revierte_a_venta_pos_id = v.venta_pos_id) AS revertido
       FROM venta_pos_cabecera v
@@ -187,14 +199,14 @@ const MOVIMIENTOS = `
       LEFT JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
      WHERE v.restaurante_id = app_tenant_id() AND v.revierte_a_venta_pos_id IS NULL AND v.fecha_local = (SELECT dia FROM r)
     UNION ALL
-    SELECT 'PEDIDO', o.public_id, o.canjeada_en, o.total_centavos, NULL, NULL,
+    SELECT 'PEDIDO', o.public_id, o.canjeada_en, NULL, o.total_centavos, NULL, NULL,
            (SELECT string_agg(d.nombre_plato, ' + ' ORDER BY d.orden_detalle_id) FROM orden_detalle d WHERE d.orden_id = o.orden_id AND d.seccion IS NOT NULL),
            u.nombre, false
       FROM orden_cabecera o JOIN usuario u ON u.usuario_id = o.usuario_id
      WHERE o.restaurante_id = app_tenant_id() AND o.canjeada_en IS NOT NULL
        AND (o.canjeada_en AT TIME ZONE (SELECT zona_horaria FROM r))::date = (SELECT dia FROM r)
     UNION ALL
-    SELECT 'CANJE_DIRECTO', k.public_id, k.creado_en, NULL, NULL, NULL, NULL, c.nombre,
+    SELECT 'CANJE_DIRECTO', k.public_id, k.creado_en, NULL, NULL, NULL, NULL, NULL, c.nombre,
            EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.restaurante_id = k.restaurante_id AND x.revierte_a_consumo_id = k.consumo_id)
       FROM consumo_almuerzo k
       JOIN cliente_restaurante c ON c.restaurante_id = k.restaurante_id AND c.cliente_id = k.cliente_id
@@ -221,7 +233,7 @@ export class MovementsService {
           throw forbidden('CAJERO_SOLO_HOY', 'El cajero solo puede consultar los movimientos de hoy.');
         const page = await q.query<Row>(
           `${MOVIMIENTOS}
-           SELECT tipo, public_id, hora, monto, medio_pago, pago_estado, plato_nombre, comensal, revertido, ${CURSOR_TS('hora')} AS cursor_t
+           SELECT tipo, public_id, hora, monto, valor_pedido, medio_pago, pago_estado, plato_nombre, comensal, revertido, ${CURSOR_TS('hora')} AS cursor_t
              FROM mov
             WHERE ($2::timestamptz IS NULL OR (hora, public_id) < ($2::timestamptz, $3::uuid))
             ORDER BY hora DESC, public_id DESC
@@ -234,7 +246,7 @@ export class MovementsService {
            SELECT count(*) FILTER (WHERE tipo = 'VENTA' AND NOT revertido) AS ventas,
                   COALESCE(sum(monto) FILTER (WHERE tipo = 'VENTA' AND NOT revertido AND pago_estado = 'CONFIRMADO'), 0) AS confirmadas,
                   count(*) FILTER (WHERE tipo = 'PEDIDO') AS pedidos,
-                  COALESCE(sum(monto) FILTER (WHERE tipo = 'PEDIDO'), 0) AS valor,
+                  COALESCE(sum(valor_pedido) FILTER (WHERE tipo = 'PEDIDO'), 0) AS valor,
                   count(*) FILTER (WHERE tipo = 'CANJE_DIRECTO' AND NOT revertido) AS canjes
              FROM mov`,
             [fecha ?? null],
@@ -257,6 +269,7 @@ export class MovementsService {
             tipo: m.tipo,
             hora: m.hora,
             montoCentavos: m.monto === null ? null : Number(m.monto),
+            valorPedidoCentavos: m.valor_pedido === null ? null : Number(m.valor_pedido),
             medioPago: m.medio_pago,
             pagoEstado: m.pago_estado,
             platoNombre: m.plato_nombre,

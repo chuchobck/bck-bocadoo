@@ -103,7 +103,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`                                                                                                     |
 | `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`                                                                                                     |
 
-Resultados del escáner de caja: **no son errores**. `POST /v1/caja/validar` responde 200 con `resultado` ∈ `OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`.
+Resultados del escáner de caja: **no son errores**. Con `DUPLICADO` la respuesta trae además `consumoPrevio.creadoEn` (hora ISO del canje previo, para mostrar "ya canjeado hace X s"). `POST /v1/caja/validar` responde 200 con `resultado` ∈ `OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`.
 
 ### 1.5 Idempotency-Key
 
@@ -2299,6 +2299,23 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 > Sin menú publicado hoy, `validar` (QR o manual) responde 409 **antes** de tocar nada: no descuenta y no registra `intento_escaneo`. `platoNombre` es siempre `null` aquí (un canje directo no tiene preorden). Los pedidos preordenados se canjean por `POST /v1/caja/pedidos/{id}/canjear`.
 
+**`consumoPrevio` (opcional, solo con `resultado` = `DUPLICADO`):** `{ "creadoEn": "<ISO>" }`, la hora del canje del comensal en este local que causó el duplicado (menos de 60 s), para que la caja muestre "ya canjeado hace X s". En cualquier otro resultado el campo no aparece. Es un campo nuevo y opcional (cambio aditivo). Ejemplo:
+
+```json
+{
+  "resultado": "DUPLICADO",
+  "mensaje": "Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez.",
+  "descontado": false,
+  "consumo": null,
+  "plan": null,
+  "almuerzosRestantes": 4,
+  "diasParaVencer": null,
+  "platoNombre": null,
+  "consumoPrevio": { "creadoEn": "2026-11-13T03:47:36.549Z" },
+  "cliente": { "id": "195", "nombre": "Ana Mora" }
+}
+```
+
 #### `POST /v1/caja/consumos/{id}/deshacer`
 
 **Deshacer una validación**
@@ -2449,18 +2466,19 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 Lista unificada de lo que pasó en caja ese día local, de la hora más reciente a la más antigua. **Reemplaza** la mezcla que hace hoy el frontend en "Cobros de hoy" (`GET /v1/caja/ventas` + `GET /v1/caja/pedidos?estado=SERVIDA` + una lista en memoria de los canjes de `POST /v1/caja/validar`): los canjes directos ahora se recuperan del servidor. Los endpoints anteriores no cambian.
 
-| `tipo`          | Qué es                                                                                        | Fuente                                      | `hora`             | `montoCentavos`              | `medioPago` / `pagoEstado` | `platoNombre`                          | `comensalNombre`                                                    |
-| --------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------ | ---------------------------- | -------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
-| `VENTA`         | Venta suelta (`POST /v1/caja/ventas`)                                                         | `venta_pos_cabecera`, día = `fecha_local`   | cuándo se registró | total del ticket             | del pago                   | `null`                                 | `null` (la caja no muestra nombre en las ventas)                    |
-| `PEDIDO`        | Preorden canjeada en caja (estado `CANJEADA` o `SERVIDA`)                                     | `orden_cabecera.canjeada_en`, en hora local | cuándo se canjeó   | `totalCentavos` del pedido   | `null`                     | platos del almuerzo unidos con `" + "` | nombre de la cuenta (el mismo `comensal.nombre` de `/caja/pedidos`) |
-| `CANJE_DIRECTO` | Almuerzo descontado de un plan por QR o búsqueda manual (`POST /v1/caja/validar`), sin pedido | `consumo_almuerzo` canal `QR` o `MANUAL`    | cuándo se descontó | `null` (ya estaba prepagado) | `null`                     | `null` (no hay preorden)               | nombre del cliente (el mismo `cliente.nombre` de `validar`)         |
+| `tipo`          | Qué es                                                                                        | Fuente                                      | `hora`             | `montoCentavos` / `valorPedidoCentavos` | `medioPago` / `pagoEstado` | `platoNombre`                          | `comensalNombre`                                                    |
+| --------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------ | --------------------------------------- | -------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `VENTA`         | Venta suelta (`POST /v1/caja/ventas`)                                                         | `venta_pos_cabecera`, día = `fecha_local`   | cuándo se registró | total del ticket / `null`               | del pago                   | `null`                                 | `null` (la caja no muestra nombre en las ventas)                    |
+| `PEDIDO`        | Preorden canjeada en caja (estado `CANJEADA` o `SERVIDA`)                                     | `orden_cabecera.canjeada_en`, en hora local | cuándo se canjeó   | `null` / `totalCentavos` del pedido     | `null`                     | platos del almuerzo unidos con `" + "` | nombre de la cuenta (el mismo `comensal.nombre` de `/caja/pedidos`) |
+| `CANJE_DIRECTO` | Almuerzo descontado de un plan por QR o búsqueda manual (`POST /v1/caja/validar`), sin pedido | `consumo_almuerzo` canal `QR` o `MANUAL`    | cuándo se descontó | `null` / `null` (ya estaba prepagado)   | `null`                     | `null` (no hay preorden)               | nombre del cliente (el mismo `cliente.nombre` de `validar`)         |
 
 Notas:
 
 - No hay tablas ni migraciones nuevas: los tres tipos salen de datos que ya se guardaban. Las validaciones de **mesa** (`canal` `MESA`) y el consumo que crea el canje de un pedido (`PREORDEN`) **no** salen como `CANJE_DIRECTO`: el segundo ya está como `PEDIDO`.
 - Una venta deshecha y un consumo revertido salen con `revertido: true` (el reverso no es otra fila) y no cuentan en `resumen`. Un pedido nunca se revierte.
-- `PEDIDO.montoCentavos` es el valor de la preorden, **no** dinero cobrado: lo que la caja cobra aparte sale de `porCobrarCentavos` al canjear y, si se cobró, ya es una `VENTA` (por eso `valorPedidosCentavos` no debe sumarse a `ventasConfirmadasCentavos`).
+- `montoCentavos` solo trae valor en `VENTA` (dinero del ticket) y es `null` en `PEDIDO` y `CANJE_DIRECTO`. `valorPedidoCentavos` (nuevo, `number | null`) solo trae valor en `PEDIDO`: es el valor de la preorden, **no** dinero cobrado: lo que la caja cobra aparte sale de `porCobrarCentavos` al canjear y, si se cobró, ya es una `VENTA` (por eso `valorPedidosCentavos` no debe sumarse a `ventasConfirmadasCentavos`).
 - `resumen` es de **todo el día**, no de la página, y **no mezcla dinero con valor de pedidos**: `ventas.ventasConfirmadasCentavos` es el único dinero cobrado (ventas con pago `CONFIRMADO`; una transferencia `PENDIENTE` cuenta en `ventas.cantidad` pero no suma, y las ventas deshechas no cuentan en nada). `pedidos.valorPedidosCentavos` es el valor de las preórdenes canjeadas, **no** dinero cobrado: no se suma a las ventas. `canjesDirectos` solo tiene `cantidad` (sin los revertidos): no mueven dinero.
+- **Cambio aditivo:** antes `PEDIDO.montoCentavos` traía el valor de la preorden; ahora ese valor va en `valorPedidoCentavos` y `montoCentavos` queda en `null` para `PEDIDO` (el campo sigue en el esquema). El `resumen` no cambia.
 - No se expone ningún dato personal que la caja no mostrara ya.
 
 Response `200`:
@@ -2481,6 +2499,7 @@ Response `200`:
       "tipo": "CANJE_DIRECTO",
       "hora": "2026-11-13T17:05:12.000Z",
       "montoCentavos": null,
+      "valorPedidoCentavos": null,
       "medioPago": null,
       "pagoEstado": null,
       "platoNombre": null,
@@ -2491,7 +2510,8 @@ Response `200`:
       "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
       "tipo": "PEDIDO",
       "hora": "2026-11-13T16:48:30.000Z",
-      "montoCentavos": 125,
+      "montoCentavos": null,
+      "valorPedidoCentavos": 125,
       "medioPago": null,
       "pagoEstado": null,
       "platoNombre": "Sopa de quinua + Seco de pollo",
@@ -2503,6 +2523,7 @@ Response `200`:
       "tipo": "VENTA",
       "hora": "2026-11-13T16:20:05.000Z",
       "montoCentavos": 700,
+      "valorPedidoCentavos": null,
       "medioPago": "EFECTIVO",
       "pagoEstado": "CONFIRMADO",
       "platoNombre": null,

@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-18 (movimientos de caja). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-18 (valor de pedido y canje previo en caja). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -25,9 +25,9 @@ Sin fase propia. Detalle en `docs/qr-flujo.md` y `docs/api-contrato.md` ("Evento
 
 - **El QR no es de un solo uso.** `pass-code.ts` firma `BCD1.<usuario>.<restaurante|0>.<mac>` con un HMAC por pasos de 30 s y `verifyPassCode` acepta el paso anterior y el siguiente. Un código se dibuja durante su paso y vale hasta el final del paso siguiente: entre el primer y el último escaneo posible del **mismo** código pasan menos de 60 s. No hay registro de "códigos usados".
 - **Lo que se detecta es el comensal, no el código**, dentro de `fn_descontar_almuerzo` (paso 2, migración `20261116000000`): si el mismo cliente tiene en ese restaurante un consumo (`cantidad = 1`, sin reverso) de hace menos de 60 s, el resultado es **`DUPLICADO`**. Como la ventana (60 s) cubre toda la vida de un código, un segundo escaneo del mismo QR siempre cae aquí, salvo que el primero se haya deshecho.
-- `POST /v1/caja/validar` responde entonces **200** con `resultado: "DUPLICADO"`, `descontado: false`, `mensaje` ("ya fue validado hace menos de un minuto") y `almuerzosRestantes` (el saldo restante). Queda en `intento_escaneo`. No trae la hora del primer canje.
+- `POST /v1/caja/validar` responde entonces **200** con `resultado: "DUPLICADO"`, `descontado: false`, `mensaje` ("ya fue validado hace menos de un minuto") y `almuerzosRestantes` (el saldo restante). Queda en `intento_escaneo`. Además trae `consumoPrevio.creadoEn` (ver abajo).
 - Otros caminos: el reintento con la **misma** `Idempotency-Key` devuelve la respuesta original (`OK`) sin descontar; la mesa "invito yo" omite la regla a propósito (`p_omitir_duplicado`); un pedido preordenado ya canjeado responde 200 con `yaCanjeado: true`.
-- **Conclusión: ya existe un equivalente con código de negocio** (`DUPLICADO`), no un error genérico. **No se cambió**: pasarlo a 409 `QR_YA_CANJEADO` rompería el contrato ("`validar` responde siempre 200") y oasdiff lo marcaría. Lo único que falta respecto a lo pedido es la hora del primer canje para mostrar "hace X s"; si la caja lo necesita, se puede **añadir** un campo opcional (p. ej. `consumoPrevio.creadoEn`) sin romper nada. Decisión pendiente.
+- **Conclusión: ya existe un equivalente con código de negocio** (`DUPLICADO`), no un error genérico. **No se cambió**: pasarlo a 409 `QR_YA_CANJEADO` rompería el contrato ("`validar` responde siempre 200") y oasdiff lo marcaría. **Decisión resuelta (rama `fix/movimientos-valor-pedido`):** se **añadió** el campo opcional `consumoPrevio: { creadoEn }`, solo con `DUPLICADO`, para que la caja muestre "ya canjeado hace X s". Se lee en `CheckoutService.validate` con una consulta del último consumo del cliente en ese local en los últimos 60 s, en la misma transacción; **sin migración** (`fn_descontar_almuerzo` no cambió).
 
 ### Checklist
 
@@ -51,6 +51,7 @@ Sin fase propia: adición posterior a la fase 10, pendiente de revisión y merge
 - [x] **Cajero solo hoy**: otra fecha → 403 `CAJERO_SOLO_HOY` (como el cierre de caja); el dueño consulta cualquier día. `resumen` separado por tipo: `ventas.ventasConfirmadasCentavos` (dinero, solo pagos `CONFIRMADO`), `pedidos.valorPedidosCentavos` (valor de preórdenes, no cobrado) y `canjesDirectos.cantidad`; lo revertido no suma
 - [x] Contrato: `docs/openapi.json` solo con adiciones (oasdiff: sin cambios incompatibles); `pnpm openapi:lint` limpio
 - [x] Pruebas en `test/integration/caja-movimientos.int.ts` (tres tipos, cursor, zona horaria, cambio de día, aislamiento entre locales, 403)
+- [x] **Ajuste (rama `fix/movimientos-valor-pedido`, aditivo)**: `valorPedidoCentavos` (`number | null`) nuevo, con valor solo en `PEDIDO`; `montoCentavos` ahora solo tiene valor en `VENTA` (`null` en `PEDIDO` y `CANJE_DIRECTO`) y sigue en el esquema. `resumen` sin cambios
 - [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR. Las pruebas nuevas están sin ejecutar
 - [ ] Pendiente: el frontend debe cambiar "Cobros de hoy" a este endpoint y retirar su lista en memoria
 

@@ -16,7 +16,7 @@ de cada endpoint está en [`api-contrato.md`](./api-contrato.md); aquí va el po
 
 ### Segundo escaneo del mismo código
 
-El QR **no es de un solo uso**: se dibuja durante su paso y vale hasta el final del siguiente, o sea, menos de 60 s entre el primer y el último escaneo posible. Lo que la base detecta es **al comensal**: si ya tiene un canje sin deshacer en ese local de hace menos de 60 s, el resultado es `DUPLICADO` (200, `descontado: false`, `almuerzosRestantes` = saldo). Como la ventana cubre la vida entera del código, un segundo escaneo del mismo QR siempre da `DUPLICADO`. El reintento con la misma `Idempotency-Key` devuelve la respuesta original sin descontar. La respuesta no trae la hora del primer canje (decisión pendiente en `estado.md`).
+El QR **no es de un solo uso**: se dibuja durante su paso y vale hasta el final del siguiente, o sea, menos de 60 s entre el primer y el último escaneo posible. Lo que la base detecta es **al comensal**: si ya tiene un canje sin deshacer en ese local de hace menos de 60 s, el resultado es `DUPLICADO` (200, `descontado: false`, `almuerzosRestantes` = saldo). Como la ventana cubre la vida entera del código, un segundo escaneo del mismo QR siempre da `DUPLICADO`. El reintento con la misma `Idempotency-Key` devuelve la respuesta original sin descontar. La respuesta trae además `consumoPrevio: { creadoEn }` (hora ISO de ese canje previo, solo con `DUPLICADO`) para mostrar "ya canjeado hace X s". La hora se lee en la capa de servicio (`CheckoutService.validate`) con una consulta del último consumo del comensal en ese local en los últimos 60 s (mismo criterio que la función), en la misma transacción: `fn_descontar_almuerzo` no cambió y no hay migración.
 
 ### Deshacer
 
