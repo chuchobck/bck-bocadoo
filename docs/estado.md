@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-13 (fase 10). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-18 (movimientos de caja). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -16,6 +16,19 @@
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Movimientos del día de la caja (rama `feat/caja-movimientos`)
+
+Sin fase propia: adición posterior a la fase 10, pendiente de revisión y merge. Detalle en `docs/api-contrato.md` (`GET /v1/caja/movimientos`).
+
+- [x] **`GET /v1/caja/movimientos?fecha=` reemplaza la mezcla de `GET /v1/caja/ventas` + `GET /v1/caja/pedidos?estado=SERVIDA` + la lista en memoria de canjes directos que arma hoy el frontend en "Cobros de hoy"**. Los canjes directos por QR ya no se pierden al cerrar la app o cambiar de dispositivo. Los endpoints anteriores siguen igual (el cliente puede migrar cuando quiera)
+- [x] **Sin migración**: el canje directo ya queda en `consumo_almuerzo` (canal `QR`/`MANUAL`, sin `orden_id` ni `mesa_compartida_id`), los pedidos en `orden_cabecera.canjeada_en` y las ventas en `venta_pos_cabecera`. Solo lectura, `DbService.forRequest()` con RLS (`@Roles('DUENO', 'CAJERO')`)
+- [x] Día local del restaurante (`fecha` opcional, por defecto hoy en su zona horaria), orden por hora descendente, cursor `(hora, public_id)` como los demás listados, `resumen` del día por tipo (cantidad y monto) calculado aparte de la página
+- [x] **Decisiones**: los pedidos entran al canjearse (`CANJEADA` y `SERVIDA`), no solo `SERVIDA`; las validaciones de mesa no son `CANJE_DIRECTO`; el monto de `PEDIDO` es el valor de la preorden (no dinero cobrado) y `CANJE_DIRECTO` no tiene monto; ventas deshechas y consumos revertidos salen con `revertido: true` y no suman
+- [x] Contrato: `docs/openapi.json` solo con adiciones (oasdiff: sin cambios incompatibles); `pnpm openapi:lint` limpio
+- [x] Pruebas en `test/integration/caja-movimientos.int.ts` (tres tipos, cursor, zona horaria, cambio de día, aislamiento entre locales, 403)
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR. Las pruebas nuevas están sin ejecutar
+- [ ] Pendiente: el frontend debe cambiar "Cobros de hoy" a este endpoint y retirar su lista en memoria
 
 ## Menú publicado en pase y caja (rama `fix/menu-publicado-canje`)
 

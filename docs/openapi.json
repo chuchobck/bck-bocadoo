@@ -10454,6 +10454,201 @@
         "x-dominio": "reclamos"
       }
     },
+    "/v1/caja/movimientos": {
+      "get": {
+        "description": "Lista unificada, de solo lectura, de ventas sueltas, pedidos canjeados y canjes directos (`POST /v1/caja/validar`) del día local del restaurante (`fecha`, por defecto hoy), de la hora más reciente a la más antigua, con paginación por cursor (máximo 50). `resumen` cuenta todo el día, no solo la página. Reemplaza armar \"Cobros de hoy\" con `GET /v1/caja/ventas` + `GET /v1/caja/pedidos` + una lista en memoria.",
+        "operationId": "MovementsController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "nextCursor de la página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fecha",
+            "required": false,
+            "in": "query",
+            "description": "Día local del restaurante (AAAA-MM-DD). Por defecto, hoy en la zona horaria del restaurante.",
+            "schema": {
+              "example": "2026-11-13",
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovimientosResponse"
+                },
+                "example": {
+                  "fecha": "2026-11-13",
+                  "zonaHoraria": "America/Guayaquil",
+                  "monedaCodigo": "USD",
+                  "resumen": {
+                    "VENTA": {
+                      "cantidad": 12,
+                      "montoCentavos": 8450
+                    },
+                    "PEDIDO": {
+                      "cantidad": 12,
+                      "montoCentavos": 8450
+                    },
+                    "CANJE_DIRECTO": {
+                      "cantidad": 12,
+                      "montoCentavos": 8450
+                    }
+                  },
+                  "items": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "tipo": "VENTA",
+                      "hora": "2026-11-13T17:00:00.000Z",
+                      "montoCentavos": 750,
+                      "medioPago": "EFECTIVO",
+                      "pagoEstado": "CONFIRMADO",
+                      "platoNombre": "Sopa de quinua + Seco de pollo",
+                      "comensalNombre": "Ana Pérez",
+                      "revertido": true
+                    }
+                  ],
+                  "nextCursor": "eyJuIjoiRG9uYSBSb3NhIiwiaSI6IjEifQ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `CURSOR_INVALIDO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "CURSOR_INVALIDO",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "FORBIDDEN",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Movimientos del día de la caja",
+        "tags": ["Caja"],
+        "x-dominio": "caja"
+      }
+    },
     "/v1/pase": {
       "get": {
         "description": "El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO. Con `restaurante`, 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy.",
@@ -20869,6 +21064,131 @@
           }
         },
         "required": ["respuesta"]
+      },
+      "ResumenTipoResponse": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 12,
+            "description": "Movimientos no revertidos"
+          },
+          "montoCentavos": {
+            "type": "number",
+            "example": 8450,
+            "description": "Suma de `montoCentavos` de los no revertidos. En VENTA solo las de pago CONFIRMADO. En CANJE_DIRECTO siempre 0. El monto de PEDIDO no es dinero cobrado: puede repetirse en una VENTA si la caja lo cobró aparte"
+          }
+        },
+        "required": ["cantidad", "montoCentavos"]
+      },
+      "ResumenMovimientosResponse": {
+        "type": "object",
+        "properties": {
+          "VENTA": {
+            "$ref": "#/components/schemas/ResumenTipoResponse"
+          },
+          "PEDIDO": {
+            "$ref": "#/components/schemas/ResumenTipoResponse"
+          },
+          "CANJE_DIRECTO": {
+            "$ref": "#/components/schemas/ResumenTipoResponse"
+          }
+        },
+        "required": ["VENTA", "PEDIDO", "CANJE_DIRECTO"]
+      },
+      "MovimientoResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de la venta, del pedido o del consumo, según `tipo`"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": ["VENTA", "PEDIDO", "CANJE_DIRECTO"],
+            "description": "VENTA: venta suelta. PEDIDO: preorden canjeada en caja. CANJE_DIRECTO: almuerzo descontado de un plan por QR o búsqueda manual (`POST /v1/caja/validar`), sin preorden"
+          },
+          "hora": {
+            "format": "date-time",
+            "type": "string",
+            "description": "VENTA: cuándo se registró. PEDIDO: cuándo se canjeó. CANJE_DIRECTO: cuándo se descontó"
+          },
+          "montoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 750,
+            "description": "Centavos. VENTA: total del ticket. PEDIDO: `totalCentavos` del pedido (valor de la preorden: lo que se cobra aparte sale de `porCobrarCentavos` al canjear). CANJE_DIRECTO: null (ya está prepagado en el plan)"
+          },
+          "medioPago": {
+            "type": "string",
+            "nullable": true,
+            "example": "EFECTIVO",
+            "description": "Solo VENTA; null en los demás tipos"
+          },
+          "pagoEstado": {
+            "type": "string",
+            "nullable": true,
+            "example": "CONFIRMADO",
+            "description": "Solo VENTA: PENDIENTE, CONFIRMADO o RECHAZADO; null en los demás tipos"
+          },
+          "platoNombre": {
+            "type": "string",
+            "nullable": true,
+            "example": "Sopa de quinua + Seco de pollo",
+            "description": "PEDIDO: platos del almuerzo preordenado unidos con \" + \". VENTA y CANJE_DIRECTO: null"
+          },
+          "comensalNombre": {
+            "type": "string",
+            "nullable": true,
+            "example": "Ana Pérez",
+            "description": "Mismo nombre que ya muestra la caja: PEDIDO = nombre de la cuenta (`comensal.nombre` de `GET /v1/caja/pedidos`); CANJE_DIRECTO = nombre del cliente (`cliente.nombre` de `POST /v1/caja/validar`). VENTA: null"
+          },
+          "revertido": {
+            "type": "boolean",
+            "description": "La venta se deshizo o el consumo se revirtió. No cuenta en el resumen. Los pedidos nunca se revierten"
+          }
+        },
+        "required": ["id", "tipo", "hora", "montoCentavos", "medioPago", "pagoEstado", "platoNombre", "comensalNombre", "revertido"]
+      },
+      "MovimientosResponse": {
+        "type": "object",
+        "properties": {
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "Día local que se consultó"
+          },
+          "zonaHoraria": {
+            "type": "string",
+            "example": "America/Guayaquil"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "resumen": {
+            "description": "Todo el día, sin importar la página",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResumenMovimientosResponse"
+              }
+            ]
+          },
+          "items": {
+            "description": "De la hora más reciente a la más antigua",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MovimientoResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "null si no hay más páginas"
+          }
+        },
+        "required": ["fecha", "zonaHoraria", "monedaCodigo", "resumen", "items"]
       },
       "PlanPase": {
         "type": "object",
