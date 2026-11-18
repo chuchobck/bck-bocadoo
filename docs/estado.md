@@ -17,6 +17,29 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
+## Eventos del pase en tiempo real (rama `feat/pase-eventos`)
+
+Sin fase propia. Detalle en `docs/qr-flujo.md` y `docs/api-contrato.md` ("Eventos del pase").
+
+### Cómo se detecta hoy un código "ya canjeado" (revisado antes de programar)
+
+- **El QR no es de un solo uso.** `pass-code.ts` firma `BCD1.<usuario>.<restaurante|0>.<mac>` con un HMAC por pasos de 30 s y `verifyPassCode` acepta el paso anterior y el siguiente. Un código se dibuja durante su paso y vale hasta el final del paso siguiente: entre el primer y el último escaneo posible del **mismo** código pasan menos de 60 s. No hay registro de "códigos usados".
+- **Lo que se detecta es el comensal, no el código**, dentro de `fn_descontar_almuerzo` (paso 2, migración `20261116000000`): si el mismo cliente tiene en ese restaurante un consumo (`cantidad = 1`, sin reverso) de hace menos de 60 s, el resultado es **`DUPLICADO`**. Como la ventana (60 s) cubre toda la vida de un código, un segundo escaneo del mismo QR siempre cae aquí, salvo que el primero se haya deshecho.
+- `POST /v1/caja/validar` responde entonces **200** con `resultado: "DUPLICADO"`, `descontado: false`, `mensaje` ("ya fue validado hace menos de un minuto") y `almuerzosRestantes` (el saldo restante). Queda en `intento_escaneo`. No trae la hora del primer canje.
+- Otros caminos: el reintento con la **misma** `Idempotency-Key` devuelve la respuesta original (`OK`) sin descontar; la mesa "invito yo" omite la regla a propósito (`p_omitir_duplicado`); un pedido preordenado ya canjeado responde 200 con `yaCanjeado: true`.
+- **Conclusión: ya existe un equivalente con código de negocio** (`DUPLICADO`), no un error genérico. **No se cambió**: pasarlo a 409 `QR_YA_CANJEADO` rompería el contrato ("`validar` responde siempre 200") y oasdiff lo marcaría. Lo único que falta respecto a lo pedido es la hora del primer canje para mostrar "hace X s"; si la caja lo necesita, se puede **añadir** un campo opcional (p. ej. `consumoPrevio.creadoEn`) sin romper nada. Decisión pendiente.
+
+### Checklist
+
+- [x] Bus en memoria por comensal, tipado (`src/pass-events/bus.ts`): `CANJE_REGISTRADO` y `CANJE_REVERTIDO`. Los eventos se juntan durante la transacción (`PassEventBus.pending()`) y se entregan con `flush()` **solo después del COMMIT** (tras `await db.forRequest(...)`); si la transacción falla no sale nada
+- [x] Emiten: `POST /v1/caja/validar`, `POST /v1/caja/mesas/{id}/validar` y `POST /v1/caja/pedidos/{id}/canjear` (registrado, solo si el consumo se creó en esa transacción: un reintento idempotente no repite el evento) y `POST /v1/caja/consumos/{id}/deshacer` (revertido). Un cliente sin cuenta en la app no genera eventos
+- [x] `GET /v1/pase/eventos` (SSE): JWT del comensal, solo sus eventos, `LATIDO` cada 20 s, `Cache-Control: no-store`, `X-Accel-Buffering: no`, 2 conexiones por usuario (cierra la más vieja), tope global `PASS_EVENTS_MAX_CONNECTIONS` (1000; después 503 `EVENTOS_SATURADO`), corte al vencer el token, limpieza al cerrar y al apagar (`enableShutdownHooks`)
+- [x] Pruebas sin base: `test/unit/pass-events.spec.ts` (bus, aislamiento, cap por usuario y global, latido, token vencido, apagado, transacción fallida) y `test/pass-events-sse.spec.ts` (HTTP real en puerto efímero: 401, cabeceras, entrega solo al dueño del token, 3.ª conexión). Con base (CI): `test/integration/pass-events.int.ts` (validar, reintento, `DUPLICADO`, deshacer y COMMIT fallido simulado)
+- [x] `docs/openapi.json` regenerado: solo la operación nueva; `pnpm openapi:breaking` sin cambios incompatibles
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR
+- [ ] Límite conocido: **una sola instancia** de la API. Para escalar, ver `docs/qr-flujo.md`
+- [ ] Fuera de alcance: `POST /v1/reclamos/{id}/devolver` también devuelve un almuerzo y no emite `CANJE_REVERTIDO` (la app lo ve al refrescar)
+
 ## Menú publicado en pase y caja (rama `fix/menu-publicado-canje`)
 
 Sin fase propia: cambio de comportamiento posterior a la fase 10, pendiente de revisión y merge. Detalle en `docs/api-contrato.md` ("Menú publicado en pase y caja") y `docs/seguridad.md`.

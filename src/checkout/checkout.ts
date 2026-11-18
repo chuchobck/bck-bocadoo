@@ -23,6 +23,7 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { assertMenuPublicado } from '../diner/common';
+import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
@@ -103,6 +104,7 @@ export class CheckoutService {
   constructor(
     private readonly db: DbService,
     private readonly secrets: QrSecretService,
+    private readonly passEvents: PassEventBus,
   ) {}
 
   // --- Pase del comensal -----------------------------------------------------------------------------------------
@@ -155,8 +157,9 @@ export class CheckoutService {
     if (Boolean(dto.codigoQr) === Boolean(dto.clienteId)) throw new BadRequestException('Envía codigoQr o clienteId (uno de los dos).');
     const qr = dto.codigoQr ? await this.checkQr(dto.codigoQr) : null;
     const canal = qr ? 'QR' : 'MANUAL';
+    const eventos = this.passEvents.pending();
 
-    return this.db.forRequest(async (q) => {
+    const res = await this.db.forRequest(async (q) => {
       // Canje directo por QR o manual (sin preorden): exige el menú de hoy publicado. Los pedidos preordenados se
       // canjean por `POST /v1/caja/pedidos/{id}/canjear`, que no depende de que el menú siga publicado.
       await assertMenuPublicado(q);
@@ -222,9 +225,12 @@ export class CheckoutService {
         canal,
         paraLlevar: dto.paraLlevar ?? false,
         mesaLocalId: dto.mesaLocalId,
+        eventos,
       });
       return { ...r, cliente: { id: clienteId!, nombre: cliente.nombre } };
     });
+    eventos.flush(); // CANJE_REGISTRADO al comensal: solo con el COMMIT hecho
+    return res;
   }
 
   /** Llama a la función atómica de la base (FIFO, duplicado, idempotencia, límite SaaS) y arma la respuesta. */
@@ -240,6 +246,10 @@ export class CheckoutService {
       mesaLocalId?: string;
       mesaCompartidaId?: string;
       omitirDuplicado?: boolean;
+      /** Dónde juntar el CANJE_REGISTRADO para el comensal; quien llama hace `flush()` tras el COMMIT. */
+      eventos?: PendingPassEvents;
+      /** Platos de la preorden, para el evento. */
+      platoNombre?: string | null;
     },
   ): Promise<Omit<ValidacionResponse, 'cliente'>> {
     const f = (
@@ -264,15 +274,39 @@ export class CheckoutService {
     let consumo: ValidacionResponse['consumo'] = null;
     let plan: ValidacionResponse['plan'] = null;
     if (descontado && f.consumo_id) {
+      // `nuevo`: el consumo se insertó en esta transacción (creado_en por defecto = CURRENT_TIMESTAMP, el inicio de la
+      // transacción). Un reintento con la misma Idempotency-Key devuelve un consumo viejo y no vuelve a avisar.
       const c = (
-        await q.query<{ public_id: string; creado_en: Date; nombre_plan: string; vence_el: string }>(
-          `SELECT c.public_id, c.creado_en, s.nombre_plan, s.vence_el::text AS vence_el FROM consumo_almuerzo c
-           JOIN suscripcion_plan s ON s.suscripcion_id = c.suscripcion_id WHERE c.restaurante_id = app_tenant_id() AND c.consumo_id = $1`,
+        await q.query<{
+          public_id: string;
+          creado_en: Date;
+          nombre_plan: string;
+          vence_el: string;
+          nuevo: boolean;
+          usuario_id: string | null;
+          restaurante_nombre: string;
+        }>(
+          `SELECT c.public_id, c.creado_en, s.nombre_plan, s.vence_el::text AS vence_el, c.creado_en = CURRENT_TIMESTAMP AS nuevo,
+                  cr.usuario_id, r.nombre AS restaurante_nombre
+             FROM consumo_almuerzo c
+             JOIN suscripcion_plan s ON s.suscripcion_id = c.suscripcion_id
+             JOIN cliente_restaurante cr ON cr.restaurante_id = c.restaurante_id AND cr.cliente_id = c.cliente_id
+             JOIN restaurante r ON r.restaurante_id = c.restaurante_id
+            WHERE c.restaurante_id = app_tenant_id() AND c.consumo_id = $1`,
           [f.consumo_id],
         )
       ).rows[0]!;
       consumo = { id: c.public_id, creadoEn: c.creado_en, deshacerHasta: new Date(c.creado_en.getTime() + UNDO_SECONDS * 1000) };
       plan = { nombre: c.nombre_plan, venceEl: c.vence_el };
+      if (c.nuevo)
+        a.eventos?.add(c.usuario_id === null ? null : String(c.usuario_id), {
+          tipo: 'CANJE_REGISTRADO',
+          consumoId: c.public_id,
+          restauranteNombre: c.restaurante_nombre,
+          saldoRestante: f.almuerzos_restantes_total,
+          platoNombre: a.platoNombre ?? null,
+          hora: c.creado_en.toISOString(),
+        });
     }
     return {
       resultado: f.resultado,
@@ -289,8 +323,9 @@ export class CheckoutService {
   // --- Deshacer (10 segundos) ------------------------------------------------------------------------------------
 
   async undo(consumoPublicId: string) {
+    const eventos = this.passEvents.pending();
     try {
-      return await this.db.forRequest(async (q) => {
+      const res = await this.db.forRequest(async (q) => {
         const c = (
           await q.query<{ consumo_id: string; cantidad: number; viejo: boolean; revertido: boolean }>(
             `SELECT c.consumo_id, c.cantidad, c.creado_en < CURRENT_TIMESTAMP - make_interval(secs => $2) AS viejo,
@@ -306,8 +341,30 @@ export class CheckoutService {
             `Solo se puede deshacer en los ${UNDO_SECONDS} segundos siguientes. Si hubo un error, regístralo como reclamo.`,
           );
         await q.query(`SELECT fn_revertir_consumo(app_tenant_id(), $1, ${PERSONAL_ACTUAL}, 'Deshacer en caja')`, [c.consumo_id]);
+        const ev = (
+          await q.query<{ usuario_id: string | null; restaurante_nombre: string; saldo: number; hora: Date }>(
+            `SELECT cr.usuario_id, r.nombre AS restaurante_nombre, CURRENT_TIMESTAMP AS hora,
+                    (SELECT COALESCE(sum(s.almuerzos_restantes), 0)::int FROM suscripcion_plan s
+                      WHERE s.restaurante_id = c.restaurante_id AND s.cliente_id = c.cliente_id AND s.estado = 'ACTIVA'
+                        AND s.vence_el >= (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date) AS saldo
+               FROM consumo_almuerzo c
+               JOIN cliente_restaurante cr ON cr.restaurante_id = c.restaurante_id AND cr.cliente_id = c.cliente_id
+               JOIN restaurante r ON r.restaurante_id = c.restaurante_id
+              WHERE c.restaurante_id = app_tenant_id() AND c.consumo_id = $1`,
+            [c.consumo_id],
+          )
+        ).rows[0]!;
+        eventos.add(ev.usuario_id === null ? null : String(ev.usuario_id), {
+          tipo: 'CANJE_REVERTIDO',
+          consumoId: consumoPublicId,
+          restauranteNombre: ev.restaurante_nombre,
+          saldoRestante: ev.saldo,
+          hora: ev.hora.toISOString(),
+        });
         return { id: consumoPublicId, revertido: true };
       });
+      eventos.flush(); // CANJE_REVERTIDO al comensal: solo con el COMMIT hecho
+      return res;
     } catch (err) {
       // Dos "deshacer" a la vez: el índice único deja pasar solo uno; el otro ya está deshecho.
       const e = err as { code?: string; constraint?: string };
@@ -326,8 +383,9 @@ export class CheckoutService {
    * Valida toda la mesa de una vez. CADA_UNO: cada miembro paga con su plan. INVITO_YO: el anfitrión paga todos.
    * Quien no tenga plan queda "por cobrar" (se cobra como venta suelta). Repetir la petición no descuenta otra vez.
    */
-  validateTable(mesaPublicId: string, key: string) {
-    return this.db.forRequest(async (q) => {
+  async validateTable(mesaPublicId: string, key: string) {
+    const eventos = this.passEvents.pending();
+    const res = await this.db.forRequest(async (q) => {
       const mesa = await this.loadTable(q, mesaPublicId, true);
       if (mesa.validada_en) return { ...(await this.tableView(q, mesa)), yaValidada: true, resultados: [] };
       if (!['ABIERTA', 'EN_CAMINO'].includes(mesa.estado)) throw new ConflictException(`La mesa está ${mesa.estado.toLowerCase()}.`);
@@ -350,6 +408,7 @@ export class CheckoutService {
           mesaCompartidaId: String(mesa.mesa_compartida_id),
           mesaLocalId: mesa.mesa_local_id ? String(mesa.mesa_local_id) : undefined,
           omitirDuplicado: mesa.modo === 'INVITO_YO',
+          eventos,
         });
         resultados.push({ miembro: m.nombre, resultado: r.resultado, descontado: r.descontado, consumoId: r.consumo?.id ?? null });
       }
@@ -366,6 +425,8 @@ export class CheckoutService {
         porCobrar: resultados.filter((r) => !r.descontado).length,
       };
     });
+    eventos.flush(); // un CANJE_REGISTRADO por almuerzo descontado, a quien pagó; solo con el COMMIT hecho
+    return res;
   }
 
   private async loadTable(q: Queryable, publicId: string, lock: boolean) {

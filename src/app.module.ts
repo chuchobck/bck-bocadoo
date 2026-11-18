@@ -18,6 +18,7 @@ import { LoyaltyModule } from './loyalty/loyalty';
 import { MenuModule } from './menu/menu.module';
 import { OffersModule } from './offers/offers';
 import { OrdersModule } from './orders/orders';
+import { PassEventsModule } from './pass-events/pass-events.module';
 import { ReportsModule } from './reports/reports.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { SaasModule } from './saas/saas';
@@ -40,6 +41,7 @@ import { HealthController } from './health/health.controller';
     PlansModule,
     CustomersModule,
     SalesModule,
+    PassEventsModule,
     CheckoutModule,
     DinerModule,
     OrdersModule,
