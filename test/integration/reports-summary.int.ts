@@ -17,6 +17,7 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
   /** Un día con de todo: planes (uno pendiente y uno deshecho), almuerzos (uno deshecho), ventas sueltas y ofertas. */
   async function busyDay() {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const semanal = await planTemplate(k, o, 'Semanal', 5, 1500);
     const mensual = await planTemplate(k, o, 'Mensual', 20, 2500);
     const a = await clientWithPlan(k, o, semanal);
@@ -88,6 +89,7 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
 
   it('usa la zona horaria del restaurante: una compra a las 23:30 locales cuenta en su día local, no en el de UTC', async () => {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const plan = await planTemplate(k, o, 'Semanal', 5, 1500);
     const c = await clientWithPlan(k, o, plan);
     const hoy = await localToday(k, o);
@@ -114,6 +116,7 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
 
   it('ventas de planes por plan y por día; los anulados no son venta; el rango por defecto son 30 días', async () => {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const semanal = await planTemplate(k, o, 'Semanal', 5, 1500);
     const mensual = await planTemplate(k, o, 'Mensual', 20, 2500);
     const hoy = await localToday(k, o);
@@ -143,7 +146,9 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
 
   it('valida entradas, roles y aislamiento entre locales', async () => {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const otro = await k.activeOwner();
+    await k.h.publishMenu(otro);
     const cajero = await k.h.cashier(o.restaurante);
     const d = await k.diner();
     const plan = await planTemplate(k, o, 'Semanal', 5, 1500);

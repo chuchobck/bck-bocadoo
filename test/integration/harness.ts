@@ -69,6 +69,22 @@ export class Harness {
     return { correo, token: await this.login(correo), usuarioId: r.json().usuario.id, restaurante: r.json().restaurante.id };
   }
 
+  /** Deja publicado el menú de hoy (un plato) si aún no lo está: la caja exige menú publicado. Si ya lo hay, no toca nada. */
+  async publishMenu(o: Actor): Promise<void> {
+    const ctx = { token: o.token, restaurante: o.restaurante };
+    const hoy = await this.call('GET', '/v1/menu/hoy', ctx);
+    if (hoy.json().publicado === true) return;
+    const plato = await this.call('POST', '/v1/menu/platos', {
+      ...ctx,
+      payload: { nombre: `Plato base ${unique()}`, categoria: 'ALMUERZO', seccion: 'FUERTE' },
+    });
+    if (plato.statusCode !== 201) throw new Error(`crear plato falló: ${plato.body}`);
+    const put = await this.call('PUT', '/v1/menu/hoy', { ...ctx, payload: { items: [{ platoId: plato.json().id, seccion: 'FUERTE' }] } });
+    if (put.statusCode !== 200) throw new Error(`definir menú falló: ${put.body}`);
+    const pub = await this.call('POST', '/v1/menu/hoy/publicar', ctx);
+    if (pub.statusCode !== 200) throw new Error(`publicar menú falló: ${pub.body}`);
+  }
+
   /** Comensal sin local (para invitar como cajero, etc.). */
   async diner(): Promise<{ correo: string; token: string; usuarioId: string }> {
     const correo = `comensal_${unique()}@correo.com`;

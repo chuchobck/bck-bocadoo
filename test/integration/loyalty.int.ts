@@ -28,6 +28,7 @@ describe.skipIf(!probe)('Fase 8: tarjeta de sellos', () => {
 
   it('el dueño configura la tarjeta; cada almuerzo validado suma un sello y al llegar a la meta se gana un premio', async () => {
     const o = await k.owner('Sellos Local');
+    await k.h.publishMenu(o);
     expect((await k.as(o).get('/v1/sellos/config')).json()).toMatchObject({ status: 404, code: 'TARJETA_NO_CONFIGURADA' });
     const cfg = await config(o);
     expect(cfg.statusCode, cfg.body).toBe(200);
@@ -58,6 +59,7 @@ describe.skipIf(!probe)('Fase 8: tarjeta de sellos', () => {
 
   it('un almuerzo devuelto quita su sello (y deshace el premio que había completado); reintentos no suman dos veces', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     await config(o);
     const d = await k.dinerWithPlan(o);
     const [, , third] = await lunches(o, d.clienteId, 3);
@@ -79,6 +81,7 @@ describe.skipIf(!probe)('Fase 8: tarjeta de sellos', () => {
 
   it('canjear un premio en caja: una vez por clave, sin premios → 409; tarjeta apagada no suma pero deja canjear lo ganado', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     await config(o, { meta: 2 });
     const d = await k.dinerWithPlan(o);
     const cashier = await k.h.cashier(o.restaurante);
@@ -104,6 +107,7 @@ describe.skipIf(!probe)('Fase 8: tarjeta de sellos', () => {
 
   it('permisos y aislamiento: el cajero no configura; otro local no ve la tarjeta; otro comensal no ve mis sellos (API y RLS)', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     await config(o);
     const d = await k.dinerWithPlan(o);
     await lunches(o, d.clienteId, 1);
@@ -113,6 +117,7 @@ describe.skipIf(!probe)('Fase 8: tarjeta de sellos', () => {
     expect((await config(o, { meta: 1 })).statusCode).toBe(400);
     expect((await config(o, { cuenta: 'PLATO' })).statusCode).toBe(400);
     const otro = await k.owner();
+    await k.h.publishMenu(otro);
     expect((await card(otro, d.clienteId)).json()).toMatchObject({ status: 404, code: 'CLIENTE_NO_ENCONTRADO' });
     expect((await k.as(otro).post(`/v1/clientes/${d.clienteId}/sellos/canjear`, {}, randomUUID())).statusCode).toBe(404);
     const ajeno = await k.diner();

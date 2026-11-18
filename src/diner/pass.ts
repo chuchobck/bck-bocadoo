@@ -123,10 +123,10 @@ export class DinerPassController {
     summary: 'Pase del comensal: QR rotativo y planes vigentes por local',
     description:
       'El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. ' +
-      'Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO.',
+      'Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO. Con `restaurante`, 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy.',
   })
   @ApiOkResponse({ type: PaseResponse })
-  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'] })
+  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'], 409: ['MENU_NO_PUBLICADO'] })
   pass(@CurrentUser() user: AuthUser, @Query() q: PaseQuery) {
     return this.svc.pass(user, q.restaurante?.toLowerCase());
   }

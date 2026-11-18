@@ -22,6 +22,7 @@ import { CodigoPaseResponse } from '../catalog/dto';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
+import { assertMenuPublicado } from '../diner/common';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
@@ -76,6 +77,13 @@ export class ValidacionResponse {
   @ApiPropertyOptional({ example: { nombre: 'Plan semanal', venceEl: '2026-11-20' } }) plan!: { nombre: string; venceEl: string } | null;
   @ApiPropertyOptional({ type: Number, nullable: true, example: 4 }) almuerzosRestantes!: number | null;
   @ApiPropertyOptional({ type: Number, nullable: true, example: 6 }) diasParaVencer!: number | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Seco de pollo',
+    description: 'Plato del almuerzo preordenado. Siempre null aquí: un canje directo no tiene preorden (el menú tiene varios platos)',
+  })
+  platoNombre!: string | null;
 }
 
 interface QrCheck {
@@ -101,10 +109,16 @@ export class CheckoutService {
 
   async issueCode(user: AuthUser, restaurantPublicId?: string) {
     if (restaurantPublicId) {
-      const r = await this.db.scope({ readOnly: true }, (q) =>
-        q.query(`SELECT 1 FROM restaurante WHERE public_id = $1 AND estado <> 'BAJA'`, [restaurantPublicId]),
-      );
-      if (!r.rowCount) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
+      // Un pase nuevo solo se emite si el local publicó el menú de hoy (fecha local del local). Sin `restaurante` el
+      // código no es de un local concreto: la regla se aplica donde se canjea (`validar`).
+      await this.db.scope({ readOnly: true }, async (q) => {
+        const r = await q.query<{ restaurante_id: string }>(
+          `SELECT restaurante_id FROM restaurante WHERE public_id = $1 AND estado <> 'BAJA'`,
+          [restaurantPublicId],
+        );
+        if (!r.rows[0]) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
+        await assertMenuPublicado(q, r.rows[0].restaurante_id);
+      });
     }
     const secret = await this.secrets.getOrCreate(user.userId);
     const now = Date.now();
@@ -143,6 +157,9 @@ export class CheckoutService {
     const canal = qr ? 'QR' : 'MANUAL';
 
     return this.db.forRequest(async (q) => {
+      // Canje directo por QR o manual (sin preorden): exige el menú de hoy publicado. Los pedidos preordenados se
+      // canjean por `POST /v1/caja/pedidos/{id}/canjear`, que no depende de que el menú siga publicado.
+      await assertMenuPublicado(q);
       const ctx = (
         await q.query<{ public_id: string; personal_id: string }>(
           `SELECT r.public_id, ${PERSONAL_ACTUAL} AS personal_id FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
@@ -162,6 +179,7 @@ export class CheckoutService {
           plan: null,
           almuerzosRestantes: null,
           diasParaVencer: null,
+          platoNombre: null,
         };
       };
 
@@ -264,6 +282,7 @@ export class CheckoutService {
       plan,
       almuerzosRestantes: f.almuerzos_restantes_total,
       diasParaVencer: f.dias_para_vencer,
+      platoNombre: null,
     };
   }
 
@@ -429,10 +448,11 @@ export class PassController {
   @Get('codigo')
   @ApiOperation({
     summary: 'Código QR del comensal (cambia cada 30 segundos)',
-    description: 'La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local.',
+    description:
+      'La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local y el local debe haber publicado el menú de hoy (409 `MENU_NO_PUBLICADO`).',
   })
   @ApiOkResponse({ type: CodigoPaseResponse })
-  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'] })
+  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'], 409: ['MENU_NO_PUBLICADO'] })
   code(@CurrentUser() user: AuthUser, @Query() q: CodigoQuery) {
     return this.checkout.issueCode(user, q.restaurante?.toLowerCase());
   }
@@ -460,12 +480,13 @@ export class CheckoutController {
   @ApiOperation({
     summary: 'Validar un almuerzo por QR o por búsqueda manual',
     description:
-      'Siempre responde 200 con un `resultado`. Descuenta del plan que vence primero (FIFO). Resultados: ' +
+      'Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: ' +
       Object.entries(RESULTADOS)
         .map(([k, v]) => `**${k}**: ${v}`)
         .join(' · '),
   })
   @ApiOkResponse({ type: ValidacionResponse })
+  @ApiProblems({ 409: ['MENU_NO_PUBLICADO'] })
   validate(@Body() dto: ValidarDto, @IdempotencyKey() key: string) {
     return this.checkout.validate(dto, key);
   }
