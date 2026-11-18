@@ -2401,6 +2401,89 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | ---- | ----------- | ------------------------------------ |
 | 403  | `FORBIDDEN` | No tienes acceso a este restaurante. |
 
+#### `GET /v1/caja/movimientos`
+
+**Movimientos del día de la caja**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** En revisión (nuevo; solo lectura)
+- **Query:** `fecha` (`AAAA-MM-DD`, opcional: por defecto **hoy en la zona horaria del restaurante**; una fecha inexistente → 400; la palabra `hoy` no se acepta aquí). **El dueño puede consultar cualquier fecha; el cajero solo hoy** (hora local del restaurante): otra fecha → 403 `CAJERO_SOLO_HOY`, igual que el cierre de caja · `limit` (1–50, por defecto 20) · `cursor` (el `nextCursor` anterior; inválido → 400 `CURSOR_INVALIDO`)
+
+Lista unificada de lo que pasó en caja ese día local, de la hora más reciente a la más antigua. **Reemplaza** la mezcla que hace hoy el frontend en "Cobros de hoy" (`GET /v1/caja/ventas` + `GET /v1/caja/pedidos?estado=SERVIDA` + una lista en memoria de los canjes de `POST /v1/caja/validar`): los canjes directos ahora se recuperan del servidor. Los endpoints anteriores no cambian.
+
+| `tipo`          | Qué es                                                                                        | Fuente                                      | `hora`             | `montoCentavos`              | `medioPago` / `pagoEstado` | `platoNombre`                          | `comensalNombre`                                                    |
+| --------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------ | ---------------------------- | -------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `VENTA`         | Venta suelta (`POST /v1/caja/ventas`)                                                         | `venta_pos_cabecera`, día = `fecha_local`   | cuándo se registró | total del ticket             | del pago                   | `null`                                 | `null` (la caja no muestra nombre en las ventas)                    |
+| `PEDIDO`        | Preorden canjeada en caja (estado `CANJEADA` o `SERVIDA`)                                     | `orden_cabecera.canjeada_en`, en hora local | cuándo se canjeó   | `totalCentavos` del pedido   | `null`                     | platos del almuerzo unidos con `" + "` | nombre de la cuenta (el mismo `comensal.nombre` de `/caja/pedidos`) |
+| `CANJE_DIRECTO` | Almuerzo descontado de un plan por QR o búsqueda manual (`POST /v1/caja/validar`), sin pedido | `consumo_almuerzo` canal `QR` o `MANUAL`    | cuándo se descontó | `null` (ya estaba prepagado) | `null`                     | `null` (no hay preorden)               | nombre del cliente (el mismo `cliente.nombre` de `validar`)         |
+
+Notas:
+
+- No hay tablas ni migraciones nuevas: los tres tipos salen de datos que ya se guardaban. Las validaciones de **mesa** (`canal` `MESA`) y el consumo que crea el canje de un pedido (`PREORDEN`) **no** salen como `CANJE_DIRECTO`: el segundo ya está como `PEDIDO`.
+- Una venta deshecha y un consumo revertido salen con `revertido: true` (el reverso no es otra fila) y no cuentan en `resumen`. Un pedido nunca se revierte.
+- `PEDIDO.montoCentavos` es el valor de la preorden, **no** dinero cobrado: lo que la caja cobra aparte sale de `porCobrarCentavos` al canjear y, si se cobró, ya es una `VENTA` (por eso `valorPedidosCentavos` no debe sumarse a `ventasConfirmadasCentavos`).
+- `resumen` es de **todo el día**, no de la página, y **no mezcla dinero con valor de pedidos**: `ventas.ventasConfirmadasCentavos` es el único dinero cobrado (ventas con pago `CONFIRMADO`; una transferencia `PENDIENTE` cuenta en `ventas.cantidad` pero no suma, y las ventas deshechas no cuentan en nada). `pedidos.valorPedidosCentavos` es el valor de las preórdenes canjeadas, **no** dinero cobrado: no se suma a las ventas. `canjesDirectos` solo tiene `cantidad` (sin los revertidos): no mueven dinero.
+- No se expone ningún dato personal que la caja no mostrara ya.
+
+Response `200`:
+
+```json
+{
+  "fecha": "2026-11-13",
+  "zonaHoraria": "America/Guayaquil",
+  "monedaCodigo": "USD",
+  "resumen": {
+    "ventas": { "cantidad": 2, "ventasConfirmadasCentavos": 1050 },
+    "pedidos": { "cantidad": 1, "valorPedidosCentavos": 125 },
+    "canjesDirectos": { "cantidad": 1 }
+  },
+  "items": [
+    {
+      "id": "7d0e1c64-52a0-4b0b-8a43-0f6f1b9e2c11",
+      "tipo": "CANJE_DIRECTO",
+      "hora": "2026-11-13T17:05:12.000Z",
+      "montoCentavos": null,
+      "medioPago": null,
+      "pagoEstado": null,
+      "platoNombre": null,
+      "comensalNombre": "Ana Pérez",
+      "revertido": false
+    },
+    {
+      "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
+      "tipo": "PEDIDO",
+      "hora": "2026-11-13T16:48:30.000Z",
+      "montoCentavos": 125,
+      "medioPago": null,
+      "pagoEstado": null,
+      "platoNombre": "Sopa de quinua + Seco de pollo",
+      "comensalNombre": "Luis Mora",
+      "revertido": false
+    },
+    {
+      "id": "0e98d6e3-f04b-4875-a60d-ac56fd48c717",
+      "tipo": "VENTA",
+      "hora": "2026-11-13T16:20:05.000Z",
+      "montoCentavos": 700,
+      "medioPago": "EFECTIVO",
+      "pagoEstado": "CONFIRMADO",
+      "platoNombre": null,
+      "comensalNombre": null,
+      "revertido": false
+    }
+  ],
+  "nextCursor": "eyJ0IjoiMjAyNi0xMS0xM1QxNjoyMDowNS4xMjM0NTZaIiwicCI6IjNmNmM5YTUyLTFiN2UtNGQwOC05YzM0LTVhOGUwZjIxYjdkNiJ9"
+}
+```
+
+Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
+
+| HTTP | `code`            | Ejemplo de `detail`                                                   |
+| ---- | ----------------- | --------------------------------------------------------------------- |
+| 403  | `CAJERO_SOLO_HOY` | El cajero solo puede consultar los movimientos de hoy.                |
+| 400  | `CURSOR_INVALIDO` | cursor inválido.                                                      |
+| 403  | `FORBIDDEN`       | No tienes acceso a este restaurante. (quien no es personal del local) |
+
 #### `POST /v1/caja/ventas`
 
 **Registrar una venta suelta (sin plan)**
@@ -4723,11 +4806,11 @@ Response `200`:
 
 Criterio: **Estable** = endpoint de las fases 1–7, cerradas con tag (`v0.1.0` a `v0.7.0`) y pruebas de integración. **En revisión** = endpoint de las fases 8 y 9: ambas ya están mezcladas en `main` y sus migraciones aplicadas en Neon, pero aún sin tag (`v0.8.0`, `v0.9.0`); su contrato puede cambiar tras la revisión. La fase 10 (`v1.0.0-rc.1`) solo documenta: no cambia ningún comportamiento.
 
-| Módulo                                                                                                                                                                                                                                                                                                                      | Estado                   |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| Auth, restaurante, personal, menú, catálogo y vitrina, planes, pagos, solicitudes, clientes, caja (validar, deshacer, mesas, ventas, cierre), reclamos del personal, `GET /v1/pase/codigo`, `POST /v1/pase/rotar`, salud                                                                                                    | **Estable**              |
-| `GET /v1/pase`, `/v1/mis/consumos*`, `/v1/mis/pedidos*`, `/v1/caja/pedidos*`, `/v1/mis/mesas*`, `/v1/mesas/invitacion/*`, `/v1/mis/opiniones*`, `/v1/mis/consumos/{id}/opinion*`, `/v1/opiniones*`, `/v1/mis/reclamos`, `/v1/mis/consumos/{id}/reclamo`, `/v1/mis/sellos`, `/v1/sellos/config`, `/v1/clientes/{id}/sellos*` | **En revisión (fase 8)** |
-| `/v1/ofertas*`, `GET /v1/restaurantes/{slug}/ofertas`, `/v1/reportes/*`, `GET /v1/suscripcion`, `GET /v1/suscripcion/uso`, `POST /v1/eventos`                                                                                                                                                                               | **En revisión (fase 9)** |
+| Módulo                                                                                                                                                                                                                                                                                                                                                  | Estado                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Auth, restaurante, personal, menú, catálogo y vitrina, planes, pagos, solicitudes, clientes, caja (validar, deshacer, mesas, ventas, cierre), reclamos del personal, `GET /v1/pase/codigo`, `POST /v1/pase/rotar`, salud                                                                                                                                | **Estable**              |
+| `GET /v1/pase`, `/v1/mis/consumos*`, `/v1/mis/pedidos*`, `/v1/caja/pedidos*`, `GET /v1/caja/movimientos`, `/v1/mis/mesas*`, `/v1/mesas/invitacion/*`, `/v1/mis/opiniones*`, `/v1/mis/consumos/{id}/opinion*`, `/v1/opiniones*`, `/v1/mis/reclamos`, `/v1/mis/consumos/{id}/reclamo`, `/v1/mis/sellos`, `/v1/sellos/config`, `/v1/clientes/{id}/sellos*` | **En revisión (fase 8)** |
+| `/v1/ofertas*`, `GET /v1/restaurantes/{slug}/ofertas`, `/v1/reportes/*`, `GET /v1/suscripcion`, `GET /v1/suscripcion/uso`, `POST /v1/eventos`                                                                                                                                                                                                           | **En revisión (fase 9)** |
 
 Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 
