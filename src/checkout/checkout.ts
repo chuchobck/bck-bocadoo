@@ -68,6 +68,11 @@ export class ValidarDto {
   mesaLocalId?: string;
 }
 
+export class ConsumoPrevioResponse {
+  @ApiProperty({ type: String, format: 'date-time', example: '2026-11-13T17:00:00.000Z', description: 'Hora (ISO) del canje previo' })
+  creadoEn!: Date;
+}
+
 export class ValidacionResponse {
   @ApiProperty({ enum: Object.keys(RESULTADOS), example: 'OK' }) resultado!: Resultado;
   @ApiProperty({ example: RESULTADOS.OK }) mensaje!: string;
@@ -85,6 +90,12 @@ export class ValidacionResponse {
     description: 'Plato del almuerzo preordenado. Siempre null aquí: un canje directo no tiene preorden (el menú tiene varios platos)',
   })
   platoNombre!: string | null;
+  @ApiPropertyOptional({
+    type: () => ConsumoPrevioResponse,
+    description:
+      'Solo cuando `resultado` = `DUPLICADO`: hora del canje del comensal en este local que causó el duplicado (de hace menos de 60 s). Sin canje sin deshacer en esa ventana (p. ej. se deshizo entre tanto), no aparece',
+  })
+  consumoPrevio?: ConsumoPrevioResponse;
 }
 
 interface QrCheck {
@@ -227,7 +238,21 @@ export class CheckoutService {
         mesaLocalId: dto.mesaLocalId,
         eventos,
       });
-      return { ...r, cliente: { id: clienteId!, nombre: cliente.nombre } };
+      const out: ValidacionResponse = { ...r, cliente: { id: clienteId!, nombre: cliente.nombre } };
+      if (r.resultado === 'DUPLICADO') {
+        // Mismo criterio que `fn_descontar_almuerzo` (consumo único, sin reverso, últimos 60 s), en la misma transacción.
+        // Se lee aquí y no en la función de base para no tocar la migración.
+        const prior = await q.query<{ creado_en: Date }>(
+          `SELECT c.creado_en FROM consumo_almuerzo c
+            WHERE c.restaurante_id = app_tenant_id() AND c.cliente_id = $1 AND c.cantidad = 1
+              AND c.creado_en > CURRENT_TIMESTAMP - INTERVAL '60 seconds'
+              AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = c.consumo_id)
+            ORDER BY c.creado_en DESC LIMIT 1`,
+          [clienteId],
+        );
+        if (prior.rows[0]) out.consumoPrevio = { creadoEn: prior.rows[0].creado_en };
+      }
+      return out;
     });
     eventos.flush(); // CANJE_REGISTRADO al comensal: solo con el COMMIT hecho
     return res;

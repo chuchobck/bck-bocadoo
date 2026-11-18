@@ -8417,7 +8417,10 @@
                   },
                   "almuerzosRestantes": 4,
                   "diasParaVencer": 6,
-                  "platoNombre": "Seco de pollo"
+                  "platoNombre": "Seco de pollo",
+                  "consumoPrevio": {
+                    "creadoEn": "2026-11-13T17:00:00.000Z"
+                  }
                 }
               }
             }
@@ -10634,6 +10637,7 @@
                       "tipo": "CANJE_DIRECTO",
                       "hora": "2026-11-13T17:05:12.000Z",
                       "montoCentavos": null,
+                      "valorPedidoCentavos": null,
                       "medioPago": null,
                       "pagoEstado": null,
                       "platoNombre": null,
@@ -10644,7 +10648,8 @@
                       "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
                       "tipo": "PEDIDO",
                       "hora": "2026-11-13T16:48:30.000Z",
-                      "montoCentavos": 125,
+                      "montoCentavos": null,
+                      "valorPedidoCentavos": 125,
                       "medioPago": null,
                       "pagoEstado": null,
                       "platoNombre": "Sopa de quinua + Seco de pollo",
@@ -10656,6 +10661,7 @@
                       "tipo": "VENTA",
                       "hora": "2026-11-13T16:20:05.000Z",
                       "montoCentavos": 700,
+                      "valorPedidoCentavos": null,
                       "medioPago": "EFECTIVO",
                       "pagoEstado": "CONFIRMADO",
                       "platoNombre": null,
@@ -20533,6 +20539,18 @@
           }
         }
       },
+      "ConsumoPrevioResponse": {
+        "type": "object",
+        "properties": {
+          "creadoEn": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-13T17:00:00.000Z",
+            "description": "Hora (ISO) del canje previo"
+          }
+        },
+        "required": ["creadoEn"]
+      },
       "ValidacionResponse": {
         "type": "object",
         "properties": {
@@ -20598,6 +20616,14 @@
             "nullable": true,
             "example": "Seco de pollo",
             "description": "Plato del almuerzo preordenado. Siempre null aquí: un canje directo no tiene preorden (el menú tiene varios platos)"
+          },
+          "consumoPrevio": {
+            "description": "Solo cuando `resultado` = `DUPLICADO`: hora del canje del comensal en este local que causó el duplicado (de hace menos de 60 s). Sin canje sin deshacer en esa ventana (p. ej. se deshizo entre tanto), no aparece",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConsumoPrevioResponse"
+              }
+            ]
           }
         },
         "required": ["resultado", "mensaje", "descontado"]
@@ -21270,7 +21296,13 @@
             "type": "number",
             "nullable": true,
             "example": 750,
-            "description": "Centavos. VENTA: total del ticket. PEDIDO: `totalCentavos` del pedido (valor de la preorden: lo que se cobra aparte sale de `porCobrarCentavos` al canjear). CANJE_DIRECTO: null (ya está prepagado en el plan)"
+            "description": "Centavos cobrados. Solo VENTA: total del ticket. PEDIDO y CANJE_DIRECTO: null (el valor de una preorden va en `valorPedidoCentavos`)"
+          },
+          "valorPedidoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 125,
+            "description": "Centavos. Solo PEDIDO: `totalCentavos` de la preorden. Es el valor del pedido, NO dinero cobrado (lo que se cobra aparte sale de `porCobrarCentavos` al canjear y ya es una VENTA). VENTA y CANJE_DIRECTO: null"
           },
           "medioPago": {
             "type": "string",
@@ -21301,7 +21333,18 @@
             "description": "La venta se deshizo o el consumo se revirtió. No cuenta en el resumen. Los pedidos nunca se revierten"
           }
         },
-        "required": ["id", "tipo", "hora", "montoCentavos", "medioPago", "pagoEstado", "platoNombre", "comensalNombre", "revertido"]
+        "required": [
+          "id",
+          "tipo",
+          "hora",
+          "montoCentavos",
+          "valorPedidoCentavos",
+          "medioPago",
+          "pagoEstado",
+          "platoNombre",
+          "comensalNombre",
+          "revertido"
+        ]
       },
       "MovimientosResponse": {
         "type": "object",
@@ -21334,6 +21377,7 @@
                 "tipo": "CANJE_DIRECTO",
                 "hora": "2026-11-13T17:05:12.000Z",
                 "montoCentavos": null,
+                "valorPedidoCentavos": null,
                 "medioPago": null,
                 "pagoEstado": null,
                 "platoNombre": null,
@@ -21344,7 +21388,8 @@
                 "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
                 "tipo": "PEDIDO",
                 "hora": "2026-11-13T16:48:30.000Z",
-                "montoCentavos": 125,
+                "montoCentavos": null,
+                "valorPedidoCentavos": 125,
                 "medioPago": null,
                 "pagoEstado": null,
                 "platoNombre": "Sopa de quinua + Seco de pollo",
@@ -21356,6 +21401,7 @@
                 "tipo": "VENTA",
                 "hora": "2026-11-13T16:20:05.000Z",
                 "montoCentavos": 700,
+                "valorPedidoCentavos": null,
                 "medioPago": "EFECTIVO",
                 "pagoEstado": "CONFIRMADO",
                 "platoNombre": null,

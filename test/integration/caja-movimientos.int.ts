@@ -11,6 +11,7 @@ interface Mov {
   tipo: string;
   hora: string;
   montoCentavos: number | null;
+  valorPedidoCentavos: number | null;
   medioPago: string | null;
   pagoEstado: string | null;
   platoNombre: string | null;
@@ -88,6 +89,7 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
       expect(por.VENTA).toMatchObject({
         id: v.id,
         montoCentavos: 700,
+        valorPedidoCentavos: null,
         medioPago: 'EFECTIVO',
         pagoEstado: 'CONFIRMADO',
         platoNombre: null,
@@ -96,7 +98,8 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
       });
       expect(por.PEDIDO).toMatchObject({
         id: p.id,
-        montoCentavos: p.totalCentavos,
+        montoCentavos: null,
+        valorPedidoCentavos: p.totalCentavos,
         medioPago: null,
         platoNombre: 'Sopa de quinua + Seco de pollo',
         comensalNombre: 'Comensal Prueba',
@@ -105,6 +108,7 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
       expect(por.CANJE_DIRECTO).toMatchObject({
         id: directo.json().consumo.id,
         montoCentavos: null,
+        valorPedidoCentavos: null,
         medioPago: null,
         platoNombre: null,
         comensalNombre: nombreCliente,

@@ -211,9 +211,14 @@ describe('Fase 7: caja', () => {
       const o = await h.owner('Duplicado');
       await h.publishMenu(o);
       const c = await withPlan(o);
-      expect((await validar(o, { clienteId: c })).json().resultado).toBe('OK');
+      const first = (await validar(o, { clienteId: c })).json();
+      expect(first.resultado).toBe('OK');
+      expect(first).not.toHaveProperty('consumoPrevio');
       const dup = (await validar(o, { clienteId: c })).json();
       expect(dup).toMatchObject({ resultado: 'DUPLICADO', descontado: false, consumo: null, almuerzosRestantes: 4 });
+      // La hora del primer canje (misma que el consumo original) y solo en DUPLICADO.
+      expect(dup.consumoPrevio).toEqual({ creadoEn: first.consumo.creadoEn });
+      expect(Date.now() - new Date(dup.consumoPrevio.creadoEn).getTime()).toBeLessThan(60_000);
       expect(await saldo(o, c)).toBe(4);
     });
 
