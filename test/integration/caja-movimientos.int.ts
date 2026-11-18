@@ -78,7 +78,7 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
       expect(r.statusCode, r.body).toBe(200);
       const body = r.json() as {
         items: Mov[];
-        resumen: Record<string, { cantidad: number; montoCentavos: number }>;
+        resumen: unknown;
         nextCursor: string | null;
       };
       expect(body.nextCursor).toBeNull();
@@ -111,9 +111,9 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
         revertido: false,
       });
       expect(body.resumen).toEqual({
-        VENTA: { cantidad: 1, montoCentavos: 700 },
-        PEDIDO: { cantidad: 1, montoCentavos: p.totalCentavos },
-        CANJE_DIRECTO: { cantidad: 1, montoCentavos: 0 },
+        ventas: { cantidad: 1, ventasConfirmadasCentavos: 700 },
+        pedidos: { cantidad: 1, valorPedidosCentavos: p.totalCentavos },
+        canjesDirectos: { cantidad: 1 },
       });
       expectOnlyPublicIds(body);
     }
@@ -129,7 +129,7 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
     const directo = (await k.as(o).post('/v1/caja/validar', { clienteId: conPlan.clienteId }, randomUUID())).json();
     expect((await k.as(o).post(`/v1/caja/consumos/${directo.consumo.id}/deshacer`)).statusCode).toBe(200);
 
-    const body = (await movimientos(o)).json() as { items: Mov[]; resumen: Record<string, { cantidad: number; montoCentavos: number }> };
+    const body = (await movimientos(o)).json() as { items: Mov[]; resumen: unknown };
     // Los reversos no son filas: 3 ventas (la deshecha incluida) y 1 consumo (el revertido).
     expect(body.items).toHaveLength(4);
     const byId = Object.fromEntries(body.items.map((x) => [x.id, x]));
@@ -137,10 +137,11 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
     expect(byId[deshecha.id]!.revertido).toBe(true);
     expect(byId[pendiente.id]).toMatchObject({ revertido: false, pagoEstado: 'PENDIENTE', medioPago: 'TRANSFERENCIA' });
     expect(byId[directo.consumo.id]!.revertido).toBe(true);
+    // Ventas: la confirmada (700) y la pendiente (cuenta, pero no suma); la deshecha y el consumo revertido no cuentan.
     expect(body.resumen).toEqual({
-      VENTA: { cantidad: 2, montoCentavos: 700 },
-      PEDIDO: { cantidad: 0, montoCentavos: 0 },
-      CANJE_DIRECTO: { cantidad: 0, montoCentavos: 0 },
+      ventas: { cantidad: 2, ventasConfirmadasCentavos: 700 },
+      pedidos: { cantidad: 0, valorPedidosCentavos: 0 },
+      canjesDirectos: { cantidad: 0 },
     });
   });
 
@@ -224,15 +225,66 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
     const dePasado = (await movimientos(o, `?fecha=${ayer}`)).json();
     expect(dePasado.fecha).toBe(ayer);
     expect(dePasado.resumen).toMatchObject({
-      VENTA: { cantidad: 1, montoCentavos: 700 },
-      PEDIDO: { cantidad: 0 },
-      CANJE_DIRECTO: { cantidad: 1 },
+      ventas: { cantidad: 1, ventasConfirmadasCentavos: 700 },
+      pedidos: { cantidad: 0, valorPedidosCentavos: 0 },
+      canjesDirectos: { cantidad: 1 },
     });
 
     // Un pedido canjeado ayer (hora local) sale en ayer, no en hoy.
     await mover(`UPDATE orden_cabecera SET canjeada_en = canjeada_en - interval '1 day' WHERE public_id = $1`, [p.id]);
     expect(await ids('')).toEqual([]);
     expect(await ids(`?fecha=${ayer}`)).toEqual([v.id, c, p.id].sort());
+  });
+
+  it('el cajero solo consulta hoy (hora local del restaurante); el dueño, cualquier fecha', async () => {
+    const o = await k.activeOwner('Caja Solo Hoy');
+    const cashier = await k.h.cashier(o.restaurante);
+    await k.menu(o);
+    await venta(o);
+    const hoy = (await movimientos(cashier)).json().fecha as string;
+    const dia = async (delta: number) =>
+      (await probe!.sql<{ d: string }>(`SELECT ($1::date + $2::int)::text AS d`, [hoy, delta])).rows[0]!.d;
+    const prohibido = { status: 403, code: 'CAJERO_SOLO_HOY' };
+
+    // Hoy: sin fecha y con la fecha de hoy explícita.
+    for (const qs of ['', `?fecha=${hoy}`]) {
+      const r = await movimientos(cashier, qs);
+      expect(r.statusCode, qs).toBe(200);
+      expect(r.json().items).toHaveLength(1);
+    }
+    // Ayer y mañana: 403 con código de negocio, en problem+json, y sin filtrar datos.
+    for (const fecha of [await dia(-1), await dia(1), '2020-01-01']) {
+      const r = await movimientos(cashier, `?fecha=${fecha}`);
+      expect(r.statusCode, fecha).toBe(403);
+      expect(r.headers['content-type']).toContain('application/problem+json');
+      expect(r.json()).toMatchObject(prohibido);
+      expect(r.json()).not.toHaveProperty('items');
+    }
+    // El dueño sí puede ver cualquier día.
+    for (const fecha of [hoy, await dia(-1), await dia(1), '2020-01-01']) {
+      expect((await movimientos(o, `?fecha=${fecha}`)).statusCode, fecha).toBe(200);
+    }
+    // Una fecha inexistente sigue siendo 400, también para el cajero.
+    expect((await movimientos(cashier, '?fecha=2026-02-31')).statusCode).toBe(400);
+  });
+
+  it('"hoy" del cajero es el del restaurante, no el del servidor (otra zona horaria)', async () => {
+    const o = await k.activeOwner('Caja Zona Cajero');
+    const cashier = await k.h.cashier(o.restaurante);
+    const utc = await hoyDe('UTC');
+    const zona = (await hoyDe('Pacific/Kiritimati')) !== utc ? 'Pacific/Kiritimati' : 'Pacific/Pago_Pago';
+    const hoyLocal = await hoyDe(zona);
+    await probe!.sql(`UPDATE restaurante SET zona_horaria = $2 WHERE public_id = $1`, [o.restaurante, zona]);
+
+    // La fecha de UTC es la de otro día para este local: el cajero no puede; la local sí.
+    const fuera = await movimientos(cashier, `?fecha=${utc}`);
+    expect(fuera.statusCode).toBe(403);
+    expect(fuera.json()).toMatchObject({ code: 'CAJERO_SOLO_HOY' });
+    const dentro = await movimientos(cashier, `?fecha=${hoyLocal}`);
+    expect(dentro.statusCode, dentro.body).toBe(200);
+    expect(dentro.json().fecha).toBe(hoyLocal);
+    expect((await movimientos(cashier)).json().fecha).toBe(hoyLocal);
+    expect((await movimientos(o, `?fecha=${utc}`)).statusCode).toBe(200);
   });
 
   it('fecha inválida → 400', async () => {
@@ -257,12 +309,12 @@ describe.skipIf(!probe)('GET /v1/caja/movimientos', () => {
     const pb = await pedidoCanjeado(b, mb, await k.diner());
     const db = (await k.as(b).post('/v1/caja/validar', { clienteId: cb.clienteId }, randomUUID())).json().consumo.id as string;
 
-    const verA = (await movimientos(a)).json() as { items: Mov[]; resumen: { VENTA: { montoCentavos: number } } };
-    const verB = (await movimientos(b)).json() as { items: Mov[]; resumen: { VENTA: { montoCentavos: number } } };
+    const verA = (await movimientos(a)).json() as { items: Mov[]; resumen: { ventas: { ventasConfirmadasCentavos: number } } };
+    const verB = (await movimientos(b)).json() as { items: Mov[]; resumen: { ventas: { ventasConfirmadasCentavos: number } } };
     expect(verA.items.map((x) => x.id).sort()).toEqual([va.id, pa.id, da].sort());
     expect(verB.items.map((x) => x.id).sort()).toEqual([vb.id, pb.id, db].sort());
-    expect(verA.resumen.VENTA.montoCentavos).toBe(700);
-    expect(verB.resumen.VENTA.montoCentavos).toBe(350);
+    expect(verA.resumen.ventas.ventasConfirmadasCentavos).toBe(700);
+    expect(verB.resumen.ventas.ventasConfirmadasCentavos).toBe(350);
 
     // Un cursor de un local no abre nada del otro: la consulta siempre lleva el tenant del que pregunta.
     const cursorA = ((await movimientos(a, '?limit=1')).json() as { nextCursor: string }).nextCursor;

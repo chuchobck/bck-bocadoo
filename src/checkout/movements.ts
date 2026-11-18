@@ -2,9 +2,10 @@ import { Controller, Get, Injectable, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, Matches } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
-import { ApiProblems } from '../common/errors';
+import { ApiProblems, forbidden } from '../common/errors';
 import { IsoDatePipe } from '../common/pipes';
 import { DbService } from '../db/db.service';
+import { RequestContextStore } from '../tenancy/request-context';
 import { CURSOR_TS, PageQuery, decodeCursor, encodeCursor } from '../diner/common';
 
 const TIPOS = ['VENTA', 'PEDIDO', 'CANJE_DIRECTO'] as const;
@@ -66,21 +67,74 @@ class MovimientoResponse {
   revertido!: boolean;
 }
 
-class ResumenTipoResponse {
-  @ApiProperty({ example: 12, description: 'Movimientos no revertidos' }) cantidad!: number;
+class ResumenVentasResponse {
+  @ApiProperty({ example: 2, description: 'Ventas no deshechas (con pago confirmado o pendiente)' }) cantidad!: number;
   @ApiProperty({
-    example: 8450,
-    description:
-      'Suma de `montoCentavos` de los no revertidos. En VENTA solo las de pago CONFIRMADO. En CANJE_DIRECTO siempre 0. El monto de PEDIDO no es dinero cobrado: puede repetirse en una VENTA si la caja lo cobró aparte',
+    example: 1050,
+    description: 'Dinero de las ventas con pago CONFIRMADO, sin las deshechas. Un pago PENDIENTE o RECHAZADO no suma',
   })
-  montoCentavos!: number;
+  ventasConfirmadasCentavos!: number;
+}
+
+class ResumenPedidosResponse {
+  @ApiProperty({ example: 1, description: 'Pedidos canjeados en el día' }) cantidad!: number;
+  @ApiProperty({
+    example: 125,
+    description:
+      'Suma de `totalCentavos` de los pedidos canjeados: es el valor de las preórdenes, NO dinero cobrado. Lo que la caja cobra aparte de un pedido ya es una venta',
+  })
+  valorPedidosCentavos!: number;
+}
+
+class ResumenCanjesDirectosResponse {
+  @ApiProperty({
+    example: 1,
+    description: 'Almuerzos descontados de un plan por QR o búsqueda manual, sin los revertidos. No mueven dinero',
+  })
+  cantidad!: number;
 }
 
 class ResumenMovimientosResponse {
-  @ApiProperty({ type: ResumenTipoResponse }) VENTA!: ResumenTipoResponse;
-  @ApiProperty({ type: ResumenTipoResponse }) PEDIDO!: ResumenTipoResponse;
-  @ApiProperty({ type: ResumenTipoResponse }) CANJE_DIRECTO!: ResumenTipoResponse;
+  @ApiProperty({ type: ResumenVentasResponse }) ventas!: ResumenVentasResponse;
+  @ApiProperty({ type: ResumenPedidosResponse }) pedidos!: ResumenPedidosResponse;
+  @ApiProperty({ type: ResumenCanjesDirectosResponse }) canjesDirectos!: ResumenCanjesDirectosResponse;
 }
+
+const EJEMPLO_ITEMS = [
+  {
+    id: '7d0e1c64-52a0-4b0b-8a43-0f6f1b9e2c11',
+    tipo: 'CANJE_DIRECTO',
+    hora: '2026-11-13T17:05:12.000Z',
+    montoCentavos: null,
+    medioPago: null,
+    pagoEstado: null,
+    platoNombre: null,
+    comensalNombre: 'Ana Pérez',
+    revertido: false,
+  },
+  {
+    id: 'b1070383-90ef-4353-b00d-9019fcf067c2',
+    tipo: 'PEDIDO',
+    hora: '2026-11-13T16:48:30.000Z',
+    montoCentavos: 125,
+    medioPago: null,
+    pagoEstado: null,
+    platoNombre: 'Sopa de quinua + Seco de pollo',
+    comensalNombre: 'Luis Mora',
+    revertido: false,
+  },
+  {
+    id: '0e98d6e3-f04b-4875-a60d-ac56fd48c717',
+    tipo: 'VENTA',
+    hora: '2026-11-13T16:20:05.000Z',
+    montoCentavos: 700,
+    medioPago: 'EFECTIVO',
+    pagoEstado: 'CONFIRMADO',
+    platoNombre: null,
+    comensalNombre: null,
+    revertido: false,
+  },
+];
 
 class MovimientosResponse {
   @ApiProperty({ example: '2026-11-13', description: 'Día local que se consultó' }) fecha!: string;
@@ -88,8 +142,15 @@ class MovimientosResponse {
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
   @ApiProperty({ type: ResumenMovimientosResponse, description: 'Todo el día, sin importar la página' })
   resumen!: ResumenMovimientosResponse;
-  @ApiProperty({ type: [MovimientoResponse], description: 'De la hora más reciente a la más antigua' }) items!: MovimientoResponse[];
-  @ApiPropertyOptional({ type: String, nullable: true, description: 'null si no hay más páginas' }) nextCursor!: string | null;
+  @ApiProperty({ type: [MovimientoResponse], example: EJEMPLO_ITEMS, description: 'De la hora más reciente a la más antigua' })
+  items!: MovimientoResponse[];
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'eyJ0IjoiMjAyNi0xMS0xM1QxNjoyMDowNS4xMjM0NTZaIiwicCI6IjNmNmM5YTUyLTFiN2UtNGQwOC05YzM0LTVhOGUwZjIxYjdkNiJ9',
+    description: 'null si no hay más páginas',
+  })
+  nextCursor!: string | null;
 }
 
 interface Row {
@@ -114,7 +175,8 @@ interface Row {
  */
 const MOVIMIENTOS = `
   WITH r AS (
-    SELECT zona_horaria, moneda_codigo, COALESCE($1::date, (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date) AS dia
+    SELECT zona_horaria, moneda_codigo, (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date AS hoy,
+           COALESCE($1::date, (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date) AS dia
       FROM restaurante WHERE restaurante_id = app_tenant_id()
   ), mov AS (
     SELECT 'VENTA'::text AS tipo, v.public_id, v.creado_en AS hora, v.total_centavos AS monto, m.codigo AS medio_pago, p.estado::text AS pago_estado,
@@ -148,6 +210,15 @@ export class MovementsService {
     const cur = cursor ? decodeCursor(cursor) : null;
     return this.db.forRequest(
       async (q) => {
+        const ctx = (
+          await q.query<{ dia: string; hoy: string; zona: string; moneda: string }>(
+            `${MOVIMIENTOS} SELECT dia::text AS dia, hoy::text AS hoy, zona_horaria AS zona, moneda_codigo AS moneda FROM r`,
+            [fecha ?? null],
+          )
+        ).rows[0]!;
+        // Igual que el cierre de caja: el cajero solo ve el día de hoy (hora local del restaurante); el dueño, cualquiera.
+        if (RequestContextStore.get()?.role === 'CAJERO' && ctx.dia !== ctx.hoy)
+          throw forbidden('CAJERO_SOLO_HOY', 'El cajero solo puede consultar los movimientos de hoy.');
         const page = await q.query<Row>(
           `${MOVIMIENTOS}
            SELECT tipo, public_id, hora, monto, medio_pago, pago_estado, plato_nombre, comensal, revertido, ${CURSOR_TS('hora')} AS cursor_t
@@ -157,23 +228,23 @@ export class MovementsService {
             LIMIT $4`,
           [fecha ?? null, cur?.t ?? null, cur?.p ?? null, limit + 1],
         );
-        const totals = await q.query<{ tipo: Tipo; cantidad: string; monto: string }>(
-          `${MOVIMIENTOS}
-           SELECT tipo, count(*) FILTER (WHERE NOT revertido) AS cantidad,
-                  COALESCE(sum(monto) FILTER (WHERE NOT revertido AND (tipo <> 'VENTA' OR pago_estado = 'CONFIRMADO')), 0) AS monto
-             FROM mov GROUP BY tipo`,
-          [fecha ?? null],
-        );
-        const ctx = (
-          await q.query<{ dia: string; zona: string; moneda: string }>(
-            `${MOVIMIENTOS} SELECT dia::text AS dia, zona_horaria AS zona, moneda_codigo AS moneda FROM r`,
+        const t = (
+          await q.query<{ ventas: string; confirmadas: string; pedidos: string; valor: string; canjes: string }>(
+            `${MOVIMIENTOS}
+           SELECT count(*) FILTER (WHERE tipo = 'VENTA' AND NOT revertido) AS ventas,
+                  COALESCE(sum(monto) FILTER (WHERE tipo = 'VENTA' AND NOT revertido AND pago_estado = 'CONFIRMADO'), 0) AS confirmadas,
+                  count(*) FILTER (WHERE tipo = 'PEDIDO') AS pedidos,
+                  COALESCE(sum(monto) FILTER (WHERE tipo = 'PEDIDO'), 0) AS valor,
+                  count(*) FILTER (WHERE tipo = 'CANJE_DIRECTO' AND NOT revertido) AS canjes
+             FROM mov`,
             [fecha ?? null],
           )
         ).rows[0]!;
-        const resumen = Object.fromEntries(
-          TIPOS.map((t) => [t, { cantidad: 0, montoCentavos: 0 }]),
-        ) as unknown as ResumenMovimientosResponse;
-        for (const t of totals.rows) resumen[t.tipo] = { cantidad: Number(t.cantidad), montoCentavos: Number(t.monto) };
+        const resumen: ResumenMovimientosResponse = {
+          ventas: { cantidad: Number(t.ventas), ventasConfirmadasCentavos: Number(t.confirmadas) },
+          pedidos: { cantidad: Number(t.pedidos), valorPedidosCentavos: Number(t.valor) },
+          canjesDirectos: { cantidad: Number(t.canjes) },
+        };
         const rows = page.rows.slice(0, limit);
         const last = rows.at(-1);
         return {
@@ -212,10 +283,10 @@ export class MovementsController {
     description:
       'Lista unificada, de solo lectura, de ventas sueltas, pedidos canjeados y canjes directos (`POST /v1/caja/validar`) del día local ' +
       'del restaurante (`fecha`, por defecto hoy), de la hora más reciente a la más antigua, con paginación por cursor (máximo 50). ' +
-      '`resumen` cuenta todo el día, no solo la página. Reemplaza armar "Cobros de hoy" con `GET /v1/caja/ventas` + `GET /v1/caja/pedidos` + una lista en memoria.',
+      'El dueño puede consultar cualquier fecha; el cajero solo hoy (otra fecha → 403 `CAJERO_SOLO_HOY`). `resumen` cuenta todo el día, no solo la página, y separa lo cobrado en ventas (`ventasConfirmadasCentavos`) del valor de las preórdenes (`valorPedidosCentavos`). Reemplaza armar "Cobros de hoy" con `GET /v1/caja/ventas` + `GET /v1/caja/pedidos` + una lista en memoria.',
   })
   @ApiOkResponse({ type: MovimientosResponse })
-  @ApiProblems({ 400: ['CURSOR_INVALIDO'] })
+  @ApiProblems({ 400: ['CURSOR_INVALIDO'], 403: ['CAJERO_SOLO_HOY'] })
   list(@Query() q: MovimientosQuery) {
     if (q.fecha) new IsoDatePipe().transform(q.fecha);
     return this.svc.list(q.fecha, q.limit ?? 20, q.cursor);

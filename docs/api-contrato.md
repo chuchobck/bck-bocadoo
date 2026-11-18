@@ -2407,7 +2407,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
 - **Estado:** En revisión (nuevo; solo lectura)
-- **Query:** `fecha` (`AAAA-MM-DD`, opcional: por defecto **hoy en la zona horaria del restaurante**; una fecha inexistente → 400; la palabra `hoy` no se acepta aquí), `limit` (1–50, por defecto 20), `cursor` (el `nextCursor` anterior; inválido → 400 `CURSOR_INVALIDO`)
+- **Query:** `fecha` (`AAAA-MM-DD`, opcional: por defecto **hoy en la zona horaria del restaurante**; una fecha inexistente → 400; la palabra `hoy` no se acepta aquí). **El dueño puede consultar cualquier fecha; el cajero solo hoy** (hora local del restaurante): otra fecha → 403 `CAJERO_SOLO_HOY`, igual que el cierre de caja · `limit` (1–50, por defecto 20) · `cursor` (el `nextCursor` anterior; inválido → 400 `CURSOR_INVALIDO`)
 
 Lista unificada de lo que pasó en caja ese día local, de la hora más reciente a la más antigua. **Reemplaza** la mezcla que hace hoy el frontend en "Cobros de hoy" (`GET /v1/caja/ventas` + `GET /v1/caja/pedidos?estado=SERVIDA` + una lista en memoria de los canjes de `POST /v1/caja/validar`): los canjes directos ahora se recuperan del servidor. Los endpoints anteriores no cambian.
 
@@ -2421,10 +2421,9 @@ Notas:
 
 - No hay tablas ni migraciones nuevas: los tres tipos salen de datos que ya se guardaban. Las validaciones de **mesa** (`canal` `MESA`) y el consumo que crea el canje de un pedido (`PREORDEN`) **no** salen como `CANJE_DIRECTO`: el segundo ya está como `PEDIDO`.
 - Una venta deshecha y un consumo revertido salen con `revertido: true` (el reverso no es otra fila) y no cuentan en `resumen`. Un pedido nunca se revierte.
-- `PEDIDO.montoCentavos` es el valor de la preorden, **no** dinero cobrado: lo que la caja cobra aparte sale de `porCobrarCentavos` al canjear y, si se cobró, ya es una `VENTA` (por eso `resumen.PEDIDO.montoCentavos` no debe sumarse a `resumen.VENTA.montoCentavos`).
-- `resumen` es de **todo el día**, no de la página, y cuenta solo los no revertidos. En `VENTA` el monto suma solo pagos `CONFIRMADO` (una transferencia `PENDIENTE` cuenta como venta pero no suma monto); en `CANJE_DIRECTO` el monto es siempre 0.
+- `PEDIDO.montoCentavos` es el valor de la preorden, **no** dinero cobrado: lo que la caja cobra aparte sale de `porCobrarCentavos` al canjear y, si se cobró, ya es una `VENTA` (por eso `valorPedidosCentavos` no debe sumarse a `ventasConfirmadasCentavos`).
+- `resumen` es de **todo el día**, no de la página, y **no mezcla dinero con valor de pedidos**: `ventas.ventasConfirmadasCentavos` es el único dinero cobrado (ventas con pago `CONFIRMADO`; una transferencia `PENDIENTE` cuenta en `ventas.cantidad` pero no suma, y las ventas deshechas no cuentan en nada). `pedidos.valorPedidosCentavos` es el valor de las preórdenes canjeadas, **no** dinero cobrado: no se suma a las ventas. `canjesDirectos` solo tiene `cantidad` (sin los revertidos): no mueven dinero.
 - No se expone ningún dato personal que la caja no mostrara ya.
-- Hoy el cajero también puede consultar días anteriores (es solo lectura).
 
 Response `200`:
 
@@ -2434,9 +2433,9 @@ Response `200`:
   "zonaHoraria": "America/Guayaquil",
   "monedaCodigo": "USD",
   "resumen": {
-    "VENTA": { "cantidad": 2, "montoCentavos": 1050 },
-    "PEDIDO": { "cantidad": 1, "montoCentavos": 125 },
-    "CANJE_DIRECTO": { "cantidad": 1, "montoCentavos": 0 }
+    "ventas": { "cantidad": 2, "ventasConfirmadasCentavos": 1050 },
+    "pedidos": { "cantidad": 1, "valorPedidosCentavos": 125 },
+    "canjesDirectos": { "cantidad": 1 }
   },
   "items": [
     {
@@ -2481,6 +2480,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 | HTTP | `code`            | Ejemplo de `detail`                                                   |
 | ---- | ----------------- | --------------------------------------------------------------------- |
+| 403  | `CAJERO_SOLO_HOY` | El cajero solo puede consultar los movimientos de hoy.                |
 | 400  | `CURSOR_INVALIDO` | cursor inválido.                                                      |
 | 403  | `FORBIDDEN`       | No tienes acceso a este restaurante. (quien no es personal del local) |
 

@@ -10456,7 +10456,7 @@
     },
     "/v1/caja/movimientos": {
       "get": {
-        "description": "Lista unificada, de solo lectura, de ventas sueltas, pedidos canjeados y canjes directos (`POST /v1/caja/validar`) del día local del restaurante (`fecha`, por defecto hoy), de la hora más reciente a la más antigua, con paginación por cursor (máximo 50). `resumen` cuenta todo el día, no solo la página. Reemplaza armar \"Cobros de hoy\" con `GET /v1/caja/ventas` + `GET /v1/caja/pedidos` + una lista en memoria.",
+        "description": "Lista unificada, de solo lectura, de ventas sueltas, pedidos canjeados y canjes directos (`POST /v1/caja/validar`) del día local del restaurante (`fecha`, por defecto hoy), de la hora más reciente a la más antigua, con paginación por cursor (máximo 50). El dueño puede consultar cualquier fecha; el cajero solo hoy (otra fecha → 403 `CAJERO_SOLO_HOY`). `resumen` cuenta todo el día, no solo la página, y separa lo cobrado en ventas (`ventasConfirmadasCentavos`) del valor de las preórdenes (`valorPedidosCentavos`). Reemplaza armar \"Cobros de hoy\" con `GET /v1/caja/ventas` + `GET /v1/caja/pedidos` + una lista en memoria.",
         "operationId": "MovementsController_list",
         "parameters": [
           {
@@ -10512,33 +10512,54 @@
                   "zonaHoraria": "America/Guayaquil",
                   "monedaCodigo": "USD",
                   "resumen": {
-                    "VENTA": {
-                      "cantidad": 12,
-                      "montoCentavos": 8450
+                    "ventas": {
+                      "cantidad": 2,
+                      "ventasConfirmadasCentavos": 1050
                     },
-                    "PEDIDO": {
-                      "cantidad": 12,
-                      "montoCentavos": 8450
+                    "pedidos": {
+                      "cantidad": 1,
+                      "valorPedidosCentavos": 125
                     },
-                    "CANJE_DIRECTO": {
-                      "cantidad": 12,
-                      "montoCentavos": 8450
+                    "canjesDirectos": {
+                      "cantidad": 1
                     }
                   },
                   "items": [
                     {
-                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "id": "7d0e1c64-52a0-4b0b-8a43-0f6f1b9e2c11",
+                      "tipo": "CANJE_DIRECTO",
+                      "hora": "2026-11-13T17:05:12.000Z",
+                      "montoCentavos": null,
+                      "medioPago": null,
+                      "pagoEstado": null,
+                      "platoNombre": null,
+                      "comensalNombre": "Ana Pérez",
+                      "revertido": false
+                    },
+                    {
+                      "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
+                      "tipo": "PEDIDO",
+                      "hora": "2026-11-13T16:48:30.000Z",
+                      "montoCentavos": 125,
+                      "medioPago": null,
+                      "pagoEstado": null,
+                      "platoNombre": "Sopa de quinua + Seco de pollo",
+                      "comensalNombre": "Luis Mora",
+                      "revertido": false
+                    },
+                    {
+                      "id": "0e98d6e3-f04b-4875-a60d-ac56fd48c717",
                       "tipo": "VENTA",
-                      "hora": "2026-11-13T17:00:00.000Z",
-                      "montoCentavos": 750,
+                      "hora": "2026-11-13T16:20:05.000Z",
+                      "montoCentavos": 700,
                       "medioPago": "EFECTIVO",
                       "pagoEstado": "CONFIRMADO",
-                      "platoNombre": "Sopa de quinua + Seco de pollo",
-                      "comensalNombre": "Ana Pérez",
-                      "revertido": true
+                      "platoNombre": null,
+                      "comensalNombre": null,
+                      "revertido": false
                     }
                   ],
-                  "nextCursor": "eyJuIjoiRG9uYSBSb3NhIiwiaSI6IjEifQ"
+                  "nextCursor": "eyJ0IjoiMjAyNi0xMS0xM1QxNjoyMDowNS4xMjM0NTZaIiwicCI6IjNmNmM5YTUyLTFiN2UtNGQwOC05YzM0LTVhOGUwZjIxYjdkNiJ9"
                 }
               }
             }
@@ -10582,7 +10603,7 @@
             }
           },
           "403": {
-            "description": "No trabajas en ese restaurante o tu rol no alcanza",
+            "description": "application/problem+json con `code`: `CAJERO_SOLO_HOY`\n\nNo trabajas en ese restaurante o tu rol no alcanza",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -10592,7 +10613,7 @@
                   "type": "about:blank",
                   "title": "Forbidden",
                   "status": 403,
-                  "code": "FORBIDDEN",
+                  "code": "CAJERO_SOLO_HOY",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -21065,36 +21086,63 @@
         },
         "required": ["respuesta"]
       },
-      "ResumenTipoResponse": {
+      "ResumenVentasResponse": {
         "type": "object",
         "properties": {
           "cantidad": {
             "type": "number",
-            "example": 12,
-            "description": "Movimientos no revertidos"
+            "example": 2,
+            "description": "Ventas no deshechas (con pago confirmado o pendiente)"
           },
-          "montoCentavos": {
+          "ventasConfirmadasCentavos": {
             "type": "number",
-            "example": 8450,
-            "description": "Suma de `montoCentavos` de los no revertidos. En VENTA solo las de pago CONFIRMADO. En CANJE_DIRECTO siempre 0. El monto de PEDIDO no es dinero cobrado: puede repetirse en una VENTA si la caja lo cobró aparte"
+            "example": 1050,
+            "description": "Dinero de las ventas con pago CONFIRMADO, sin las deshechas. Un pago PENDIENTE o RECHAZADO no suma"
           }
         },
-        "required": ["cantidad", "montoCentavos"]
+        "required": ["cantidad", "ventasConfirmadasCentavos"]
+      },
+      "ResumenPedidosResponse": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "description": "Pedidos canjeados en el día"
+          },
+          "valorPedidosCentavos": {
+            "type": "number",
+            "example": 125,
+            "description": "Suma de `totalCentavos` de los pedidos canjeados: es el valor de las preórdenes, NO dinero cobrado. Lo que la caja cobra aparte de un pedido ya es una venta"
+          }
+        },
+        "required": ["cantidad", "valorPedidosCentavos"]
+      },
+      "ResumenCanjesDirectosResponse": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "description": "Almuerzos descontados de un plan por QR o búsqueda manual, sin los revertidos. No mueven dinero"
+          }
+        },
+        "required": ["cantidad"]
       },
       "ResumenMovimientosResponse": {
         "type": "object",
         "properties": {
-          "VENTA": {
-            "$ref": "#/components/schemas/ResumenTipoResponse"
+          "ventas": {
+            "$ref": "#/components/schemas/ResumenVentasResponse"
           },
-          "PEDIDO": {
-            "$ref": "#/components/schemas/ResumenTipoResponse"
+          "pedidos": {
+            "$ref": "#/components/schemas/ResumenPedidosResponse"
           },
-          "CANJE_DIRECTO": {
-            "$ref": "#/components/schemas/ResumenTipoResponse"
+          "canjesDirectos": {
+            "$ref": "#/components/schemas/ResumenCanjesDirectosResponse"
           }
         },
-        "required": ["VENTA", "PEDIDO", "CANJE_DIRECTO"]
+        "required": ["ventas", "pedidos", "canjesDirectos"]
       },
       "MovimientoResponse": {
         "type": "object",
@@ -21176,6 +21224,41 @@
             ]
           },
           "items": {
+            "example": [
+              {
+                "id": "7d0e1c64-52a0-4b0b-8a43-0f6f1b9e2c11",
+                "tipo": "CANJE_DIRECTO",
+                "hora": "2026-11-13T17:05:12.000Z",
+                "montoCentavos": null,
+                "medioPago": null,
+                "pagoEstado": null,
+                "platoNombre": null,
+                "comensalNombre": "Ana Pérez",
+                "revertido": false
+              },
+              {
+                "id": "b1070383-90ef-4353-b00d-9019fcf067c2",
+                "tipo": "PEDIDO",
+                "hora": "2026-11-13T16:48:30.000Z",
+                "montoCentavos": 125,
+                "medioPago": null,
+                "pagoEstado": null,
+                "platoNombre": "Sopa de quinua + Seco de pollo",
+                "comensalNombre": "Luis Mora",
+                "revertido": false
+              },
+              {
+                "id": "0e98d6e3-f04b-4875-a60d-ac56fd48c717",
+                "tipo": "VENTA",
+                "hora": "2026-11-13T16:20:05.000Z",
+                "montoCentavos": 700,
+                "medioPago": "EFECTIVO",
+                "pagoEstado": "CONFIRMADO",
+                "platoNombre": null,
+                "comensalNombre": null,
+                "revertido": false
+              }
+            ],
             "description": "De la hora más reciente a la más antigua",
             "type": "array",
             "items": {
@@ -21185,6 +21268,7 @@
           "nextCursor": {
             "type": "string",
             "nullable": true,
+            "example": "eyJ0IjoiMjAyNi0xMS0xM1QxNjoyMDowNS4xMjM0NTZaIiwicCI6IjNmNmM5YTUyLTFiN2UtNGQwOC05YzM0LTVhOGUwZjIxYjdkNiJ9",
             "description": "null si no hay más páginas"
           }
         },
