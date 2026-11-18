@@ -147,6 +147,7 @@ export class DinerKit {
 
   /** La caja valida un almuerzo del cliente (búsqueda manual). Devuelve el public_id del consumo. */
   async lunch(o: Actor, clienteId: string): Promise<string> {
+    await this.h.publishMenu(o);
     const r = await this.as(o).post('/v1/caja/validar', { clienteId }, randomUUID());
     expect(r.json().descontado, r.body).toBe(true);
     return r.json().consumo.id as string;

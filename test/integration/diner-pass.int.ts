@@ -34,7 +34,9 @@ describe.skipIf(!probe)('Fase 8: pase del comensal', () => {
 
   it('GET /v1/pase: código rotativo y planes vigentes por local, en orden FIFO', async () => {
     const a = await k.owner('Pase A');
+    await k.h.publishMenu(a);
     const b = await k.owner('Pase B');
+    await k.h.publishMenu(b);
     const d = await k.dinerWithPlan(a);
     await k.dinerWithPlan(b, { nombre: 'Quincenal', almuerzos: 10, vigenciaDias: 15 }, d);
     // Segundo plan en A: vence después, así que va segundo.
@@ -70,7 +72,9 @@ describe.skipIf(!probe)('Fase 8: pase del comensal', () => {
 
   it('con ?restaurante el código solo vale ahí; restaurante inexistente → 404 RESTAURANTE_NO_ENCONTRADO', async () => {
     const a = await k.owner();
+    await k.h.publishMenu(a);
     const b = await k.owner();
+    await k.h.publishMenu(b);
     const d = await k.dinerWithPlan(a);
     const pase = (await k.as(d).get(`/v1/pase?restaurante=${a.restaurante}`)).json();
     expect(pase.codigo.codigo).toContain(`.${a.restaurante}.`);
@@ -85,6 +89,7 @@ describe.skipIf(!probe)('Fase 8: pase del comensal', () => {
 
   it('sin token → 401; otro comensal no ve los planes ajenos (API y RLS)', async () => {
     const a = await k.owner();
+    await k.h.publishMenu(a);
     const d = await k.dinerWithPlan(a);
     const otro = await k.diner();
     expect((await k.as({}).get('/v1/pase')).statusCode).toBe(401);

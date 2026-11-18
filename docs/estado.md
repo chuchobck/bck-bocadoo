@@ -17,6 +17,17 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
+## Menú publicado en pase y caja (rama `fix/menu-publicado-canje`)
+
+Sin fase propia: cambio de comportamiento posterior a la fase 10, pendiente de revisión y merge. Detalle en `docs/api-contrato.md` ("Menú publicado en pase y caja") y `docs/seguridad.md`.
+
+- [x] **Reutiliza `MENU_NO_PUBLICADO`**: la comprobación que estaba en línea en `src/orders/orders.ts` pasó a `assertMenuPublicado` (`src/diner/common.ts`), usada ahora por preórdenes, `GET /v1/pase/codigo`, `GET /v1/pase` (con `restaurante`) y `POST /v1/caja/validar`. Decide por la fecha local del restaurante
+- [x] **Decisión de negocio ya resuelta así en el código y dejada tal cual**: `POST /v1/caja/pedidos/{id}/canjear` no mira el menú, así que un pedido preordenado antes de despublicar sí se canjea. Por eso ese endpoint no documenta `MENU_NO_PUBLICADO`
+- [x] **`platoNombre`** (opcional, `string | null`) en las respuestas de `validar` (siempre `null`) y de canjear pedido (platos de la preorden). No existe ningún listado "Cobros de hoy": no se creó
+- [x] Pruebas en `menu-publicado.int.ts` (publicado/sin publicar, preorden, RLS, fecha local). Las suites existentes que usan `validar` ahora publican un menú (`Harness.publishMenu`)
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR
+- [ ] Pendiente: el cliente móvil debe tratar el 409 `MENU_NO_PUBLICADO` en el pase y en `validar`
+
 ## Fase 10: checklist
 
 Solo documentación, etiquetas, ejemplos y pruebas de contrato: ningún comportamiento de negocio cambió. Pruebas corridas contra un Postgres 16 local en Docker (`bocadoo-test-pg`), **nunca contra Neon**.

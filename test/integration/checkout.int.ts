@@ -75,6 +75,7 @@ describe('Fase 7: caja', () => {
   describe('QR', () => {
     it('el comensal obtiene su código y la caja lo valida: descuenta un almuerzo', async () => {
       const o = await h.owner('QR Local');
+      await h.publishMenu(o);
       const d = await dinerWithPlan(o);
       const pase = await as(d).get(`/v1/pase/codigo?restaurante=${o.restaurante}`);
       expect(pase.statusCode).toBe(200);
@@ -99,7 +100,9 @@ describe('Fase 7: caja', () => {
 
     it('QR de otro local → OTRO_LOCAL; vencido → QR_EXPIRADO; falso → QR_INVALIDO; ninguno descuenta y todos quedan registrados', async () => {
       const a = await h.owner('QR A');
+      await h.publishMenu(a);
       const b = await h.owner('QR B');
+      await h.publishMenu(b);
       for (const o of [a, b]) {
         await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300 });
         await as(o).put('/v1/restaurante/horarios', { horarios: [{ diaSemana: 1, abre: '12:00', cierra: '15:00' }] });
@@ -140,6 +143,7 @@ describe('Fase 7: caja', () => {
 
     it('con cuenta pero sin ser cliente del local → SIN_PLAN; rotar el secreto invalida los códigos anteriores', async () => {
       const o = await h.owner('QR Rotar');
+      await h.publishMenu(o);
       const stranger = await h.diner();
       expect((await validar(o, { codigoQr: await code(stranger) })).json().resultado).toBe('SIN_PLAN');
       const d = await dinerWithPlan(o);
@@ -177,6 +181,7 @@ describe('Fase 7: caja', () => {
   describe('validar un almuerzo', () => {
     it('búsqueda manual; exige Idempotency-Key y exactamente un identificador', async () => {
       const o = await h.owner('Manual');
+      await h.publishMenu(o);
       const c = await withPlan(o);
       const res = await validar(o, { clienteId: c, paraLlevar: true });
       expect(res.json()).toMatchObject({ resultado: 'OK', descontado: true, almuerzosRestantes: 4 });
@@ -189,6 +194,7 @@ describe('Fase 7: caja', () => {
 
     it('FIFO: descuenta del plan que vence primero, aunque se haya comprado después', async () => {
       const o = await h.owner('FIFO');
+      await h.publishMenu(o);
       const largo = await plan(o, { nombre: 'Mensual', almuerzos: 20, vigenciaDias: 30 });
       const corto = await plan(o, { nombre: 'Corto', almuerzos: 2, vigenciaDias: 3 });
       const c = await customer(o);
@@ -203,6 +209,7 @@ describe('Fase 7: caja', () => {
 
     it('doble escaneo en menos de 60 s → DUPLICADO y no descuenta', async () => {
       const o = await h.owner('Duplicado');
+      await h.publishMenu(o);
       const c = await withPlan(o);
       expect((await validar(o, { clienteId: c })).json().resultado).toBe('OK');
       const dup = (await validar(o, { clienteId: c })).json();
@@ -212,6 +219,7 @@ describe('Fase 7: caja', () => {
 
     it('la misma Idempotency-Key devuelve el mismo consumo sin descontar otra vez; con otro cliente → 409', async () => {
       const o = await h.owner('Idem Caja');
+      await h.publishMenu(o);
       const c = await withPlan(o);
       const other = await withPlan(o);
       const key = randomUUID();
@@ -226,6 +234,7 @@ describe('Fase 7: caja', () => {
 
     it('el mismo comensal en dos cajas a la vez → un solo descuento', async () => {
       const o = await h.owner('Dos Cajas');
+      await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
       const c = await withPlan(o);
       const burst = await Promise.all([o, cashier, o, cashier, o, cashier].map((who) => validar(who, { clienteId: c })));
@@ -244,6 +253,7 @@ describe('Fase 7: caja', () => {
 
     it('SIN_PLAN, SIN_SALDO, VENCIDO, DIA_NO_VALIDO y LIMITE_SAAS: ninguno descuenta', async () => {
       const o = await h.owner('Resultados');
+      await h.publishMenu(o);
       const sinPlan = await customer(o);
       expect((await validar(o, { clienteId: sinPlan })).json().resultado).toBe('SIN_PLAN');
 
@@ -315,6 +325,7 @@ describe('Fase 7: caja', () => {
   describe('deshacer', () => {
     it('dentro de 10 s devuelve el almuerzo; repetir o hacerlo dos veces a la vez no devuelve dos; luego se puede validar de nuevo', async () => {
       const o = await h.owner('Deshacer Caja');
+      await h.publishMenu(o);
       const c = await withPlan(o, { almuerzos: 1 });
       const v = (await validar(o, { clienteId: c })).json();
       expect(await saldo(o, c)).toBe(0);
@@ -329,7 +340,9 @@ describe('Fase 7: caja', () => {
 
     it('pasados 10 s → 409; no se puede deshacer un consumo de otro local ni un reverso', async () => {
       const o = await h.owner('Deshacer Tarde');
+      await h.publishMenu(o);
       const other = await h.owner('Deshacer Otro');
+      await h.publishMenu(other);
       const c = await withPlan(o);
       // Consumo de hace 11 s (cargado directo: los consumos no se pueden editar).
       const viejo = (
@@ -400,6 +413,7 @@ describe('Fase 7: caja', () => {
 
     it('CADA_UNO: cada quien paga con su plan; quien no tiene queda por cobrar; repetir no descuenta otra vez', async () => {
       const o = await h.owner('Mesa Cada Uno');
+      await h.publishMenu(o);
       const ana = await dinerWithPlan(o);
       const beto = await dinerWithPlan(o);
       const sinPlan = await h.diner();
@@ -424,12 +438,14 @@ describe('Fase 7: caja', () => {
       }
       expect(await saldo(o, ana.clienteId)).toBe(4);
       const other = await h.owner('Mesa Ajena');
+      await h.publishMenu(other);
       expect((await as(other).get(`/v1/caja/mesas/${mesa}`)).statusCode).toBe(404);
       expect((await as(other).post(`/v1/caja/mesas/${mesa}/validar`, undefined, randomUUID())).statusCode).toBe(404);
     });
 
     it('INVITO_YO: el anfitrión paga todos; si no le alcanza, el resto queda por cobrar', async () => {
       const o = await h.owner('Mesa Invito');
+      await h.publishMenu(o);
       const host = await dinerWithPlan(o, { almuerzos: 2, vigenciaDias: 30 });
       const mesa = await table(o, 'INVITO_YO', [
         { usuarioPublicId: host.usuarioId, nombre: 'Anfitrión', anfitrion: true },
@@ -445,6 +461,7 @@ describe('Fase 7: caja', () => {
 
     it('dos cajas validan la misma mesa a la vez: se descuenta una sola vez', async () => {
       const o = await h.owner('Mesa Carrera');
+      await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
       const ana = await dinerWithPlan(o);
       const mesa = await table(o, 'CADA_UNO', [{ usuarioPublicId: ana.usuarioId, nombre: 'Ana', anfitrion: true }]);
@@ -460,6 +477,7 @@ describe('Fase 7: caja', () => {
   describe('ventas sueltas (POS)', () => {
     async function posLocal(nombre: string) {
       const o = await h.owner(nombre);
+      await h.publishMenu(o);
       await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 350, recargoParaLlevarCentavos: 25 });
       return o;
     }
@@ -548,6 +566,7 @@ describe('Fase 7: caja', () => {
   describe('cierre de caja', () => {
     it('efectivo esperado = cobros en efectivo del día (planes + ventas) menos reversos; un cierre activo por día', async () => {
       const o = await h.owner('Cierre');
+      await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
       await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300 });
       const p = await plan(o); // 1500
@@ -615,6 +634,7 @@ describe('Fase 7: caja', () => {
 
     it('validaciones: día futuro, cajero en otro día, monto negativo; dos cierres a la vez → uno solo', async () => {
       const o = await h.owner('Cierre Reglas');
+      await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
       const today = await hoy(o);
       expect((await as(o).post(`/v1/caja/cierre/${addDays(today, 1)}`, { efectivoContadoCentavos: 0 })).statusCode).toBe(409);
@@ -625,6 +645,7 @@ describe('Fase 7: caja', () => {
       const race = await Promise.all([o, cashier, o].map((w) => as(w).post('/v1/caja/cierre/hoy', { efectivoContadoCentavos: 0 })));
       expect(race.map((r) => r.statusCode).sort()).toEqual([201, 409, 409]);
       const other = await h.owner('Cierre Otro');
+      await h.publishMenu(other);
       expect((await as(other).get('/v1/caja/cierre/hoy')).json().cierre).toBeNull();
     });
   });
@@ -646,8 +667,10 @@ describe('Fase 7: caja', () => {
 
     it('aceptar devuelve el almuerzo al plan (una sola vez); rechazar exige explicación; el cajero no resuelve', async () => {
       const o = await h.owner('Reclamos');
+      await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
       const other = await h.owner('Reclamos Otro');
+      await h.publishMenu(other);
       const c = await withPlan(o);
       const v = (await validar(o, { clienteId: c })).json();
       const id = await claim(o, c, v.consumo.id);
@@ -680,6 +703,7 @@ describe('Fase 7: caja', () => {
 
     it('si el almuerzo ya se había devuelto (deshacer), aceptar el reclamo no lo devuelve otra vez', async () => {
       const o = await h.owner('Reclamo Doble');
+      await h.publishMenu(o);
       const c = await withPlan(o);
       const v = (await validar(o, { clienteId: c })).json();
       const id = await claim(o, c, v.consumo.id);

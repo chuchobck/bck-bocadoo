@@ -8015,7 +8015,7 @@
     },
     "/v1/pase/codigo": {
       "get": {
-        "description": "La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local.",
+        "description": "La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local y el local debe haber publicado el menú de hoy (409 `MENU_NO_PUBLICADO`).",
         "operationId": "PassController_code",
         "parameters": [
           {
@@ -8095,6 +8095,25 @@
                   "status": 404,
                   "code": "RESTAURANTE_NO_ENCONTRADO",
                   "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "MENU_NO_PUBLICADO",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -8229,7 +8248,7 @@
     },
     "/v1/caja/validar": {
       "post": {
-        "description": "Siempre responde 200 con un `resultado`. Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.",
+        "description": "Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.",
         "operationId": "CheckoutController_validate",
         "parameters": [
           {
@@ -8293,7 +8312,8 @@
                     "venceEl": "2026-11-20"
                   },
                   "almuerzosRestantes": 4,
-                  "diasParaVencer": 6
+                  "diasParaVencer": 6,
+                  "platoNombre": "Seco de pollo"
                 }
               }
             }
@@ -8349,6 +8369,25 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "MENU_NO_PUBLICADO",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -10417,7 +10456,7 @@
     },
     "/v1/pase": {
       "get": {
-        "description": "El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO.",
+        "description": "El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO. Con `restaurante`, 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy.",
         "operationId": "DinerPassController_pass",
         "parameters": [
           {
@@ -10527,6 +10566,25 @@
                   "status": 404,
                   "code": "RESTAURANTE_NO_ENCONTRADO",
                   "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "MENU_NO_PUBLICADO",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -12344,7 +12402,7 @@
     },
     "/v1/caja/pedidos/{id}/canjear": {
       "post": {
-        "description": "Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.",
+        "description": "Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta. Un pedido preordenado se canjea aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).",
         "operationId": "StaffOrdersController_redeem",
         "parameters": [
           {
@@ -12431,6 +12489,7 @@
                       "almuerzosDisponibles": 4
                     }
                   },
+                  "platoNombre": "Sopa de quinua + Seco de pollo",
                   "yaCanjeado": true,
                   "almuerzo": {
                     "resultado": "OK",
@@ -20213,6 +20272,12 @@
             "type": "number",
             "nullable": true,
             "example": 6
+          },
+          "platoNombre": {
+            "type": "string",
+            "nullable": true,
+            "example": "Seco de pollo",
+            "description": "Plato del almuerzo preordenado. Siempre null aquí: un canje directo no tiene preorden (el menú tiene varios platos)"
           }
         },
         "required": ["resultado", "mensaje", "descontado"]
@@ -21351,6 +21416,12 @@
         "properties": {
           "pedido": {
             "$ref": "#/components/schemas/PedidoCaja"
+          },
+          "platoNombre": {
+            "type": "string",
+            "nullable": true,
+            "example": "Sopa de quinua + Seco de pollo",
+            "description": "Platos del almuerzo preordenado, unidos con \" + \"; null si el pedido no lleva almuerzo"
           },
           "yaCanjeado": {
             "type": "boolean",

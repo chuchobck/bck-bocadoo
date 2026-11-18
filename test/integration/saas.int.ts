@@ -38,6 +38,7 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('un local sin plan SaaS asignado: SIN_SUSCRIPCION y sin límite', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     expect((await k.as(o).get('/v1/suscripcion')).json()).toEqual({
       estado: 'SIN_SUSCRIPCION',
       plan: null,
@@ -58,6 +59,7 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('plan gratuito sin tope: estado, precio, ciclo y límites; el uso sale ILIMITADO', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     const hoy = await localToday(k, o);
     await subscribe(o.restaurante, { codigo: 'GRATIS_T', limite: null, estado: 'FREEMIUM', precio: 0, usados: 12 });
     const r = (await k.as(o).get('/v1/suscripcion')).json();
@@ -79,6 +81,7 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('plan con tope: el uso sube con cada escaneo válido, avisa al 80 %, y al tope la caja responde LIMITE_SAAS', async () => {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const plan = await planTemplate(k, o, 'Semanal', 5, 1500);
     await subscribe(o.restaurante, { codigo: 'PRO_T', limite: 5, estado: 'ACTIVA_PRO', precio: 2900 });
     expect((await k.as(o).get('/v1/suscripcion')).json()).toMatchObject({
@@ -111,6 +114,7 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('un ciclo ya terminado se marca vencido; el cajero ve el uso pero no la suscripción; un comensal, nada', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     const cajero = await k.h.cashier(o.restaurante);
     const d = await k.diner();
     await subscribe(o.restaurante, { codigo: 'PRO_T', limite: 100, estado: 'MOROSA', precio: 2900, finDias: -3 });
@@ -127,7 +131,9 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('cada local ve solo su suscripción; la API no puede escribirla (la maneja el rol de servicio)', async () => {
     const a = await k.owner();
+    await k.h.publishMenu(a);
     const b = await k.owner();
+    await k.h.publishMenu(b);
     await subscribe(a.restaurante, { codigo: 'PRO_T', limite: 100, estado: 'ACTIVA_PRO', precio: 2900 });
     expect((await k.as(a).get('/v1/suscripcion')).json().estado).toBe('ACTIVA_PRO');
     expect((await k.as(b).get('/v1/suscripcion')).json().estado).toBe('SIN_SUSCRIPCION');
@@ -154,6 +160,7 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
 
   it('modelo SaaS: ninguna respuesta de la suscripción lleva un campo de comisión', async () => {
     const o = await k.owner();
+    await k.h.publishMenu(o);
     await subscribe(o.restaurante, { codigo: 'PRO_T', limite: 100, estado: 'ACTIVA_PRO', precio: 2900 });
     for (const url of ['/v1/suscripcion', '/v1/suscripcion/uso']) {
       const body = (await k.as(o).get(url)).body;

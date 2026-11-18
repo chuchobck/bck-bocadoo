@@ -77,6 +77,15 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 | Dos cajas a la vez               | Bloqueo de fila del cliente en la función atómica                          | `checkout.int.ts`                      |
 | Cajero que altera precios        | Los precios de almuerzo y platos los pone el servidor                      | `checkout.int.ts`                      |
 
+### Menú publicado como condición del pase y del canje
+
+El frontend bloquea el pase y el escaneo sin menú publicado, pero la regla la impone el servidor (`assertMenuPublicado`, en `src/diner/common.ts`, la misma que usa `POST /v1/mis/pedidos`): 409 `MENU_NO_PUBLICADO`. El "hoy" es la fecha local del restaurante (`zona_horaria`), no la del servidor.
+
+- `GET /v1/pase/codigo` y `GET /v1/pase` con `restaurante`: no emiten código si el local no publicó. Sin `restaurante` el código no pertenece a un local, así que no hay menú que comprobar; la regla se aplica al canjear (`validar`).
+- `POST /v1/caja/validar` (QR y manual): el chequeo va primero, dentro del servicio y bajo el tenant de la petición (RLS), así que no descuenta ni registra `intento_escaneo`. El menú de otro local no cuenta.
+- **Decisión de negocio:** un pedido preordenado mientras el menú estaba publicado **sí** se canjea (`POST /v1/caja/pedidos/{id}/canjear`) aunque luego se despublique; solo se bloquean pases nuevos y canjes directos sin preorden.
+- Pruebas: `test/integration/menu-publicado.int.ts`.
+
 ## IP del cliente y proxies (`TRUST_PROXY_HOPS`)
 
 Los rate limits por IP (login incluido) dependen de `request.ip`, que Fastify saca de `x-forwarded-for`. Con `trustProxy: true` se confía en toda la cabecera, y el cliente puede mandar la suya ("1.2.3.4") para parecer otra IP en cada petición y esquivar los límites.

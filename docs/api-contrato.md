@@ -82,7 +82,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                           |
 | `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo` |
 | `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más                |
-| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`                                                                                                     |
+| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`                                     |
 | `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`                                                |
 | `MESA_LLENA`                  | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
 | `MESA_VENCIDA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
@@ -2169,9 +2169,9 @@ Errores propios del módulo (estas fases usan el `code` genérico del estado HTT
 - **Estado:** Estable
 - **Query:** `restaurante`
 
-La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local.
+La app lo pide de nuevo cuando vence. Con `restaurante` el código solo vale en ese local y el local debe haber publicado el menú de hoy (409 `MENU_NO_PUBLICADO`).
 
-> El código dura 30 s: pedir uno nuevo antes de que expire (`expiraEn`). Con `?restaurante=` solo vale en ese local.
+> El código dura 30 s: pedir uno nuevo antes de que expire (`expiraEn`). Con `?restaurante=` solo vale en ese local y exige el menú de hoy publicado (fecha local del restaurante). Sin `restaurante` el código no es de un local concreto y se emite igual; la regla se aplica al canjear en `POST /v1/caja/validar`.
 
 Response `200`:
 
@@ -2182,6 +2182,13 @@ Response `200`:
   "expiraEn": "2026-11-13T03:48:00.000Z"
 }
 ```
+
+Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
+
+| HTTP | `code`                      | Ejemplo de `detail`                           |
+| ---- | --------------------------- | --------------------------------------------- |
+| 404  | `RESTAURANTE_NO_ENCONTRADO` | Restaurante no encontrado.                    |
+| 409  | `MENU_NO_PUBLICADO`         | El restaurante aún no publicó el menú de hoy. |
 
 #### `POST /v1/pase/rotar`
 
@@ -2206,7 +2213,7 @@ Sin cuerpo.
 - **Estado:** Estable
 - **Idempotency-Key:** obligatoria (UUID)
 
-Siempre responde 200 con un `resultado`. Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.
+Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.
 
 > Responde **siempre 200** con un `resultado`; "sin saldo", "duplicado" o "QR vencido" no son errores HTTP. Se manda `codigoQr` o `clienteId` (uno solo; si no, 400).
 
@@ -2236,6 +2243,7 @@ Response `200`:
   },
   "almuerzosRestantes": 4,
   "diasParaVencer": 6,
+  "platoNombre": null,
   "cliente": {
     "id": "195",
     "nombre": "Ana Mora"
@@ -2249,6 +2257,9 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | ---- | -------------------------- | ---------------------------------------------------------- |
 | 400  | `IDEMPOTENCY_KEY_INVALIDA` | Falta el encabezado Idempotency-Key (UUID) o no es válido. |
 | 403  | `FORBIDDEN`                | No tienes acceso a este restaurante.                       |
+| 409  | `MENU_NO_PUBLICADO`        | El restaurante aún no publicó el menú de hoy.              |
+
+> Sin menú publicado hoy, `validar` (QR o manual) responde 409 **antes** de tocar nada: no descuenta y no registra `intento_escaneo`. `platoNombre` es siempre `null` aquí (un canje directo no tiene preorden). Los pedidos preordenados se canjean por `POST /v1/caja/pedidos/{id}/canjear`.
 
 #### `POST /v1/caja/consumos/{id}/deshacer`
 
@@ -2741,7 +2752,7 @@ Response `200`:
 - **Estado:** En revisión (fase 8)
 - **Query:** `restaurante`
 
-El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO.
+El código cambia cada 30 segundos (`codigo.expiraEn`); la app vuelve a pedir el pase o `GET /v1/pase/codigo` cuando vence. Con `restaurante` el código solo vale en ese local. Solo se listan planes activos y no vencidos, en orden FIFO. Con `restaurante`, 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy.
 
 > Incluye el código sin restaurante (`BCD1.<usuario>.0.<mac>`) y los planes vigentes por local. `hoy` es la fecha local de cada restaurante.
 
@@ -3286,7 +3297,9 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 - **Estado:** En revisión (fase 8)
 - **Idempotency-Key:** obligatoria (UUID)
 
-Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.
+Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta. Un pedido preordenado se canjea aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).
+
+> `platoNombre`: platos del almuerzo preordenado unidos con `+`; `null` si el pedido solo lleva extras. Es campo nuevo y opcional.
 
 Request: sin cuerpo (no envíes `content-type`).
 
@@ -3342,6 +3355,7 @@ Response `200`:
       "almuerzosDisponibles": 3
     }
   },
+  "platoNombre": "Sopa de quinua",
   "yaCanjeado": false,
   "almuerzo": {
     "resultado": "OK",
@@ -4739,6 +4753,20 @@ Cada endpoint de la referencia (sección 3) lleva su propio campo **Estado**.
 - En esta rama `GET /v1/pase/codigo` con un restaurante inexistente responde 404 `RESTAURANTE_NO_ENCONTRADO` (antes `NOT_FOUND`) y la falta de `Idempotency-Key` da `IDEMPOTENCY_KEY_INVALIDA` (antes `BAD_REQUEST`); el status no cambia.
 - La tarjeta de sellos solo cuenta almuerzos (`cuenta: "ALMUERZO"`); `PLATO` queda para después.
 - Los límites de uso por IP viven en memoria de cada instancia; el límite por usuario de `POST /v1/eventos` está en la base y vale para todas.
+
+### Menú publicado en pase y caja
+
+El servidor impone que el menú de hoy esté publicado (fecha local del restaurante, no la del servidor). Si no, responde **409 `MENU_NO_PUBLICADO`** (`application/problem+json`, el mismo código que `POST /v1/mis/pedidos`):
+
+| Endpoint                             | Con menú sin publicar                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /v1/pase/codigo?restaurante=`   | 409. Sin `restaurante` el código no es de un local: se emite igual y la regla se aplica al canjear                                         |
+| `GET /v1/pase?restaurante=`          | 409 (emite el mismo código). Sin `restaurante` responde 200                                                                                |
+| `POST /v1/caja/validar`              | 409 por QR y por búsqueda manual, antes de tocar nada: no descuenta y no registra `intento_escaneo`                                        |
+| `POST /v1/caja/pedidos/{id}/canjear` | **No se bloquea**: un pedido preordenado con el menú publicado se canjea aunque después se despublique. Nunca responde `MENU_NO_PUBLICADO` |
+
+Cambios de contrato (solo adiciones): respuesta `409` en los tres primeros endpoints y campo nuevo opcional `platoNombre` (`string | null`) en `POST /v1/caja/validar` (siempre `null`: un canje directo no tiene preorden) y en `POST /v1/caja/pedidos/{id}/canjear` (platos del almuerzo preordenado unidos con `+`; `null` si solo lleva extras). `GET /v1/restaurantes/{slug}` ya exponía `menuHoy.publicado` y no cambió. Nota: el código del pase se pide con `GET`, no `POST`.
+
 - Los reportes son solo para el dueño y usan la zona horaria del local; no hay gating por plan SaaS (`limites.reportesAvanzados` se informa, pero no se exige).
 - `info.version` del OpenAPI es `1.0.0-rc.1` (candidata de la fase 10); aún no hay tag.
 - `POST /v1/auth/register*` no devuelve tokens; el comensal debe iniciar sesión tras registrarse.

@@ -21,6 +21,7 @@ describe.skipIf(!probe)('Fase 9: jobs de mantenimiento (planes vencidos y partic
 
   it('expire-plans: vence solo los ACTIVA cuyo último día ya pasó; no toca agotados ni anulados; una segunda corrida no cambia nada', async () => {
     const o = await k.activeOwner();
+    await k.h.publishMenu(o);
     const semanal = await planTemplate(k, o, 'Semanal', 5, 1500);
     const uno = await planTemplate(k, o, 'Un almuerzo', 1, 350);
     const hoy = await localToday('America/Guayaquil');

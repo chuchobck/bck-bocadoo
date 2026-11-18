@@ -1,12 +1,28 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { badRequest } from '../common/errors';
+import { badRequest, conflict } from '../common/errors';
+import type { Queryable } from '../db/db.service';
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** "Hoy" de cada restaurante, en su zona horaria. */
 export const HOY_LOCAL = (alias: string) => `(CURRENT_TIMESTAMP AT TIME ZONE ${alias}.zona_horaria)::date`;
+
+/**
+ * Exige que el restaurante haya publicado el menú de HOY (fecha local del restaurante, no la del servidor); si no,
+ * 409 `MENU_NO_PUBLICADO`. Sin `restauranteId` usa el tenant de la petición (personal). Devuelve el id del menú.
+ */
+export async function assertMenuPublicado(q: Queryable, restauranteId?: string): Promise<string> {
+  const r = await q.query<{ menu_diario_id: string }>(
+    `SELECT m.menu_diario_id FROM restaurante r
+       JOIN menu_diario_cabecera m ON m.restaurante_id = r.restaurante_id AND m.fecha_local = ${HOY_LOCAL('r')} AND m.publicado_en IS NOT NULL
+      WHERE r.restaurante_id = COALESCE($1::bigint, app_tenant_id())`,
+    [restauranteId ?? null],
+  );
+  if (!r.rows[0]) throw conflict('MENU_NO_PUBLICADO', 'El restaurante aún no publicó el menú de hoy.');
+  return r.rows[0].menu_diario_id;
+}
 
 /** Paginación por cursor opaco (fecha + public_id: nunca ids internos). */
 export class PageQuery {

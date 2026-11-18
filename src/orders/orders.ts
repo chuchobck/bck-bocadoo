@@ -23,7 +23,7 @@ import { ApiProblems, badRequest, conflict, notFound, unprocessable } from '../c
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
-import { CURSOR_TS, HOY_LOCAL, PageQuery, UUID_RE, decodeCursor, encodeCursor, restauranteRef } from '../diner/common';
+import { CURSOR_TS, HOY_LOCAL, PageQuery, assertMenuPublicado, UUID_RE, decodeCursor, encodeCursor, restauranteRef } from '../diner/common';
 
 /** Minutos que vive una preorden: después la caja ya no la canjea. */
 export const PREORDER_MINUTES = 30;
@@ -269,13 +269,7 @@ export class DinerOrdersService {
       )
     ).rows[0];
     if (!rest) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
-    const menu = (
-      await q.query<{ menu_diario_id: string }>(
-        'SELECT menu_diario_id FROM menu_diario_cabecera WHERE restaurante_id = $1 AND fecha_local = $2 AND publicado_en IS NOT NULL',
-        [rest.restaurante_id, rest.hoy],
-      )
-    ).rows[0];
-    if (!menu) throw conflict('MENU_NO_PUBLICADO', 'El restaurante aún no publicó el menú de hoy.');
+    const menu = { menu_diario_id: await assertMenuPublicado(q, rest.restaurante_id) };
     // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
     // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
     const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
@@ -487,6 +481,13 @@ class PedidoCaja extends PedidoResponse {
 
 class PedidoCanjeResponse {
   @ApiProperty({ type: PedidoCaja }) pedido!: PedidoCaja;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Sopa de quinua + Seco de pollo',
+    description: 'Platos del almuerzo preordenado, unidos con " + "; null si el pedido no lleva almuerzo',
+  })
+  platoNombre!: string | null;
   @ApiProperty({ description: 'El pedido ya estaba canjeado: no se descontó nada esta vez' }) yaCanjeado!: boolean;
   @ApiPropertyOptional({
     description: 'null si el pedido no lleva almuerzo. `resultado` es null al repetir un canje ya hecho.',
@@ -548,6 +549,7 @@ export class StaffOrdersService {
       if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
       const pedidoLines = await renderOrders(q, [o]);
       const hasLunch = pedidoLines[0]!.almuerzo !== null;
+      const platoNombre = pedidoLines[0]!.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
       const extras = pedidoLines[0]!.extras.reduce((s, e) => s + e.subtotalCentavos, 0);
       const precio = Number(
         (await q.query<{ p: string }>('SELECT precio_suelto_centavos AS p FROM restaurante WHERE restaurante_id = app_tenant_id()'))
@@ -564,6 +566,7 @@ export class StaffOrdersService {
         const consumoId = c.rows[0]?.public_id ?? null;
         return {
           pedido: (await this.render(q, [o]))[0]!,
+          platoNombre,
           yaCanjeado: true,
           almuerzo: hasLunch ? { resultado: null, mensaje: null, descontado: consumoId !== null, consumoId } : null,
           porCobrarCentavos: due(consumoId !== null),
@@ -601,6 +604,7 @@ export class StaffOrdersService {
       const after = await this.load(q, id, false);
       return {
         pedido: (await this.render(q, [after]))[0]!,
+        platoNombre,
         yaCanjeado: false,
         almuerzo,
         porCobrarCentavos: due(almuerzo?.descontado ?? false),
@@ -669,7 +673,8 @@ export class StaffOrdersController {
     summary: 'Canjear el QR del pedido',
     description:
       'Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados ' +
-      'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta.',
+      'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta. Un pedido preordenado se canjea ' +
+      'aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).',
   })
   @ApiOkResponse({ type: PedidoCanjeResponse })
   @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'], 409: ['PEDIDO_EXPIRADO', 'PEDIDO_CANCELADO', 'IDEMPOTENCY_KEY_REUTILIZADA'] })
