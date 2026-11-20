@@ -31,14 +31,24 @@ interface ListRow {
   personas: number | null;
   puestos: number | null;
   lleno_manual: boolean | null;
+  concurrido_manual: boolean | null;
 }
 
-/** Nivel de ocupación para el comensal: LIBRE (<50%), MODERADO (50–89%), LLENO (≥90% o "Local lleno" manual). */
-export function occupancy(personas: number | null, puestos: number | null, llenoManual: boolean | null) {
+/**
+ * Nivel de ocupación para el comensal: LIBRE (<50%), MODERADO (50–89% o "Concurrido" manual vigente),
+ * LLENO (≥90% o "Local lleno" manual vigente). Gana el nivel más alto: un "Concurrido" manual nunca baja un LLENO.
+ */
+export function occupancy(
+  personas: number | null,
+  puestos: number | null,
+  llenoManual: boolean | null,
+  concurridoManual: boolean | null = false,
+) {
   const p = personas ?? 0;
   const pct = puestos ? Math.min(100, Math.round((p * 100) / puestos)) : 0;
   const lleno = Boolean(llenoManual) || pct >= 90;
-  return { nivel: lleno ? 'LLENO' : pct >= 50 ? 'MODERADO' : 'LIBRE', porcentaje: pct, lleno };
+  const nivel = lleno ? 'LLENO' : pct >= 50 || Boolean(concurridoManual) ? 'MODERADO' : 'LIBRE';
+  return { nivel, porcentaje: pct, lleno } as const;
 }
 
 const num = (v: string | null) => (v === null ? null : Number(v));
@@ -65,7 +75,7 @@ const OPEN_NOW = `EXISTS (SELECT 1 FROM restaurante_horario h
 
 const BASE_SELECT = `SELECT r.restaurante_id, r.public_id, r.nombre, r.slug, r.descripcion_corta, r.etiquetas, r.zona_id, z.nombre AS zona_nombre,
        r.ciudad_id, r.direccion, r.latitud, r.longitud, r.logo_url, r.precio_suelto_centavos, r.moneda_codigo,
-       ${OPEN_NOW} AS abierto_ahora, o.personas, o.puestos, o.lleno_manual
+       ${OPEN_NOW} AS abierto_ahora, o.personas, o.puestos, o.lleno_manual, o.concurrido_manual
   FROM restaurante r
   LEFT JOIN zona z ON z.zona_id = r.zona_id
   LEFT JOIN LATERAL fn_ocupacion_local(r.restaurante_id) o ON true`;
@@ -86,7 +96,7 @@ function toCard(r: ListRow) {
     precioSueltoCentavos: Number(r.precio_suelto_centavos),
     monedaCodigo: r.moneda_codigo,
     abiertoAhora: r.abierto_ahora,
-    ocupacion: occupancy(r.personas, r.puestos, r.lleno_manual),
+    ocupacion: occupancy(r.personas, r.puestos, r.lleno_manual, r.concurrido_manual),
   };
 }
 

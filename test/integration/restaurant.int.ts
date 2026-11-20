@@ -153,7 +153,7 @@ describe('Restaurante: perfil, estado, horarios, mesas y "local lleno"', () => {
     expect(mins).toBeGreaterThan(19);
     expect(mins).toBeLessThanOrEqual(20.1);
     const off = await h.call('POST', '/v1/restaurante/lleno', { token: o.token, restaurante: o.restaurante, payload: { lleno: false } });
-    expect(off.json()).toEqual({ lleno: false, llenoManualHasta: null });
+    expect(off.json()).toEqual({ lleno: false, nivel: 'LIBRE', llenoManualHasta: null, concurridoManualHasta: null });
     expect(
       (await h.call('POST', '/v1/restaurante/lleno', { token: o.token, restaurante: o.restaurante, payload: { lleno: 'si' } })).statusCode,
     ).toBe(400);

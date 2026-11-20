@@ -221,9 +221,90 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     expect((await pub(`/v1/restaurantes/${slug2}`)).json().ocupacion.nivel).toBe('LIBRE');
   });
 
+  it('estado manual "Concurrido": niveles, prioridad de nivel, expiración, no baja un LLENO y las tres lecturas coinciden', async () => {
+    const o = await activeLocal(`Concurrido ${unique()} A`, { puestos: 10 });
+    const other = await activeLocal(`Concurrido ${unique()} B`, { puestos: 10 });
+    const set = (who: Actor, payload: object) => own(who).post('/v1/restaurante/lleno', payload);
+    const list = async (who: Actor) => {
+      const r = await pub(`/v1/restaurantes?q=${encodeURIComponent(who.slug.split('-')[0]!)}&limit=50`);
+      return (r.json().items as { slug: string; ocupacion: unknown }[]).find((i) => i.slug === who.slug)?.ocupacion;
+    };
+    const detail = async (who: Actor) => (await pub(`/v1/restaurantes/${who.slug}`)).json().ocupacion;
+    const mine = async (who: Actor) =>
+      (await h.call('GET', '/v1/restaurante', { token: who.token, restaurante: who.restaurante })).json().ocupacion;
+    const expectAll = async (who: Actor, esperado: object) => {
+      expect(await detail(who)).toEqual(esperado);
+      expect(await list(who)).toEqual(esperado);
+      expect(await mine(who)).toEqual(esperado);
+    };
+
+    await expectAll(o, { nivel: 'LIBRE', porcentaje: 0, lleno: false });
+    // CONCURRIDO: 20 min, limpia lleno, nivel intermedio existente (MODERADO).
+    const c = await set(o, { nivel: 'CONCURRIDO' });
+    expect(c.statusCode).toBe(200);
+    expect(c.json()).toMatchObject({ lleno: false, nivel: 'CONCURRIDO', llenoManualHasta: null });
+    const mins = (new Date(c.json().concurridoManualHasta).getTime() - Date.now()) / 60000;
+    expect(mins).toBeGreaterThan(19);
+    expect(mins).toBeLessThanOrEqual(20.1);
+    await expectAll(o, { nivel: 'MODERADO', porcentaje: 0, lleno: false });
+    // Aislamiento: el otro local sigue LIBRE.
+    await expectAll(other, { nivel: 'LIBRE', porcentaje: 0, lleno: false });
+    // LLENO reemplaza a CONCURRIDO (excluyentes).
+    const l = await set(o, { nivel: 'LLENO' });
+    expect(l.json()).toMatchObject({ lleno: true, nivel: 'LLENO', concurridoManualHasta: null });
+    await expectAll(o, { nivel: 'LLENO', porcentaje: 0, lleno: true });
+    // Solo "lleno" booleano, como antes.
+    expect((await set(o, { lleno: false })).json()).toEqual({
+      lleno: false,
+      nivel: 'LIBRE',
+      llenoManualHasta: null,
+      concurridoManualHasta: null,
+    });
+    await set(o, { lleno: true });
+    await expectAll(o, { nivel: 'LLENO', porcentaje: 0, lleno: true });
+    // Conflicto lleno/nivel: gana nivel.
+    expect((await set(o, { lleno: true, nivel: 'LIBRE' })).json()).toMatchObject({ lleno: false, nivel: 'LIBRE' });
+    await expectAll(o, { nivel: 'LIBRE', porcentaje: 0, lleno: false });
+    expect((await set(o, { lleno: false, nivel: 'CONCURRIDO' })).json()).toMatchObject({ lleno: false, nivel: 'CONCURRIDO' });
+    // Valores inválidos y cuerpo vacío: 400, sin cambiar el estado.
+    for (const bad of [{ nivel: 'MOVIDO' }, { nivel: 'concurrido' }, { nivel: 1 }, { lleno: 'si' }, { nivel: null }, {}]) {
+      expect((await set(o, bad)).statusCode).toBe(400);
+    }
+    await expectAll(o, { nivel: 'MODERADO', porcentaje: 0, lleno: false });
+    // Vencido (reloj de la base): vuelve al cálculo automático.
+    await h.db.service((q) =>
+      q.query(`UPDATE restaurante SET concurrido_manual_hasta = now() - interval '1 minute' WHERE public_id = $1`, [o.restaurante]),
+    );
+    await expectAll(o, { nivel: 'LIBRE', porcentaje: 0, lleno: false });
+    // Un CONCURRIDO manual nunca baja un LLENO automático (≥90%).
+    for (let t = 1; t <= 9; t++)
+      await h.db.service((q) =>
+        q.query(
+          `INSERT INTO venta_pos_cabecera (restaurante_id, fecha_local, ticket, total_centavos, moneda_codigo, personal_id, clave_idempotencia, creado_en)
+           SELECT r.restaurante_id, CURRENT_DATE, $2, 350, 'USD', p.personal_id, $3, now()
+             FROM restaurante r JOIN personal_restaurante p ON p.restaurante_id = r.restaurante_id WHERE r.public_id = $1`,
+          [o.restaurante, t, randomUUID()],
+        ),
+      );
+    await set(o, { nivel: 'CONCURRIDO' });
+    await expectAll(o, { nivel: 'LLENO', porcentaje: 90, lleno: true });
+    // Un CONCURRIDO sobre 50–89% sigue siendo MODERADO y un LIBRE manual no oculta el automático.
+    await set(o, { nivel: 'LIBRE' });
+    await expectAll(o, { nivel: 'LLENO', porcentaje: 90, lleno: true });
+  });
+
+  it('un local PAUSADO sale de la vitrina (404 / fuera del listado) y su GET propio no trae ocupación', async () => {
+    const o = await activeLocal(`Pausado ${unique()} Local`);
+    expect((await pub(`/v1/restaurantes/${o.slug}`)).statusCode).toBe(200);
+    expect((await own(o).post('/v1/restaurante/pausar')).statusCode).toBe(200);
+    expect((await pub(`/v1/restaurantes/${o.slug}`)).statusCode).toBe(404);
+    const mine = (await h.call('GET', '/v1/restaurante', { token: o.token, restaurante: o.restaurante })).json();
+    expect(mine).toMatchObject({ estado: 'PAUSADO', ocupacion: null });
+  });
+
   it('la función de ocupación solo devuelve conteos y no sirve para leer ventas ajenas', async () => {
     const r = await h.db.scope({ readOnly: true }, (q) => q.query('SELECT * FROM fn_ocupacion_local(1)'));
-    expect(Object.keys(r.rows[0]!).sort()).toEqual(['lleno_manual', 'personas', 'puestos']);
+    expect(Object.keys(r.rows[0]!).sort()).toEqual(['concurrido_manual', 'lleno_manual', 'personas', 'puestos']);
     await expect(h.db.scope({ readOnly: true }, (q) => q.query('SELECT count(*) FROM venta_pos_cabecera'))).resolves.toMatchObject({
       rows: [{ count: '0' }],
     });

@@ -5,10 +5,11 @@ class ZonaResponse {
   @ApiProperty({ example: 'La Floresta' }) nombre!: string;
 }
 
-class OcupacionResponse {
+export class OcupacionResponse {
   @ApiProperty({
     enum: ['LIBRE', 'MODERADO', 'LLENO'],
-    description: 'LIBRE (<50%), MODERADO (50–89%), LLENO (≥90% o "Local lleno" manual)',
+    description:
+      'LIBRE (<50%), MODERADO (50–89% o "Concurrido" manual vigente), LLENO (≥90% o "Local lleno" manual vigente). Gana el más alto.',
   })
   nivel!: 'LIBRE' | 'MODERADO' | 'LLENO';
   @ApiProperty({ example: 40, description: 'Porcentaje de puestos ocupados (0–100)' }) porcentaje!: number;
