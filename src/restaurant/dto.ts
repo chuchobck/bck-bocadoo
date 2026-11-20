@@ -107,6 +107,24 @@ export class ActualizarMesaDto {
   @ApiPropertyOptional() @present() @IsBoolean() activo?: boolean;
 }
 
+export const NIVELES_MANUALES = ['LIBRE', 'CONCURRIDO', 'LLENO'] as const;
+export type NivelManual = (typeof NIVELES_MANUALES)[number];
+
 export class LlenoDto {
-  @ApiProperty({ description: 'true marca "Local lleno" por 20 minutos; false lo quita' }) @IsBoolean() lleno!: boolean;
+  @ApiPropertyOptional({
+    description:
+      'Compatibilidad: true = nivel LLENO por 20 minutos; false = nivel LIBRE. Si también llega `nivel`, gana `nivel`. Debe venir `lleno` o `nivel`.',
+  })
+  @present()
+  @IsBoolean()
+  lleno?: boolean;
+
+  @ApiPropertyOptional({
+    enum: NIVELES_MANUALES,
+    description:
+      'Estado manual del local. LLENO y CONCURRIDO duran 20 minutos y expiran solos; LIBRE los quita. Tiene prioridad sobre `lleno`.',
+  })
+  @present()
+  @IsIn(NIVELES_MANUALES)
+  nivel?: NivelManual;
 }

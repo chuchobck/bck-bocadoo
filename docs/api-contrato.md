@@ -444,6 +444,7 @@ Response `200`:
   "precioSueltoCentavos": 0,
   "recargoParaLlevarCentavos": 0,
   "llenoManualHasta": null,
+  "concurridoManualHasta": null,
   "estado": "BORRADOR",
   "creadoEn": "2026-11-13T03:47:35.716Z",
   "actualizadoEn": "2026-11-13T03:47:35.716Z"
@@ -503,6 +504,7 @@ Response `200`:
   "precioSueltoCentavos": 300,
   "recargoParaLlevarCentavos": 25,
   "llenoManualHasta": null,
+  "concurridoManualHasta": null,
   "estado": "BORRADOR",
   "creadoEn": "2026-11-13T03:47:35.716Z",
   "actualizadoEn": "2026-11-13T03:47:35.822Z"
@@ -553,6 +555,7 @@ Response `200`:
   "precioSueltoCentavos": 300,
   "recargoParaLlevarCentavos": 25,
   "llenoManualHasta": null,
+  "concurridoManualHasta": null,
   "estado": "ACTIVO",
   "creadoEn": "2026-11-13T03:47:35.716Z",
   "actualizadoEn": "2026-11-13T03:47:36.082Z"
@@ -593,6 +596,7 @@ Response `200`:
   "precioSueltoCentavos": 300,
   "recargoParaLlevarCentavos": 25,
   "llenoManualHasta": null,
+  "concurridoManualHasta": null,
   "estado": "PAUSADO",
   "creadoEn": "2026-11-13T03:47:35.716Z",
   "actualizadoEn": "2026-11-13T03:49:45.731Z"
@@ -728,29 +732,57 @@ Response `200`:
 
 #### `POST /v1/restaurante/lleno`
 
-**Marcar o quitar "Local lleno"**
+**Marcar el estado manual del local: Libre, Concurrido o Lleno**
 
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
 - **Estado:** Estable
 
-Dura 20 minutos y expira solo.
-
-Request:
+Request (manda `nivel`, o `lleno` por compatibilidad; al menos uno):
 
 ```json
 {
-  "lleno": true
+  "nivel": "CONCURRIDO"
 }
 ```
+
+- `nivel`: `LIBRE` | `CONCURRIDO` | `LLENO`. Cualquier otro valor → 400 de validación.
+- `lleno` (booleano, sigue funcionando): `true` equivale a `nivel: "LLENO"`; `false`, a `nivel: "LIBRE"`.
+- **Si llegan los dos y se contradicen, gana `nivel`** (por ejemplo `{ "lleno": true, "nivel": "LIBRE" }` deja el local en `LIBRE`).
+- Sin `nivel` ni `lleno` → 400.
+- `LLENO` y `CONCURRIDO` duran 20 minutos y expiran solos (se miden con el reloj de la base, no el del cliente); son excluyentes entre sí. `LIBRE` limpia ambos.
+- Es un estado **manual**: no baja un nivel automático más alto (ver abajo).
 
 Response `200`:
 
 ```json
 {
-  "lleno": true,
-  "llenoManualHasta": "2026-11-13T04:09:42.029Z"
+  "lleno": false,
+  "nivel": "CONCURRIDO",
+  "llenoManualHasta": null,
+  "concurridoManualHasta": null,
+  "concurridoManualHasta": "2026-11-13T04:09:42.029Z"
 }
 ```
+
+`lleno` es `true` solo cuando `nivel` es `LLENO`. `llenoManualHasta` y `concurridoManualHasta` son `null` cuando ese estado no está activo.
+
+##### Cómo se ve en la ocupación (`ocupacion.nivel` y `ocupacion.lleno`)
+
+La escala de `ocupacion.nivel` **no cambia**: `LIBRE`, `MODERADO`, `LLENO`. El "Concurrido" manual se muestra como `MODERADO`.
+
+| Estado manual vigente | Resultado                                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `LLENO`               | `nivel: "LLENO"`, `lleno: true`                                                                       |
+| `CONCURRIDO`          | `nivel: "MODERADO"`, `lleno: false`, salvo que el cálculo automático ya dé `LLENO` (gana el más alto) |
+| vencido o ninguno     | lo que calcula el aforo (`LIBRE` <50%, `MODERADO` 50–89%, `LLENO` ≥90%)                               |
+
+Se lee en `GET /v1/restaurantes`, `GET /v1/restaurantes/{slug}` y `GET /v1/restaurante` (este último trae `ocupacion` desde esta versión; es `null` si el local no está `ACTIVO`).
+
+##### Los 4 estados para las apps (Libre, Concurrido, Lleno, Cerrado)
+
+- Libre / Concurrido / Lleno: `ocupacion.nivel` = `LIBRE` / `MODERADO` / `LLENO`. Ojo: `MODERADO` también aparece por aforo (50–89%) sin que nadie lo marque; la API no distingue si es manual o automático.
+- Cerrado: hoy **no hay un campo `activo`/`abierto`**. Un local `PAUSADO` desaparece de `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}` responde 404; solo su personal lo ve con `GET /v1/restaurante` (`estado: "PAUSADO"`, `ocupacion: null`). `abiertoAhora` es solo el horario del local y no se afecta por el estado manual.
+- **No hay evento en tiempo real** para la ocupación: las apps la leen con los GET anteriores (polling). Una opción futura, solo como idea: reutilizar el canal SSE del pase (`pass-events`) o agregar un SSE público por local; no está construida.
 
 #### `GET /v1/restaurantes`
 

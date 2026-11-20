@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { OcupacionResponse } from '../catalog/dto';
 
 export class RestauranteResponse {
   @ApiProperty({ format: 'uuid', description: 'public_id' }) id!: string;
@@ -23,9 +24,21 @@ export class RestauranteResponse {
   @ApiProperty({ example: 25, description: 'Centavos' }) recargoParaLlevarCentavos!: number;
   @ApiProperty({ type: Date, nullable: true, description: 'Hasta cuándo dura "Local lleno"; null si no está activo' })
   llenoManualHasta!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'Hasta cuándo dura "Concurrido" manual; null si no está activo' })
+  concurridoManualHasta!: Date | null;
   @ApiProperty({ example: 'ACTIVO', description: 'BORRADOR, ACTIVO, PAUSADO o BAJA' }) estado!: string;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty() actualizadoEn!: Date;
+}
+
+/** Perfil del local para su personal (GET): suma la ocupación vigente, igual que la vitrina. */
+export class MiRestauranteResponse extends RestauranteResponse {
+  @ApiProperty({
+    type: OcupacionResponse,
+    nullable: true,
+    description: 'Ocupación vigente (misma que ve el comensal). null si el local no está ACTIVO (p. ej. PAUSADO).',
+  })
+  ocupacion!: OcupacionResponse | null;
 }
 
 export class HorarioResponse {
@@ -42,7 +55,10 @@ export class MesaResponse {
 }
 
 export class LlenoResponse {
-  @ApiProperty() lleno!: boolean;
-  @ApiProperty({ type: Date, nullable: true, description: 'Cuándo expira solo (20 minutos); null si se quitó' })
+  @ApiProperty({ description: 'true solo si el nivel manual quedó en LLENO' }) lleno!: boolean;
+  @ApiProperty({ enum: ['LIBRE', 'CONCURRIDO', 'LLENO'], description: 'Nivel manual aplicado' }) nivel!: string;
+  @ApiProperty({ type: Date, nullable: true, description: 'Cuándo expira solo "Lleno" (20 minutos); null si no está activo' })
   llenoManualHasta!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'Cuándo expira solo "Concurrido" (20 minutos); null si no está activo' })
+  concurridoManualHasta!: Date | null;
 }

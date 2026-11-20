@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DbService, Queryable } from '../db/db.service';
-import { ActualizarMesaDto, CrearMesaDto, HorarioDto, UpdateRestauranteDto } from './dto';
+import { ActualizarMesaDto, CrearMesaDto, HorarioDto, LlenoDto, NivelManual, UpdateRestauranteDto } from './dto';
+import { occupancy } from '../catalog/catalog.service';
 
 const COLS = `public_id, nombre, slug, descripcion_corta, etiquetas, pais_codigo, ciudad_id, zona_id, moneda_codigo, zona_horaria,
   direccion, latitud, longitud, telefono_e164, logo_url, puestos, anotar_mesa, momento_cobro, precio_suelto_centavos,
-  recargo_para_llevar_centavos, lleno_manual_hasta, estado, creado_en, actualizado_en`;
+  recargo_para_llevar_centavos, lleno_manual_hasta, concurrido_manual_hasta, estado, creado_en, actualizado_en`;
 
 interface Row {
   public_id: string;
@@ -28,6 +29,7 @@ interface Row {
   precio_suelto_centavos: string;
   recargo_para_llevar_centavos: string;
   lleno_manual_hasta: Date | null;
+  concurrido_manual_hasta: Date | null;
   estado: string;
   creado_en: Date;
   actualizado_en: Date;
@@ -76,6 +78,7 @@ export function toRestauranteDto(r: Row) {
     precioSueltoCentavos: Number(r.precio_suelto_centavos),
     recargoParaLlevarCentavos: Number(r.recargo_para_llevar_centavos),
     llenoManualHasta: r.lleno_manual_hasta,
+    concurridoManualHasta: r.concurrido_manual_hasta,
     estado: r.estado,
     creadoEn: r.creado_en,
     actualizadoEn: r.actualizado_en,
@@ -87,7 +90,18 @@ export class RestaurantService {
   constructor(private readonly db: DbService) {}
 
   async get() {
-    return this.db.forRequest(async (q) => toRestauranteDto(await this.load(q)), { readOnly: true });
+    return this.db.forRequest(
+      async (q) => {
+        const r = await this.load(q);
+        // fn_ocupacion_local decide la vigencia con el reloj de la base y solo devuelve fila si el local está ACTIVO.
+        const o = await q.query<{ personas: number; puestos: number; lleno_manual: boolean; concurrido_manual: boolean }>(
+          'SELECT personas, puestos, lleno_manual, concurrido_manual FROM fn_ocupacion_local(app_tenant_id())',
+        );
+        const f = o.rows[0];
+        return { ...toRestauranteDto(r), ocupacion: f ? occupancy(f.personas, f.puestos, f.lleno_manual, f.concurrido_manual) : null };
+      },
+      { readOnly: true },
+    );
   }
 
   async update(dto: UpdateRestauranteDto) {
@@ -230,15 +244,28 @@ export class RestaurantService {
 
   // --- "Local lleno" ----------------------------------------------------------------------------------------------
 
-  /** Marca "Local lleno" por 20 minutos (expira solo) o lo quita. */
-  async setFull(lleno: boolean) {
+  /**
+   * Estado manual del local. `nivel` manda sobre `lleno` si llegan los dos. LLENO/CONCURRIDO duran 20 minutos (reloj de
+   * la base) y son excluyentes; LIBRE limpia ambos.
+   */
+  async setFull(dto: LlenoDto) {
+    const nivel: NivelManual | undefined = dto.nivel ?? (dto.lleno === undefined ? undefined : dto.lleno ? 'LLENO' : 'LIBRE');
+    if (!nivel) throw new BadRequestException('Envía `nivel` (LIBRE, CONCURRIDO o LLENO) o `lleno` (booleano).');
     return this.db.forRequest(async (q) => {
-      const r = await q.query<{ lleno_manual_hasta: Date | null }>(
-        `UPDATE restaurante SET lleno_manual_hasta = CASE WHEN $1::boolean THEN CURRENT_TIMESTAMP + interval '20 minutes' END
-          WHERE restaurante_id = app_tenant_id() RETURNING lleno_manual_hasta`,
-        [lleno],
+      const r = await q.query<{ lleno_manual_hasta: Date | null; concurrido_manual_hasta: Date | null }>(
+        `UPDATE restaurante
+            SET lleno_manual_hasta = CASE WHEN $1::text = 'LLENO' THEN CURRENT_TIMESTAMP + interval '20 minutes' END,
+                concurrido_manual_hasta = CASE WHEN $1::text = 'CONCURRIDO' THEN CURRENT_TIMESTAMP + interval '20 minutes' END
+          WHERE restaurante_id = app_tenant_id() RETURNING lleno_manual_hasta, concurrido_manual_hasta`,
+        [nivel],
       );
-      return { lleno, llenoManualHasta: r.rows[0]!.lleno_manual_hasta };
+      const row = r.rows[0]!;
+      return {
+        lleno: nivel === 'LLENO',
+        nivel,
+        llenoManualHasta: row.lleno_manual_hasta,
+        concurridoManualHasta: row.concurrido_manual_hasta,
+      };
     });
   }
 

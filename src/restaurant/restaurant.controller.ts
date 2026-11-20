@@ -4,7 +4,7 @@ import { IdPipe } from '../common/pipes';
 import { Roles } from '../authz/roles.decorator';
 import { ActualizarMesaDto, CrearMesaDto, LlenoDto, ReemplazarHorariosDto, UpdateRestauranteDto } from './dto';
 import { RestaurantService } from './restaurant.service';
-import { HorarioResponse, LlenoResponse, MesaResponse, RestauranteResponse } from './responses';
+import { HorarioResponse, LlenoResponse, MesaResponse, MiRestauranteResponse, RestauranteResponse } from './responses';
 
 @ApiTags('restaurante')
 @Controller('v1/restaurante')
@@ -14,7 +14,7 @@ export class RestaurantController {
   @Roles('DUENO', 'CAJERO')
   @Get()
   @ApiOperation({ summary: 'Perfil de mi restaurante (el de x-restaurant-id)' })
-  @ApiOkResponse({ type: RestauranteResponse })
+  @ApiOkResponse({ type: MiRestauranteResponse })
   get() {
     return this.service.get();
   }
@@ -94,9 +94,13 @@ export class RestaurantController {
   @Roles('DUENO', 'CAJERO')
   @Post('lleno')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Marcar o quitar "Local lleno"', description: 'Dura 20 minutos y expira solo.' })
+  @ApiOperation({
+    summary: 'Marcar el estado manual del local: Libre, Concurrido o Lleno',
+    description:
+      'LLENO y CONCURRIDO duran 20 minutos y expiran solos; LIBRE los quita. Se puede mandar `nivel` o, por compatibilidad, `lleno` (true = LLENO, false = LIBRE); si llegan los dos gana `nivel`. El cálculo automático por aforo manda si da un nivel más alto.',
+  })
   @ApiOkResponse({ type: LlenoResponse })
   setFull(@Body() dto: LlenoDto) {
-    return this.service.setFull(dto.lleno);
+    return this.service.setFull(dto);
   }
 }

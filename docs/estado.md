@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-18 (movimientos de caja). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-19 (estado manual "Concurrido"). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -16,6 +16,20 @@
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Estado manual "Concurrido" (rama `feat/ocupacion-concurrido`)
+
+Sin fase propia. Pedido del frontend: mostrar los mismos 4 estados (Libre, Concurrido, Lleno, Cerrado) en las apps de dueño y comensal. Detalle en `docs/api-contrato.md` (`POST /v1/restaurante/lleno`).
+
+- [x] **Migración** `20261120000817_concurrido_manual` (con su down): `restaurante.concurrido_manual_hasta TIMESTAMPTZ` nullable y `fn_ocupacion_local` recreada con una columna más (`concurrido_manual`); `lleno_manual_hasta` queda igual. **No aplicada en Neon**: solo la prueba la CI
+- [x] `POST /v1/restaurante/lleno` acepta `nivel` (`LIBRE` | `CONCURRIDO` | `LLENO`) además de `lleno`; con los dos, gana `nivel`. LLENO y CONCURRIDO duran 20 min, son excluyentes y LIBRE limpia ambos. La respuesta suma `nivel` y `concurridoManualHasta`. Mismos roles (dueño, cajero) y RLS
+- [x] **Escala sin ampliar**: el valor intermedio que ya existía en `ocupacion.nivel` es `MODERADO`; "Concurrido" manual se muestra como `MODERADO`. El aforo ≥90% (o "Lleno" manual) sigue dando `LLENO` y un "Concurrido" manual nunca lo baja. La vigencia se decide con `CURRENT_TIMESTAMP` de la base
+- [x] `GET /v1/restaurante` (personal) ahora trae `ocupacion` (misma que la vitrina) y `concurridoManualHasta`; `ocupacion` es `null` si el local no está `ACTIVO`. Antes no traía ocupación
+- [x] **Pausado/cerrado, comportamiento actual (no se cambió)**: un local `PAUSADO` no sale en `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}` responde 404 (ambos filtran `estado = 'ACTIVO'`). No existe un campo `activo` ni `abierto`: `abiertoAhora` solo sigue el horario. El personal ve `estado: "PAUSADO"` en `GET /v1/restaurante`. **Falta** (si el frontend quiere mostrar "Cerrado" en la vitrina): decidir si los pausados deben listarse con un campo `estado`/`activo`, lo que cambia la vitrina pública
+- [x] **Sin tiempo real**: no hay evento para la ocupación; las apps hacen polling de los GET. Opción sugerida, no construida: reutilizar el SSE del pase o un SSE público por local
+- [x] Pruebas en `catalog.int.ts` (niveles, `lleno` solo, conflicto, inválidos, expiración, no baja un LLENO automático, tres lecturas iguales, aislamiento, pausado) y `restaurant.int.ts`
+- [x] Contrato: `docs/openapi.json` solo con adiciones
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR; las pruebas nuevas están sin ejecutar
 
 ## Eventos del pase en tiempo real (rama `feat/pase-eventos`)
 

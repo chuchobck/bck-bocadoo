@@ -864,7 +864,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RestauranteResponse"
+                  "$ref": "#/components/schemas/MiRestauranteResponse"
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
@@ -888,9 +888,15 @@
                   "precioSueltoCentavos": 350,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
+                  "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
-                  "actualizadoEn": "2026-11-13T17:00:00.000Z"
+                  "actualizadoEn": "2026-11-13T17:00:00.000Z",
+                  "ocupacion": {
+                    "nivel": "LIBRE",
+                    "porcentaje": 40,
+                    "lleno": true
+                  }
                 }
               }
             }
@@ -1051,6 +1057,7 @@
                   "precioSueltoCentavos": 350,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
+                  "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "actualizadoEn": "2026-11-13T17:00:00.000Z"
@@ -1209,6 +1216,7 @@
                   "precioSueltoCentavos": 350,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
+                  "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "actualizadoEn": "2026-11-13T17:00:00.000Z"
@@ -1347,6 +1355,7 @@
                   "precioSueltoCentavos": 350,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
+                  "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "actualizadoEn": "2026-11-13T17:00:00.000Z"
@@ -2213,7 +2222,7 @@
     },
     "/v1/restaurante/lleno": {
       "post": {
-        "description": "Dura 20 minutos y expira solo.",
+        "description": "LLENO y CONCURRIDO duran 20 minutos y expiran solos; LIBRE los quita. Se puede mandar `nivel` o, por compatibilidad, `lleno` (true = LLENO, false = LIBRE); si llegan los dos gana `nivel`. El cálculo automático por aforo manda si da un nivel más alto.",
         "operationId": "RestaurantController_setFull",
         "parameters": [
           {
@@ -2234,7 +2243,8 @@
                 "$ref": "#/components/schemas/LlenoDto"
               },
               "example": {
-                "lleno": true
+                "lleno": true,
+                "nivel": "LIBRE"
               }
             }
           }
@@ -2249,7 +2259,9 @@
                 },
                 "example": {
                   "lleno": true,
-                  "llenoManualHasta": "2026-11-13T17:00:00.000Z"
+                  "nivel": "LIBRE",
+                  "llenoManualHasta": "2026-11-13T17:00:00.000Z",
+                  "concurridoManualHasta": "2026-11-13T17:00:00.000Z"
                 }
               }
             }
@@ -2355,7 +2367,7 @@
             "bearer": []
           }
         ],
-        "summary": "Marcar o quitar \"Local lleno\"",
+        "summary": "Marcar el estado manual del local: Libre, Concurrido o Lleno",
         "tags": ["Caja"],
         "x-dominio": "restaurante"
       }
@@ -18662,6 +18674,249 @@
         },
         "required": ["usuario", "restaurantes"]
       },
+      "OcupacionResponse": {
+        "type": "object",
+        "properties": {
+          "nivel": {
+            "type": "string",
+            "enum": ["LIBRE", "MODERADO", "LLENO"],
+            "description": "LIBRE (<50%), MODERADO (50–89% o \"Concurrido\" manual vigente), LLENO (≥90% o \"Local lleno\" manual vigente). Gana el más alto."
+          },
+          "porcentaje": {
+            "type": "number",
+            "example": 40,
+            "description": "Porcentaje de puestos ocupados (0–100)"
+          },
+          "lleno": {
+            "type": "boolean"
+          }
+        },
+        "required": ["nivel", "porcentaje", "lleno"]
+      },
+      "MiRestauranteResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Doña Rosa"
+          },
+          "slug": {
+            "type": "string",
+            "example": "dona-rosa"
+          },
+          "descripcionCorta": {
+            "type": "string",
+            "nullable": true,
+            "example": "Almuerzos caseros"
+          },
+          "etiquetas": {
+            "example": ["casero"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paisCodigo": {
+            "type": "string",
+            "example": "EC"
+          },
+          "ciudadId": {
+            "type": "number",
+            "example": 1
+          },
+          "zonaId": {
+            "type": "number",
+            "nullable": true,
+            "example": 12
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "zonaHoraria": {
+            "type": "string",
+            "example": "America/Guayaquil"
+          },
+          "direccion": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -0.2
+          },
+          "longitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -78.49
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true,
+            "example": "+593991234567"
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestos": {
+            "type": "number",
+            "example": 30,
+            "description": "Puestos del local"
+          },
+          "anotarMesa": {
+            "type": "boolean",
+            "description": "Los comensales pueden anotar su mesa"
+          },
+          "momentoCobro": {
+            "type": "string",
+            "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
+          },
+          "precioSueltoCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Centavos"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "example": 25,
+            "description": "Centavos"
+          },
+          "llenoManualHasta": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hasta cuándo dura \"Local lleno\"; null si no está activo"
+          },
+          "concurridoManualHasta": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hasta cuándo dura \"Concurrido\" manual; null si no está activo"
+          },
+          "estado": {
+            "type": "string",
+            "example": "ACTIVO",
+            "description": "BORRADOR, ACTIVO, PAUSADO o BAJA"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ocupacion": {
+            "nullable": true,
+            "description": "Ocupación vigente (misma que ve el comensal). null si el local no está ACTIVO (p. ej. PAUSADO).",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OcupacionResponse"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "slug",
+          "descripcionCorta",
+          "etiquetas",
+          "paisCodigo",
+          "ciudadId",
+          "zonaId",
+          "monedaCodigo",
+          "zonaHoraria",
+          "direccion",
+          "latitud",
+          "longitud",
+          "telefono",
+          "logoUrl",
+          "puestos",
+          "anotarMesa",
+          "momentoCobro",
+          "precioSueltoCentavos",
+          "recargoParaLlevarCentavos",
+          "llenoManualHasta",
+          "concurridoManualHasta",
+          "estado",
+          "creadoEn",
+          "actualizadoEn",
+          "ocupacion"
+        ]
+      },
+      "UpdateRestauranteDto": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "descripcionCorta": {
+            "type": "string",
+            "nullable": true
+          },
+          "etiquetas": {
+            "example": ["casero", "vegetariano"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "direccion": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "number",
+            "nullable": true
+          },
+          "longitud": {
+            "type": "number",
+            "nullable": true
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true,
+            "example": "+593990000001"
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "puestos": {
+            "type": "number",
+            "description": "Puestos del local; base del cálculo de ocupación"
+          },
+          "anotarMesa": {
+            "type": "boolean"
+          },
+          "momentoCobro": {
+            "type": "string",
+            "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
+          },
+          "precioSueltoCentavos": {
+            "type": "number",
+            "description": "Precio del almuerzo suelto, en centavos"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "description": "Recargo por llevar, en centavos"
+          },
+          "zonaId": {
+            "type": "number",
+            "nullable": true,
+            "description": "zona_id del catálogo (debe ser de la ciudad del local)"
+          }
+        }
+      },
       "RestauranteResponse": {
         "type": "object",
         "properties": {
@@ -18763,6 +19018,12 @@
             "nullable": true,
             "description": "Hasta cuándo dura \"Local lleno\"; null si no está activo"
           },
+          "concurridoManualHasta": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hasta cuándo dura \"Concurrido\" manual; null si no está activo"
+          },
           "estado": {
             "type": "string",
             "example": "ACTIVO",
@@ -18799,74 +19060,11 @@
           "precioSueltoCentavos",
           "recargoParaLlevarCentavos",
           "llenoManualHasta",
+          "concurridoManualHasta",
           "estado",
           "creadoEn",
           "actualizadoEn"
         ]
-      },
-      "UpdateRestauranteDto": {
-        "type": "object",
-        "properties": {
-          "nombre": {
-            "type": "string"
-          },
-          "descripcionCorta": {
-            "type": "string",
-            "nullable": true
-          },
-          "etiquetas": {
-            "example": ["casero", "vegetariano"],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "direccion": {
-            "type": "string",
-            "nullable": true
-          },
-          "latitud": {
-            "type": "number",
-            "nullable": true
-          },
-          "longitud": {
-            "type": "number",
-            "nullable": true
-          },
-          "telefono": {
-            "type": "string",
-            "nullable": true,
-            "example": "+593990000001"
-          },
-          "logoUrl": {
-            "type": "string",
-            "nullable": true
-          },
-          "puestos": {
-            "type": "number",
-            "description": "Puestos del local; base del cálculo de ocupación"
-          },
-          "anotarMesa": {
-            "type": "boolean"
-          },
-          "momentoCobro": {
-            "type": "string",
-            "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
-          },
-          "precioSueltoCentavos": {
-            "type": "number",
-            "description": "Precio del almuerzo suelto, en centavos"
-          },
-          "recargoParaLlevarCentavos": {
-            "type": "number",
-            "description": "Recargo por llevar, en centavos"
-          },
-          "zonaId": {
-            "type": "number",
-            "nullable": true,
-            "description": "zona_id del catálogo (debe ser de la ciudad del local)"
-          }
-        }
       },
       "HorarioResponse": {
         "type": "object",
@@ -19008,25 +19206,41 @@
         "properties": {
           "lleno": {
             "type": "boolean",
-            "description": "true marca \"Local lleno\" por 20 minutos; false lo quita"
+            "description": "Compatibilidad: true = nivel LLENO por 20 minutos; false = nivel LIBRE. Si también llega `nivel`, gana `nivel`. Debe venir `lleno` o `nivel`."
+          },
+          "nivel": {
+            "type": "string",
+            "enum": ["LIBRE", "CONCURRIDO", "LLENO"],
+            "description": "Estado manual del local. LLENO y CONCURRIDO duran 20 minutos y expiran solos; LIBRE los quita. Tiene prioridad sobre `lleno`."
           }
-        },
-        "required": ["lleno"]
+        }
       },
       "LlenoResponse": {
         "type": "object",
         "properties": {
           "lleno": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "true solo si el nivel manual quedó en LLENO"
+          },
+          "nivel": {
+            "type": "string",
+            "enum": ["LIBRE", "CONCURRIDO", "LLENO"],
+            "description": "Nivel manual aplicado"
           },
           "llenoManualHasta": {
             "format": "date-time",
             "type": "string",
             "nullable": true,
-            "description": "Cuándo expira solo (20 minutos); null si se quitó"
+            "description": "Cuándo expira solo \"Lleno\" (20 minutos); null si no está activo"
+          },
+          "concurridoManualHasta": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Cuándo expira solo \"Concurrido\" (20 minutos); null si no está activo"
           }
         },
-        "required": ["lleno", "llenoManualHasta"]
+        "required": ["lleno", "nivel", "llenoManualHasta", "concurridoManualHasta"]
       },
       "PersonalResponse": {
         "type": "object",
@@ -19394,25 +19608,6 @@
           }
         },
         "required": ["id", "nombre"]
-      },
-      "OcupacionResponse": {
-        "type": "object",
-        "properties": {
-          "nivel": {
-            "type": "string",
-            "enum": ["LIBRE", "MODERADO", "LLENO"],
-            "description": "LIBRE (<50%), MODERADO (50–89%), LLENO (≥90% o \"Local lleno\" manual)"
-          },
-          "porcentaje": {
-            "type": "number",
-            "example": 40,
-            "description": "Porcentaje de puestos ocupados (0–100)"
-          },
-          "lleno": {
-            "type": "boolean"
-          }
-        },
-        "required": ["nivel", "porcentaje", "lleno"]
       },
       "RestauranteCardResponse": {
         "type": "object",
