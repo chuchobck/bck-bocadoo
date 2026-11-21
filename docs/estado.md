@@ -17,6 +17,8 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md).
+
 ## Carta fija y selección por comensal en mesas (rama `feat/carta-fija-seleccion-mesa`)
 
 Entrega C. Sin fase propia; **solo adiciones al contrato** (`pnpm openapi:breaking`: sin cambios incompatibles). Detalle en `docs/api-contrato.md`.
