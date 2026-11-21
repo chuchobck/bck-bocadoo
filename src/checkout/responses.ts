@@ -1,4 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { CotizacionRespuesta } from '../cobro/adaptador';
+import { CotizacionResponse } from '../cobro/cotizacion.dto';
 import { SeleccionMiembroResponse } from '../tables/selection';
 
 export class ConsumoRevertidoResponse {
@@ -17,6 +19,14 @@ class MiembroMesaResponse {
     description: 'Lo que eligió este miembro (la caja ve la de todos). Vacía = aún no eligió.',
   })
   seleccion!: SeleccionMiembroResponse;
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). ' +
+      'En `POST /v1/caja/mesas/{id}/validar` es la informativa de E.5: cada miembro con 1 almuerzo y su `paraLlevar`, con el plan de antes de descontar. `null` solo si el local no tiene precio de almuerzo.',
+  })
+  cotizacion!: CotizacionRespuesta | null;
 }
 
 export class MesaVistaResponse {
@@ -27,6 +37,13 @@ export class MesaVistaResponse {
   @ApiProperty({ example: 3 }) personas!: number;
   @ApiProperty({ example: 2, description: 'Cuántos almuerzos cubren los planes' }) cubiertos!: number;
   @ApiProperty({ type: [MiembroMesaResponse] }) miembros!: MiembroMesaResponse[];
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización estimada de toda la mesa (con la selección de cada miembro; en `validar`, la informativa de 1 almuerzo por miembro).',
+  })
+  cotizacion!: CotizacionRespuesta | null;
 }
 
 class ResultadoMiembroResponse {

@@ -26,6 +26,9 @@ import { assertMenuPublicado } from '../diner/common';
 import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { loadSelections, seleccionDe } from '../tables/selection';
+import { aRespuesta } from '../cobro/adaptador';
+import { type OpcionesCotizarMesa, cotizarMesa } from '../cobro/mesa';
+import { planVigenteHoySql } from '../cobro/planes';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
 const ID = /^[1-9][0-9]{0,17}$/;
@@ -388,7 +391,10 @@ export class CheckoutService {
     const eventos = this.passEvents.pending();
     const res = await this.db.forRequest(async (q) => {
       const mesa = await this.loadTable(q, mesaPublicId, true);
-      if (mesa.validada_en) return { ...(await this.tableView(q, mesa)), yaValidada: true, resultados: [] };
+      // Cotización informativa (E.5): cada miembro con 1 almuerzo y su paraLlevar. En un reintento el plan ya se descontó:
+      // se reconstruye sumando lo que se gastó en esta mesa.
+      const informativa = await this.quote(q, mesa, 'un-almuerzo', mesa.validada_en !== null);
+      if (mesa.validada_en) return { ...(await this.tableView(q, mesa, informativa)), yaValidada: true, resultados: [] };
       if (!['ABIERTA', 'EN_CAMINO'].includes(mesa.estado)) throw new ConflictException(`La mesa está ${mesa.estado.toLowerCase()}.`);
       const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
       const members = await this.members(q, mesa.mesa_compartida_id);
@@ -417,7 +423,7 @@ export class CheckoutService {
         `UPDATE mesa_compartida SET validada_en = CURRENT_TIMESTAMP, validada_por_personal_id = $2, estado = 'EN_MESA' WHERE mesa_compartida_id = $1`,
         [mesa.mesa_compartida_id, personalId],
       );
-      const view = await this.tableView(q, { ...mesa, estado: 'EN_MESA', validada_en: new Date() });
+      const view = await this.tableView(q, { ...mesa, estado: 'EN_MESA', validada_en: new Date() }, informativa);
       return {
         ...view,
         yaValidada: false,
@@ -438,8 +444,9 @@ export class CheckoutService {
       validada_en: Date | null;
       hora_llegada: Date;
       mesa_local_id: string | null;
+      restaurante_id: string;
     }>(
-      `SELECT mesa_compartida_id, modo, estado, validada_en, hora_llegada, mesa_local_id FROM mesa_compartida
+      `SELECT mesa_compartida_id, modo, estado, validada_en, hora_llegada, mesa_local_id, restaurante_id FROM mesa_compartida
         WHERE restaurante_id = app_tenant_id() AND public_id = $1 ${lock ? 'FOR UPDATE' : ''}`,
       [publicId],
     );
@@ -456,10 +463,11 @@ export class CheckoutService {
       cliente_id: string | null;
       disponibles: number;
     }>(
+      // `disponibles` cuenta solo los planes que valen hoy (ACTIVA, vigente y hoy en dias_validos: INC-12).
       `SELECT m.miembro_id, m.nombre, m.es_anfitrion, m.para_llevar, c.cliente_id,
               COALESCE((SELECT sum(s.almuerzos_restantes) FROM suscripcion_plan s
-                         WHERE s.restaurante_id = m.restaurante_id AND s.cliente_id = c.cliente_id AND s.estado = 'ACTIVA'
-                           AND s.vence_el >= (SELECT (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date FROM restaurante WHERE restaurante_id = app_tenant_id())), 0)::int AS disponibles
+                         WHERE s.restaurante_id = m.restaurante_id AND s.cliente_id = c.cliente_id
+                           AND ${planVigenteHoySql('s', '(SELECT (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria)::date FROM restaurante WHERE restaurante_id = app_tenant_id())')}), 0)::int AS disponibles
          FROM mesa_compartida_miembro m
          LEFT JOIN cliente_restaurante c ON c.restaurante_id = m.restaurante_id AND c.usuario_id = m.usuario_id AND c.activo
         WHERE m.mesa_compartida_id = $1 AND m.restaurante_id = app_tenant_id() ORDER BY m.miembro_id`,
@@ -468,11 +476,49 @@ export class CheckoutService {
     return r.rows;
   }
 
+  /** Cotización informativa de la mesa para el personal: ve el plan y la selección de todos. */
+  private quote(
+    q: Queryable,
+    mesa: { mesa_compartida_id: string; modo: string; restaurante_id: string },
+    base: OpcionesCotizarMesa['base'],
+    reponerConsumos: boolean,
+  ) {
+    return this.members(q, mesa.mesa_compartida_id).then((members) =>
+      cotizarMesa(q, {
+        mesaId: mesa.mesa_compartida_id,
+        restauranteId: String(mesa.restaurante_id),
+        modo: mesa.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
+        base,
+        reponerConsumos,
+        // Anfitrión primero, luego por llegada (miembro_id sigue el orden de unión): el orden que usa la cotización (B.2).
+        miembros: [...members]
+          .sort((a, b) => Number(b.es_anfitrion) - Number(a.es_anfitrion) || Number(a.miembro_id) - Number(b.miembro_id))
+          .map((m) => ({
+            miembroId: String(m.miembro_id),
+            esAnfitrion: m.es_anfitrion,
+            paraLlevar: m.para_llevar,
+            clienteId: m.cliente_id === null ? null : String(m.cliente_id),
+            planLegible: true,
+          })),
+      }),
+    );
+  }
+
   private async tableView(
     q: Queryable,
-    mesa: { mesa_compartida_id: string; modo: string; estado: string; validada_en: Date | null; hora_llegada: Date },
+    mesa: {
+      mesa_compartida_id: string;
+      modo: string;
+      estado: string;
+      validada_en: Date | null;
+      hora_llegada: Date;
+      restaurante_id: string;
+    },
+    cotizada?: Awaited<ReturnType<CheckoutService['quote']>>,
   ) {
     const members = await this.members(q, mesa.mesa_compartida_id);
+    const cot = cotizada ?? (await this.quote(q, mesa, 'seleccion', mesa.validada_en !== null));
+    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
     const host = members.find((m) => m.es_anfitrion);
     const selecciones = await loadSelections(q, mesa.mesa_compartida_id);
     return {
@@ -491,7 +537,9 @@ export class CheckoutService {
         tieneCuenta: m.cliente_id !== null,
         almuerzosDisponibles: m.disponibles,
         seleccion: seleccionDe(selecciones, m.miembro_id),
+        cotizacion: aResp(cot.porMiembro.get(String(m.miembro_id))),
       })),
+      cotizacion: aResp(cot.mesa),
     };
   }
 }
