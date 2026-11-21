@@ -31,7 +31,7 @@ Sin fase propia. La app hace `register-owner` mínimo → login → `PATCH /v1/r
 - [x] Pruebas: unitarias (`country-ec`, `profile`) y de integración `test/integration/perfil-negocio.int.ts` (clientes anteriores, registro con campos, validaciones, aislamiento y auditoría)
 - [x] `docs/openapi.json` regenerado; `pnpm openapi:breaking` sin cambios incompatibles
 - [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR; las pruebas de integración nuevas están sin ejecutar
-- [ ] Decisiones a confirmar: rango 1..5000 para `precioSoloSegundo/Sopa` (el pedido solo fijaba 100..5000 para el almuerzo); `telefono` ya no acepta E.164 de otros países ni fijos; en el registro, `mesas` sin `puestos` se compara con los 20 por defecto
+- [ ] Decisiones a confirmar: rango 1..5000 para `precioSoloSegundo/Sopa` (el pedido solo fijaba 100..5000 para el almuerzo); `telefono` ya no acepta E.164 de otros países ni fijos; `mesas` sin `puestos` no se compara mientras `puestos` nunca se haya definido (el 20 por defecto no cuenta; el `CHECK` de la base también lo omite con `puestos_definidos = false`)
 
 ## Estados públicos del restaurante (rama `fix/estados-publicos`)
 

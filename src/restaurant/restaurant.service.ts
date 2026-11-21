@@ -136,7 +136,11 @@ export class RestaurantService {
     return this.db.forRequest(async (q) => {
       // Se bloquea la fila: las comparaciones con lo guardado (puestos ≥ mesas) no se cruzan con otro PATCH.
       const actual = await this.load(q, true);
-      const perfil = validarPerfil(actual.pais_codigo, dto, { puestos: actual.puestos, mesas: actual.mesas_total });
+      const perfil = validarPerfil(actual.pais_codigo, dto, {
+        puestos: actual.puestos,
+        puestosDefinidos: actual.puestos_definidos,
+        mesas: actual.mesas_total,
+      });
       const values: Partial<Record<keyof UpdateRestauranteDto, unknown>> = { ...dto, telefono: perfil.telefono };
       // precioSueltoCentavos y precioAlmuerzoCentavos son la misma columna (ya validados como iguales si vienen ambos).
       if (dto.precioAlmuerzoCentavos !== undefined) delete values.precioSueltoCentavos;

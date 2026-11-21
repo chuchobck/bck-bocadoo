@@ -110,8 +110,8 @@ export class AuthService {
           if (!c.rows[0]) throw new BadRequestException('ciudadId no existe.');
           // El slug siempre se genera aquí (nombre sin acentos + sufijo aleatorio corto): la app nunca lo envía.
           const slug = `${slugify(rest.nombre)}-${randomBytes(3).toString('hex')}`;
-          // Sin `puestos` ni `mesas` en el registro se comparan con el valor por defecto (20 puestos, sin mesas).
-          const perfil = validarPerfil(c.rows[0].pais_codigo, rest, { puestos: PUESTOS_POR_DEFECTO, mesas: null });
+          // El 20 por defecto no cuenta como puestos definidos: `mesas` solo se compara con `puestos` si viene en la misma petición.
+          const perfil = validarPerfil(c.rows[0].pais_codigo, rest, { puestos: PUESTOS_POR_DEFECTO, puestosDefinidos: false, mesas: null });
           const r = await q.query<{ restaurante_id: string; public_id: string; estado: string }>(
             `INSERT INTO restaurante (nombre, slug, pais_codigo, ciudad_id, moneda_codigo, zona_horaria, precio_suelto_centavos,
                                       direccion, latitud, longitud, telefono_e164, puestos, puestos_definidos, mesas_total,

@@ -105,6 +105,12 @@ describe('Perfil de negocio del restaurante (campos opcionales)', () => {
     expect(JSON.stringify(g)).not.toContain(RUC);
   });
 
+  it('register-owner: mesas sin puestos pasa (el 20 por defecto no se compara) y puestos queda pendiente', async () => {
+    const o = await dueno({ mesas: 30 }, 'Local Solo Mesas');
+    expect((await get(o)).json()).toMatchObject({ mesas: 30, puestos: 20 });
+    expect((await get(o)).json().datosPendientes).toContain('puestos');
+  });
+
   it('la cédula completa está en restaurante_fiscal, no en restaurante', async () => {
     const o = await dueno({ cedulaRuc: CEDULA });
     const id = await tenantId(o.restaurante);
@@ -151,8 +157,11 @@ describe('Perfil de negocio del restaurante (campos opcionales)', () => {
     await mal({ cedulaRuc: '1790000002001' });
     await mal({ latitud: 4.6, longitud: -74.08 }); // Bogotá
     await mal({ latitud: 95, longitud: 0 });
-    await mal({ mesas: 30 }); // solo mesas: contra los 20 puestos guardados
     await mal({ mesas: 30, puestos: 20 });
+    // puestos nunca definido (20 por defecto): mesas sola no se compara.
+    expect((await patch(o, { mesas: 30 })).statusCode).toBe(200);
+    expect((await get(o)).json()).toMatchObject({ mesas: 30, puestos: 20 });
+    expect((await get(o)).json().datosPendientes).toContain('puestos');
     await mal({ puestos: 1001 });
     await mal({ precioAlmuerzoCentavos: 99 });
     await mal({ precioAlmuerzoCentavos: 300, precioSueltoCentavos: 350 });

@@ -5,6 +5,8 @@ import type { PerfilNegocioDto } from './profile.dto';
 /** Lo ya guardado del local (o los valores por defecto, en el registro) contra lo que se compara. */
 export interface PerfilGuardado {
   puestos: number;
+  /** false = `puestos` es el 20 por defecto y nunca lo indicó el dueño: no sirve de referencia. */
+  puestosDefinidos: boolean;
   mesas: number | null;
 }
 
@@ -45,9 +47,10 @@ export function validarPerfil(
   }
 
   if (dto.mesas !== undefined || dto.puestos !== undefined) {
-    const puestos = dto.puestos ?? guardado.puestos;
+    // Sin puestos en la petición y sin puestos definidos en la base no hay con qué comparar (el 20 es solo un default).
+    const puestos = dto.puestos ?? (guardado.puestosDefinidos ? guardado.puestos : undefined);
     const mesas = dto.mesas !== undefined ? dto.mesas : guardado.mesas;
-    if (mesas !== null && puestos < mesas) {
+    if (puestos !== undefined && mesas !== null && puestos < mesas) {
       throw new BadRequestException(`puestos (${puestos}) no puede ser menor que mesas (${mesas}).`);
     }
   }

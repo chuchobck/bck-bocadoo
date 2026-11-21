@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { datosPendientes, enmascararCedulaRuc, validarPerfil, type PerfilEstado } from '../../src/restaurant/profile';
 
-const guardado = { puestos: 40, mesas: null as number | null };
+const guardado = { puestos: 40, puestosDefinidos: true, mesas: null as number | null };
 const ok = (dto: object, g = guardado) => validarPerfil('EC', dto, g);
 const bad = (dto: object, g = guardado) => expect(() => validarPerfil('EC', dto, g)).toThrow(BadRequestException);
 
@@ -42,6 +42,13 @@ describe('validarPerfil', () => {
     bad({ puestos: 9 }, { puestos: 40, mesas: 10 });
     ok({ puestos: 10 }, { puestos: 40, mesas: 10 });
     ok({ mesas: null, puestos: 5 }, { puestos: 40, mesas: 10 });
+  });
+  it('puestos nunca definidos (el 20 por defecto): mesas no se compara; con puestos en la petición sí', () => {
+    const sinDefinir = { puestos: 20, puestosDefinidos: false, mesas: null as number | null };
+    ok({ mesas: 30 }, sinDefinir);
+    bad({ mesas: 30, puestos: 20 }, sinDefinir);
+    ok({ mesas: 30, puestos: 30 }, sinDefinir);
+    bad({ puestos: 5 }, { ...sinDefinir, mesas: 10 });
   });
   it('precioAlmuerzoCentavos y su alias precioSueltoCentavos deben coincidir', () => {
     ok({ precioAlmuerzoCentavos: 300, precioSueltoCentavos: 300 });
