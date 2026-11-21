@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (carta fija y selección por comensal en mesas). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (cotizaciones informativas, entrega D PR 3). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,7 +17,44 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura) y PR 3 (cotizaciones informativas, abajo) hechos; siguen PR 4 en adelante (H.1).
+
+## Cotizaciones informativas (entrega D, PR 3; rama `feat/cotizaciones-informativas`)
+
+**Sin migraciones y solo adiciones al contrato** (`pnpm openapi:lint` y `pnpm openapi:breaking` limpios). Nada cobra ni descuenta. Detalle y ejemplos en `docs/api-contrato.md` («Novedades»).
+
+### Checklist
+
+- [x] **Adaptador** `src/cobro/` (fuera de `src/billing`, que no puede importar infraestructura): `adaptador.ts` (puro: arma la `EntradaCobro` desde un pedido o una mesa y el plan), `planes.ts` (lee el plan de hoy con la condición de `fn_descontar_almuerzo`: `ACTIVA`, `vence_el >= hoy`, hoy en `dias_validos`), `mesa.ts` (lee precios, selecciones y planes de la mesa), `cotizacion.dto.ts` (forma OpenAPI). Siempre `estimada: true`; `monedaCodigo` lo agrega el endpoint.
+- [x] `cotizacion` en `POST/GET /v1/mis/pedidos`, `GET /v1/mis/pedidos/{id}` (y `cancelar`), `GET /v1/caja/pedidos`, `GET /v1/caja/pedidos/{id}`, `canjear` y `servir`. Para pedidos creados el precio del almuerzo es `subtotal − extras`.
+- [x] **Endpoint nuevo** `POST /v1/mis/pedidos/cotizar`: sin `Idempotency-Key`, corre en una transacción de solo lectura (no escribe nada), mismos errores de validación que crear pedido.
+- [x] `miembros[].cotizacion` y `cotizacion` de la mesa en `GET /v1/mis/mesas`, `GET /v1/mis/mesas/{id}` y `GET /v1/caja/mesas/{id}` (misma visibilidad que `seleccion`; la de la mesa solo anfitrión y caja). Sin selección = 1 almuerzo (I-4); respeta `INVITO_YO` y `CADA_UNO`.
+- [x] `POST /v1/caja/mesas/{id}/validar`: `cotizacion` informativa (E.5 literal: cada miembro con 1 almuerzo y su `paraLlevar`, con el plan de antes de descontar). Descuentos, `descontados` y `porCobrar` no cambian.
+- [x] **INC-12** (cambio de valor, mismo tipo): `cubiertos` y `almuerzosDisponibles` (mesa y vista de caja del pedido) cuentan `dias_validos`.
+- [x] `totalCentavos` y `recargoLlevarCentavos` de los pedidos siguen con la regla de hoy (prueba que lo fija).
+
+### Verificación
+
+- [x] Unitarios: `test/unit/cobro-adaptador.spec.ts` (29 casos: estados de plan, pedido, pedido creado, mesa CADA_UNO/INVITO_YO, selección, agotados, plan ilegible, invariantes).
+- [x] Integración contra un Postgres 16 desechable en Docker (migraciones + seed, sin Neon y sin leer `.env`; config temporal): `test/integration/cotizaciones.int.ts` (18 casos: cotizar sin efectos, roles y tenant ajeno, visibilidad por miembro, plan sin saldo y día no válido, `totalCentavos` sin cambios, validar mesa).
+- [ ] Suite de integración completa: 314 de 318 pasan; las 4 que fallan (`estados-publicos`, 2 de `menu-publicado`, `reports-operations`) **fallan igual en `main` sin estos cambios** (verificado en un worktree de `9350753`): no se tocaron.
+
+### Diferencias entre la cotización y los totales actuales (a resolver en el PR 7 / snapshot)
+
+1. **Recargo por unidad (esperada, D2):** un extra del menú de categoría `A_LA_CARTA` pedido `paraLlevar` paga recargo por unidad en la cotización y `totalCentavos` aún no. Fijada por prueba; **cambia en el PR 7**.
+2. **Misma causa, otra categoría (no esperada):** un plato de categoría `ALMUERZO` con precio pedido como extra se trata como `A_LA_CARTA` (B.3 paso 1) y también paga recargo en la cotización. También fijada por prueba; también cambia en el PR 7.
+3. **Almuerzo cubierto al pedir:** el pedido guarda el almuerzo en 0, así que la cotización de un pedido creado muestra el almuerzo `PLAN` a precio 0 (`subtotal`, `total` y `cubierto` menores en P que los de `POST …/cotizar`; el saldo coincide). Se corrige con el snapshot del precio (F.2, PR 4/5).
+4. **Plan cambiado después de pedir:** la cotización de un pedido ya creado usa el plan de hoy (si el comensal compró un plan después, la cotización cubre el almuerzo y `totalCentavos` no). Un almuerzo guardado en 0 se muestra siempre cubierto, aunque el plan ya se haya gastado al canjear.
+
+### Ambigüedades de la spec y cómo se resolvieron (implementado lo literal, spec sin tocar)
+
+- **E.6 vs RLS (la importante):** E.6 pide que el anfitrión vea la cotización de todos los miembros, pero la API del comensal (`bck_api`, RLS) solo lee **su propio plan** (`suscripcion_plan.comensal_lee`, `cliente_restaurante.propio_usuario`). Sin migración ni `service()` (prohibido para endpoints de negocio) no se puede calcular el plan de otro miembro: esas cotizaciones salen `null` (no se inventa «sin plan»). Efecto en `GET /v1/mis/mesas*`: `CADA_UNO` → el anfitrión ve la suya y las de los invitados `null` (y la de la mesa también); `INVITO_YO` → el anfitrión ve todas, el invitado todo `null`. La caja ve todo. **Propuesta:** una función `SECURITY DEFINER` que devuelva el estado del plan de los miembros de una mesa a quien sea miembro de ella (migración, PR 4).
+- **E.5 vs E.6 en `validar`:** E.5 pide 1 almuerzo por miembro; E.6 pide la selección. En la respuesta de `validar` se usa E.5 (también en `miembros[].cotizacion`, para que la respuesta sea coherente consigo misma); el preview `GET /v1/caja/mesas/{id}` usa E.6.
+- **«Reconstruidas desde la base» (E.5, reintento):** sin cuenta guardada, se reconstruye sumando al plan actual lo descontado en esa mesa (`consumo_almuerzo` no revertido). La vista del comensal de una mesa ya validada usa el plan actual.
+- **E.1 vs B.4:** el ejemplo de E.1 no trae `porPagador` ni `unidadesPlan`; se expone `porPagador` (B.4) y no `unidadesPlan` (es lo que `aplicar` descontará: interno).
+- **`ALMUERZO_SIN_PRECIO` (I-12) en `cotizar`:** 409 literal en el endpoint nuevo; en las respuestas informativas nunca hace fallar la lectura (`cotizacion: null` en mesas; en pedidos no puede ocurrir). Crear pedido con P = 0 sigue dando el almuerzo gratis (I-12 es PR posterior), así que `cotizar` y crear divergirían solo en un local con P = 0, que no puede estar `ACTIVO`.
+- **`PEDIDO_ACTIVO` en `cotizar`:** «mismos errores de validación que crear pedido» se tomó incluyendo `PEDIDO_ACTIVO`, `LOCAL_LLENO_SOLO_LLEVAR` y `RESTAURANTE_PAUSADO` (comprobaciones de solo lectura).
+- **Orden de los miembros:** `orden` = anfitrión 0 y el resto por `miembro_id` (sigue el orden de unión; `unido_en` se fija al insertar), como pide B.2 salvo empates de reloj.
 
 ## Carta fija y selección por comensal en mesas (rama `feat/carta-fija-seleccion-mesa`)
 
