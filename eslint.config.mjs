@@ -31,6 +31,23 @@ export default tseslint.config(
       'no-restricted-syntax': ['error', ...SOLO_DBSERVICE],
     },
   },
+  // La cotización de cobros es pura (docs/spec-cobros.md, B.1): ni base de datos, ni Nest, ni pg.
+  {
+    files: ['src/billing/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'pg', message: 'src/billing es puro: sin pg.' }],
+          patterns: [
+            { group: ['pg/*'], message: 'src/billing es puro: sin pg.' },
+            { group: ['@nestjs/*'], message: 'src/billing es puro: sin Nest.' },
+            { regex: '(^|/)db(/|$)', message: 'src/billing es puro: sin base de datos (src/db).' },
+          ],
+        },
+      ],
+    },
+  },
   // Lugares autorizados a usar el rol de servicio (módulo de auth, eventos de seguridad, jobs de cron) y a hablar con pg.
   {
     files: ['src/auth/**', 'src/security/**', 'src/db/**', 'src/jobs/**'],
