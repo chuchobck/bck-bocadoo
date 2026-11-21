@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DbService, Queryable } from '../db/db.service';
 import { ActualizarMesaDto, CrearMesaDto, HorarioDto, LlenoDto, NivelManual, UpdateRestauranteDto } from './dto';
-import { occupancy } from '../catalog/catalog.service';
+import { menuAgotadoSql, occupancy } from '../catalog/catalog.service';
 
 const COLS = `public_id, nombre, slug, descripcion_corta, etiquetas, pais_codigo, ciudad_id, zona_id, moneda_codigo, zona_horaria,
   direccion, latitud, longitud, telefono_e164, logo_url, puestos, anotar_mesa, momento_cobro, precio_suelto_centavos,
@@ -98,7 +98,14 @@ export class RestaurantService {
           'SELECT personas, puestos, lleno_manual, concurrido_manual FROM fn_ocupacion_local(app_tenant_id())',
         );
         const f = o.rows[0];
-        return { ...toRestauranteDto(r), ocupacion: f ? occupancy(f.personas, f.puestos, f.lleno_manual, f.concurrido_manual) : null };
+        const m = await q.query<{ menu_agotado: boolean }>(
+          `SELECT ${menuAgotadoSql('r')} AS menu_agotado FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
+        );
+        return {
+          ...toRestauranteDto(r),
+          menuAgotado: m.rows[0]?.menu_agotado ?? false,
+          ocupacion: f ? occupancy(f.personas, f.puestos, f.lleno_manual, f.concurrido_manual) : null,
+        };
       },
       { readOnly: true },
     );

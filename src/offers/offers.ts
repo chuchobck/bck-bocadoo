@@ -8,7 +8,7 @@ import { ApiProblems, conflict, notFound, unprocessable } from '../common/errors
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
-import { CURSOR_TS, PageQuery, decodeCursor, encodeCursor } from '../diner/common';
+import { CURSOR_TS, PageQuery, decodeCursor, encodeCursor, restaurantePausado } from '../diner/common';
 import { Text } from '../security/sanitize';
 
 export const ESTADOS_OFERTA = ['VIGENTE', 'PROGRAMADA', 'AGOTADA', 'EXPIRADA', 'CERRADA'] as const;
@@ -291,6 +291,8 @@ export class OffersService {
             throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra oferta.');
           return this.renderCanje(q, prev);
         }
+        const est = await q.query<{ estado: string }>('SELECT estado FROM restaurante WHERE restaurante_id = app_tenant_id()');
+        if (est.rows[0]?.estado === 'PAUSADO') throw restaurantePausado();
         let usuarioId: string | null = null;
         if (dto.comensalId) {
           const u = await q.query<{ usuario_id: string }>('SELECT usuario_id FROM usuario WHERE public_id = $1 AND activo', [
@@ -457,7 +459,15 @@ export class OffersController {
   @ApiCreatedResponse({ type: OfertaCanjeResponse })
   @ApiProblems({
     404: ['OFERTA_NO_ENCONTRADA', 'COMENSAL_NO_ENCONTRADO'],
-    409: ['OFERTA_AGOTADA', 'STOCK_INSUFICIENTE', 'OFERTA_CERRADA', 'OFERTA_EXPIRADA', 'OFERTA_NO_INICIADA', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    409: [
+      'RESTAURANTE_PAUSADO',
+      'OFERTA_AGOTADA',
+      'STOCK_INSUFICIENTE',
+      'OFERTA_CERRADA',
+      'OFERTA_EXPIRADA',
+      'OFERTA_NO_INICIADA',
+      'IDEMPOTENCY_KEY_REUTILIZADA',
+    ],
     422: ['METODO_PAGO_NO_DISPONIBLE'],
   })
   redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearOfertaDto, @IdempotencyKey() key: string) {

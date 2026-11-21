@@ -31,7 +31,17 @@ export class RestauranteCardResponse {
   @ApiProperty({ type: String, nullable: true, example: 'https://cdn.ejemplo.com/logo.png' }) logoUrl!: string | null;
   @ApiProperty({ example: 350, description: 'Precio del almuerzo suelto, en centavos' }) precioSueltoCentavos!: number;
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
-  @ApiProperty({ description: 'Según el horario del local y su zona horaria' }) abiertoAhora!: boolean;
+  @ApiProperty({
+    enum: ['ACTIVO', 'PAUSADO'],
+    description: 'Un local PAUSADO se muestra pero no admite órdenes nuevas (409 `RESTAURANTE_PAUSADO`)',
+  })
+  estado!: 'ACTIVO' | 'PAUSADO';
+  @ApiProperty({ description: 'Según el horario del local y su zona horaria; siempre false si está PAUSADO' }) abiertoAhora!: boolean;
+  @ApiProperty({
+    description:
+      'true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados. Sin menú publicado es false.',
+  })
+  menuAgotado!: boolean;
   @ApiProperty({ type: OcupacionResponse }) ocupacion!: OcupacionResponse;
 }
 

@@ -892,6 +892,7 @@
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "actualizadoEn": "2026-11-13T17:00:00.000Z",
+                  "menuAgotado": true,
                   "ocupacion": {
                     "nivel": "LIBRE",
                     "porcentaje": 40,
@@ -4434,7 +4435,9 @@
                       "logoUrl": "https://cdn.ejemplo.com/logo.png",
                       "precioSueltoCentavos": 350,
                       "monedaCodigo": "USD",
+                      "estado": "ACTIVO",
                       "abiertoAhora": true,
+                      "menuAgotado": true,
                       "ocupacion": {
                         "nivel": "LIBRE",
                         "porcentaje": 40,
@@ -4549,7 +4552,9 @@
                   "logoUrl": "https://cdn.ejemplo.com/logo.png",
                   "precioSueltoCentavos": 350,
                   "monedaCodigo": "USD",
+                  "estado": "ACTIVO",
                   "abiertoAhora": true,
+                  "menuAgotado": true,
                   "ocupacion": {
                     "nivel": "LIBRE",
                     "porcentaje": 40,
@@ -11716,7 +11721,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11726,7 +11731,7 @@
                   "type": "about:blank",
                   "title": "Conflict",
                   "status": 409,
-                  "code": "MENU_NO_PUBLICADO",
+                  "code": "RESTAURANTE_PAUSADO",
                   "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -13328,7 +13333,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -13338,7 +13343,7 @@
                   "type": "about:blank",
                   "title": "Conflict",
                   "status": 409,
-                  "code": "IDEMPOTENCY_KEY_REUTILIZADA",
+                  "code": "RESTAURANTE_PAUSADO",
                   "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -16679,7 +16684,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -16689,7 +16694,7 @@
                   "type": "about:blank",
                   "title": "Conflict",
                   "status": 409,
-                  "code": "OFERTA_AGOTADA",
+                  "code": "RESTAURANTE_PAUSADO",
                   "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -18813,6 +18818,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "menuAgotado": {
+            "type": "boolean",
+            "description": "true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados"
+          },
           "ocupacion": {
             "nullable": true,
             "description": "Ocupación vigente (misma que ve el comensal). null si el local no está ACTIVO (p. ej. PAUSADO).",
@@ -18850,6 +18859,7 @@
           "estado",
           "creadoEn",
           "actualizadoEn",
+          "menuAgotado",
           "ocupacion"
         ]
       },
@@ -19680,9 +19690,18 @@
             "type": "string",
             "example": "USD"
           },
+          "estado": {
+            "type": "string",
+            "enum": ["ACTIVO", "PAUSADO"],
+            "description": "Un local PAUSADO se muestra pero no admite órdenes nuevas (409 `RESTAURANTE_PAUSADO`)"
+          },
           "abiertoAhora": {
             "type": "boolean",
-            "description": "Según el horario del local y su zona horaria"
+            "description": "Según el horario del local y su zona horaria; siempre false si está PAUSADO"
+          },
+          "menuAgotado": {
+            "type": "boolean",
+            "description": "true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados. Sin menú publicado es false."
           },
           "ocupacion": {
             "$ref": "#/components/schemas/OcupacionResponse"
@@ -19702,7 +19721,9 @@
           "logoUrl",
           "precioSueltoCentavos",
           "monedaCodigo",
+          "estado",
           "abiertoAhora",
+          "menuAgotado",
           "ocupacion"
         ]
       },
@@ -19916,9 +19937,18 @@
             "type": "string",
             "example": "USD"
           },
+          "estado": {
+            "type": "string",
+            "enum": ["ACTIVO", "PAUSADO"],
+            "description": "Un local PAUSADO se muestra pero no admite órdenes nuevas (409 `RESTAURANTE_PAUSADO`)"
+          },
           "abiertoAhora": {
             "type": "boolean",
-            "description": "Según el horario del local y su zona horaria"
+            "description": "Según el horario del local y su zona horaria; siempre false si está PAUSADO"
+          },
+          "menuAgotado": {
+            "type": "boolean",
+            "description": "true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados. Sin menú publicado es false."
           },
           "ocupacion": {
             "$ref": "#/components/schemas/OcupacionResponse"
@@ -19958,7 +19988,9 @@
           "logoUrl",
           "precioSueltoCentavos",
           "monedaCodigo",
+          "estado",
           "abiertoAhora",
+          "menuAgotado",
           "ocupacion",
           "telefono",
           "horarios",
