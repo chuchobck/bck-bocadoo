@@ -382,7 +382,7 @@ cambia de tipo ni de significado. Lo que no se pudo hacer así está en la secci
   "estimada": false,
   "lineas": [
     {
-      "ref": "u0",
+      "ref": "u0#1",
       "tipo": "ALMUERZO",
       "nombre": "Almuerzo",
       "platoId": null,
