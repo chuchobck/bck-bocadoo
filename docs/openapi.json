@@ -286,6 +286,17 @@
                 "nombreUsuario": "maria.guaman",
                 "aceptaTerminos": true,
                 "restaurante": {
+                  "direccion": "texto",
+                  "latitud": -0.2,
+                  "longitud": -78.49,
+                  "telefono": "0991234567",
+                  "puestos": 1,
+                  "mesas": 1,
+                  "cedulaRuc": "1700000993001",
+                  "precioAlmuerzoCentavos": 300,
+                  "precioSoloSegundoCentavos": 650,
+                  "precioSoloSopaCentavos": 650,
+                  "recargoParaLlevarCentavos": 650,
                   "nombre": "La Cuchara de San Blas",
                   "ciudadId": 1
                 }
@@ -885,13 +896,20 @@
                   "puestos": 30,
                   "anotarMesa": true,
                   "momentoCobro": "ANTES_DE_SERVIR",
+                  "mesas": 12,
+                  "cedulaRuc": "*********0001",
                   "precioSueltoCentavos": 350,
+                  "precioAlmuerzoCentavos": 350,
+                  "precioSoloSegundoCentavos": 200,
+                  "precioSoloSopaCentavos": 150,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
                   "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
                   "estado": "ACTIVO",
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "actualizadoEn": "2026-11-13T17:00:00.000Z",
+                  "perfilCompleto": true,
+                  "datosPendientes": ["cedulaRuc"],
                   "menuAgotado": true,
                   "ocupacion": {
                     "nivel": "LIBRE",
@@ -1010,19 +1028,24 @@
                 "$ref": "#/components/schemas/UpdateRestauranteDto"
               },
               "example": {
+                "direccion": "texto",
+                "latitud": -0.2,
+                "longitud": -78.49,
+                "telefono": "0991234567",
+                "puestos": 1,
+                "mesas": 1,
+                "cedulaRuc": "1700000993001",
+                "precioAlmuerzoCentavos": 300,
+                "precioSoloSegundoCentavos": 650,
+                "precioSoloSopaCentavos": 650,
+                "recargoParaLlevarCentavos": 650,
                 "nombre": "Doña Rosa",
                 "descripcionCorta": "texto",
                 "etiquetas": ["casero", "vegetariano"],
-                "direccion": "texto",
-                "latitud": 1,
-                "longitud": 1,
-                "telefono": "+593990000001",
                 "logoUrl": "https://cdn.ejemplo.com/imagen.png",
-                "puestos": 1,
                 "anotarMesa": true,
                 "momentoCobro": "ANTES_DE_SERVIR",
                 "precioSueltoCentavos": 650,
-                "recargoParaLlevarCentavos": 650,
                 "zonaId": 1
               }
             }
@@ -1055,7 +1078,12 @@
                   "puestos": 30,
                   "anotarMesa": true,
                   "momentoCobro": "ANTES_DE_SERVIR",
+                  "mesas": 12,
+                  "cedulaRuc": "*********0001",
                   "precioSueltoCentavos": 350,
+                  "precioAlmuerzoCentavos": 350,
+                  "precioSoloSegundoCentavos": 200,
+                  "precioSoloSopaCentavos": 150,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
                   "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
@@ -1214,7 +1242,12 @@
                   "puestos": 30,
                   "anotarMesa": true,
                   "momentoCobro": "ANTES_DE_SERVIR",
+                  "mesas": 12,
+                  "cedulaRuc": "*********0001",
                   "precioSueltoCentavos": 350,
+                  "precioAlmuerzoCentavos": 350,
+                  "precioSoloSegundoCentavos": 200,
+                  "precioSoloSopaCentavos": 150,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
                   "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
@@ -1353,7 +1386,12 @@
                   "puestos": 30,
                   "anotarMesa": true,
                   "momentoCobro": "ANTES_DE_SERVIR",
+                  "mesas": 12,
+                  "cedulaRuc": "*********0001",
                   "precioSueltoCentavos": 350,
+                  "precioAlmuerzoCentavos": 350,
+                  "precioSoloSegundoCentavos": 200,
+                  "precioSoloSopaCentavos": 150,
                   "recargoParaLlevarCentavos": 25,
                   "llenoManualHasta": "2026-11-13T17:00:00.000Z",
                   "concurridoManualHasta": "2026-11-13T17:00:00.000Z",
@@ -4434,6 +4472,10 @@
                       "longitud": -78.49,
                       "logoUrl": "https://cdn.ejemplo.com/logo.png",
                       "precioSueltoCentavos": 350,
+                      "precioAlmuerzoCentavos": 350,
+                      "precioSoloSegundoCentavos": 200,
+                      "precioSoloSopaCentavos": 150,
+                      "recargoParaLlevarCentavos": 25,
                       "monedaCodigo": "USD",
                       "estado": "ACTIVO",
                       "abiertoAhora": true,
@@ -4551,6 +4593,10 @@
                   "longitud": -78.49,
                   "logoUrl": "https://cdn.ejemplo.com/logo.png",
                   "precioSueltoCentavos": 350,
+                  "precioAlmuerzoCentavos": 350,
+                  "precioSoloSegundoCentavos": 200,
+                  "precioSoloSopaCentavos": 150,
+                  "recargoParaLlevarCentavos": 25,
                   "monedaCodigo": "USD",
                   "estado": "ACTIVO",
                   "abiertoAhora": true,
@@ -18548,6 +18594,68 @@
       "RestauranteNuevoDto": {
         "type": "object",
         "properties": {
+          "direccion": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -0.2
+          },
+          "longitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -78.49
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true,
+            "example": "0991234567",
+            "description": "Ecuador: móvil 09XXXXXXXX (10 dígitos); también acepta el mismo número en E.164 (+5939XXXXXXXX). Se guarda y responde en E.164."
+          },
+          "puestos": {
+            "type": "number",
+            "description": "Puestos del local; base del cálculo de ocupación (1..1000)"
+          },
+          "mesas": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Cantidad de mesas del local (informativa). Debe ser ≤ puestos; si solo llega una de las dos se compara con la guardada."
+          },
+          "cedulaRuc": {
+            "type": "string",
+            "nullable": true,
+            "example": "1700000993001",
+            "description": "Cédula (10 dígitos) o RUC (13) válidos del país del local. Dato privado: nunca sale en endpoints públicos y en GET /v1/restaurante se enmascara."
+          },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 5000,
+            "example": 300,
+            "description": "Precio del almuerzo, en centavos enteros (100..5000)"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 5000,
+            "description": "Precio de solo el segundo, en centavos; null = no se vende"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 5000,
+            "description": "Precio de solo la sopa, en centavos; null = no se vende"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "description": "Recargo por llevar, en centavos. Los locales nuevos parten en 25."
+          },
           "nombre": {
             "type": "string",
             "example": "La Cuchara de San Blas"
@@ -18783,10 +18891,39 @@
             "type": "string",
             "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
           },
+          "mesas": {
+            "type": "number",
+            "nullable": true,
+            "example": 12,
+            "description": "Cantidad de mesas (informativa); null si no se indicó"
+          },
+          "cedulaRuc": {
+            "type": "string",
+            "nullable": true,
+            "example": "*********0001",
+            "description": "Cédula/RUC enmascarada: solo los últimos 4 dígitos. El valor completo no se devuelve nunca; null si no se indicó."
+          },
           "precioSueltoCentavos": {
             "type": "number",
             "example": 350,
             "description": "Centavos"
+          },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Centavos. Igual a `precioSueltoCentavos` (mismo dato, nombre del perfil)"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 200,
+            "description": "Centavos; null = no se vende solo el segundo"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 150,
+            "description": "Centavos; null = no se vende solo la sopa"
           },
           "recargoParaLlevarCentavos": {
             "type": "number",
@@ -18817,6 +18954,18 @@
           "actualizadoEn": {
             "format": "date-time",
             "type": "string"
+          },
+          "perfilCompleto": {
+            "type": "boolean",
+            "description": "true si no falta ningún dato de `datosPendientes`. Informativo: no bloquea ninguna operación."
+          },
+          "datosPendientes": {
+            "type": "array",
+            "description": "Datos del perfil que faltan. `puestos` falta mientras el dueño no lo haya indicado; `precioAlmuerzo` mientras el precio sea 0; `coordenadas` si falta latitud o longitud.",
+            "items": {
+              "type": "string",
+              "enum": ["cedulaRuc", "telefono", "direccion", "coordenadas", "mesas", "puestos", "precioAlmuerzo"]
+            }
           },
           "menuAgotado": {
             "type": "boolean",
@@ -18852,13 +19001,20 @@
           "puestos",
           "anotarMesa",
           "momentoCobro",
+          "mesas",
+          "cedulaRuc",
           "precioSueltoCentavos",
+          "precioAlmuerzoCentavos",
+          "precioSoloSegundoCentavos",
+          "precioSoloSopaCentavos",
           "recargoParaLlevarCentavos",
           "llenoManualHasta",
           "concurridoManualHasta",
           "estado",
           "creadoEn",
           "actualizadoEn",
+          "perfilCompleto",
+          "datosPendientes",
           "menuAgotado",
           "ocupacion"
         ]
@@ -18866,6 +19022,68 @@
       "UpdateRestauranteDto": {
         "type": "object",
         "properties": {
+          "direccion": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -0.2
+          },
+          "longitud": {
+            "type": "number",
+            "nullable": true,
+            "example": -78.49
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true,
+            "example": "0991234567",
+            "description": "Ecuador: móvil 09XXXXXXXX (10 dígitos); también acepta el mismo número en E.164 (+5939XXXXXXXX). Se guarda y responde en E.164."
+          },
+          "puestos": {
+            "type": "number",
+            "description": "Puestos del local; base del cálculo de ocupación (1..1000)"
+          },
+          "mesas": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Cantidad de mesas del local (informativa). Debe ser ≤ puestos; si solo llega una de las dos se compara con la guardada."
+          },
+          "cedulaRuc": {
+            "type": "string",
+            "nullable": true,
+            "example": "1700000993001",
+            "description": "Cédula (10 dígitos) o RUC (13) válidos del país del local. Dato privado: nunca sale en endpoints públicos y en GET /v1/restaurante se enmascara."
+          },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 5000,
+            "example": 300,
+            "description": "Precio del almuerzo, en centavos enteros (100..5000)"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 5000,
+            "description": "Precio de solo el segundo, en centavos; null = no se vende"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 5000,
+            "description": "Precio de solo la sopa, en centavos; null = no se vende"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "description": "Recargo por llevar, en centavos. Los locales nuevos parten en 25."
+          },
           "nombre": {
             "type": "string"
           },
@@ -18880,30 +19098,9 @@
               "type": "string"
             }
           },
-          "direccion": {
-            "type": "string",
-            "nullable": true
-          },
-          "latitud": {
-            "type": "number",
-            "nullable": true
-          },
-          "longitud": {
-            "type": "number",
-            "nullable": true
-          },
-          "telefono": {
-            "type": "string",
-            "nullable": true,
-            "example": "+593990000001"
-          },
           "logoUrl": {
             "type": "string",
             "nullable": true
-          },
-          "puestos": {
-            "type": "number",
-            "description": "Puestos del local; base del cálculo de ocupación"
           },
           "anotarMesa": {
             "type": "boolean"
@@ -18914,11 +19111,7 @@
           },
           "precioSueltoCentavos": {
             "type": "number",
-            "description": "Precio del almuerzo suelto, en centavos"
-          },
-          "recargoParaLlevarCentavos": {
-            "type": "number",
-            "description": "Recargo por llevar, en centavos"
+            "description": "Precio del almuerzo suelto, en centavos. Es el mismo dato que `precioAlmuerzoCentavos` (100..5000); se conserva por compatibilidad."
           },
           "zonaId": {
             "type": "number",
@@ -19012,10 +19205,39 @@
             "type": "string",
             "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"]
           },
+          "mesas": {
+            "type": "number",
+            "nullable": true,
+            "example": 12,
+            "description": "Cantidad de mesas (informativa); null si no se indicó"
+          },
+          "cedulaRuc": {
+            "type": "string",
+            "nullable": true,
+            "example": "*********0001",
+            "description": "Cédula/RUC enmascarada: solo los últimos 4 dígitos. El valor completo no se devuelve nunca; null si no se indicó."
+          },
           "precioSueltoCentavos": {
             "type": "number",
             "example": 350,
             "description": "Centavos"
+          },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Centavos. Igual a `precioSueltoCentavos` (mismo dato, nombre del perfil)"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 200,
+            "description": "Centavos; null = no se vende solo el segundo"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 150,
+            "description": "Centavos; null = no se vende solo la sopa"
           },
           "recargoParaLlevarCentavos": {
             "type": "number",
@@ -19067,7 +19289,12 @@
           "puestos",
           "anotarMesa",
           "momentoCobro",
+          "mesas",
+          "cedulaRuc",
           "precioSueltoCentavos",
+          "precioAlmuerzoCentavos",
+          "precioSoloSegundoCentavos",
+          "precioSoloSopaCentavos",
           "recargoParaLlevarCentavos",
           "llenoManualHasta",
           "concurridoManualHasta",
@@ -19686,6 +19913,28 @@
             "example": 350,
             "description": "Precio del almuerzo suelto, en centavos"
           },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Igual a `precioSueltoCentavos` (mismo dato), en centavos"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 200,
+            "description": "Precio de solo el segundo, en centavos; null = no se vende"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 150,
+            "description": "Precio de solo la sopa, en centavos; null = no se vende"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "example": 25,
+            "description": "Recargo por llevar, en centavos"
+          },
           "monedaCodigo": {
             "type": "string",
             "example": "USD"
@@ -19720,6 +19969,10 @@
           "longitud",
           "logoUrl",
           "precioSueltoCentavos",
+          "precioAlmuerzoCentavos",
+          "precioSoloSegundoCentavos",
+          "precioSoloSopaCentavos",
+          "recargoParaLlevarCentavos",
           "monedaCodigo",
           "estado",
           "abiertoAhora",
@@ -19933,6 +20186,28 @@
             "example": 350,
             "description": "Precio del almuerzo suelto, en centavos"
           },
+          "precioAlmuerzoCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Igual a `precioSueltoCentavos` (mismo dato), en centavos"
+          },
+          "precioSoloSegundoCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 200,
+            "description": "Precio de solo el segundo, en centavos; null = no se vende"
+          },
+          "precioSoloSopaCentavos": {
+            "type": "number",
+            "nullable": true,
+            "example": 150,
+            "description": "Precio de solo la sopa, en centavos; null = no se vende"
+          },
+          "recargoParaLlevarCentavos": {
+            "type": "number",
+            "example": 25,
+            "description": "Recargo por llevar, en centavos"
+          },
           "monedaCodigo": {
             "type": "string",
             "example": "USD"
@@ -19987,6 +20262,10 @@
           "longitud",
           "logoUrl",
           "precioSueltoCentavos",
+          "precioAlmuerzoCentavos",
+          "precioSoloSegundoCentavos",
+          "precioSoloSopaCentavos",
+          "recargoParaLlevarCentavos",
           "monedaCodigo",
           "estado",
           "abiertoAhora",

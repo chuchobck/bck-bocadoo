@@ -20,7 +20,22 @@ export class RestauranteResponse {
   @ApiProperty({ example: 30, description: 'Puestos del local' }) puestos!: number;
   @ApiProperty({ description: 'Los comensales pueden anotar su mesa' }) anotarMesa!: boolean;
   @ApiProperty({ enum: ['ANTES_DE_SERVIR', 'DESPUES_DE_SERVIR'] }) momentoCobro!: string;
+  @ApiProperty({ type: Number, nullable: true, example: 12, description: 'Cantidad de mesas (informativa); null si no se indicó' })
+  mesas!: number | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: '*********0001',
+    description: 'Cédula/RUC enmascarada: solo los últimos 4 dígitos. El valor completo no se devuelve nunca; null si no se indicó.',
+  })
+  cedulaRuc!: string | null;
   @ApiProperty({ example: 350, description: 'Centavos' }) precioSueltoCentavos!: number;
+  @ApiProperty({ example: 350, description: 'Centavos. Igual a `precioSueltoCentavos` (mismo dato, nombre del perfil)' })
+  precioAlmuerzoCentavos!: number;
+  @ApiProperty({ type: Number, nullable: true, example: 200, description: 'Centavos; null = no se vende solo el segundo' })
+  precioSoloSegundoCentavos!: number | null;
+  @ApiProperty({ type: Number, nullable: true, example: 150, description: 'Centavos; null = no se vende solo la sopa' })
+  precioSoloSopaCentavos!: number | null;
   @ApiProperty({ example: 25, description: 'Centavos' }) recargoParaLlevarCentavos!: number;
   @ApiProperty({ type: Date, nullable: true, description: 'Hasta cuándo dura "Local lleno"; null si no está activo' })
   llenoManualHasta!: Date | null;
@@ -33,6 +48,17 @@ export class RestauranteResponse {
 
 /** Perfil del local para su personal (GET): suma la ocupación vigente, igual que la vitrina. */
 export class MiRestauranteResponse extends RestauranteResponse {
+  @ApiProperty({ description: 'true si no falta ningún dato de `datosPendientes`. Informativo: no bloquea ninguna operación.' })
+  perfilCompleto!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['cedulaRuc', 'telefono', 'direccion', 'coordenadas', 'mesas', 'puestos', 'precioAlmuerzo'],
+    description:
+      'Datos del perfil que faltan. `puestos` falta mientras el dueño no lo haya indicado; `precioAlmuerzo` mientras el precio sea 0; `coordenadas` si falta latitud o longitud.',
+  })
+  datosPendientes!: string[];
+
   @ApiProperty({
     description: 'true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados',
   })

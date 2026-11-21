@@ -26,6 +26,9 @@ interface ListRow {
   longitud: string | null;
   logo_url: string | null;
   precio_suelto_centavos: string;
+  precio_solo_segundo_centavos: string | null;
+  precio_solo_sopa_centavos: string | null;
+  recargo_para_llevar_centavos: string;
   moneda_codigo: string;
   estado: 'ACTIVO' | 'PAUSADO';
   abierto_ahora: boolean;
@@ -88,7 +91,8 @@ export const menuAgotadoSql = (alias: string) => `COALESCE((SELECT bool_and(d.ag
          AND d.seccion IN ('SOPA', 'FUERTE')), false)`;
 
 const BASE_SELECT = `SELECT r.restaurante_id, r.public_id, r.nombre, r.slug, r.descripcion_corta, r.etiquetas, r.zona_id, z.nombre AS zona_nombre,
-       r.ciudad_id, r.direccion, r.latitud, r.longitud, r.logo_url, r.precio_suelto_centavos, r.moneda_codigo, r.estado,
+       r.ciudad_id, r.direccion, r.latitud, r.longitud, r.logo_url, r.precio_suelto_centavos,
+       r.precio_solo_segundo_centavos, r.precio_solo_sopa_centavos, r.recargo_para_llevar_centavos, r.moneda_codigo, r.estado,
        (r.estado = 'ACTIVO' AND ${OPEN_NOW}) AS abierto_ahora, ${menuAgotadoSql('r')} AS menu_agotado, o.personas, o.puestos, o.lleno_manual, o.concurrido_manual
   FROM restaurante r
   LEFT JOIN zona z ON z.zona_id = r.zona_id
@@ -108,6 +112,10 @@ function toCard(r: ListRow) {
     longitud: num(r.longitud),
     logoUrl: r.logo_url,
     precioSueltoCentavos: Number(r.precio_suelto_centavos),
+    precioAlmuerzoCentavos: Number(r.precio_suelto_centavos),
+    precioSoloSegundoCentavos: num(r.precio_solo_segundo_centavos),
+    precioSoloSopaCentavos: num(r.precio_solo_sopa_centavos),
+    recargoParaLlevarCentavos: Number(r.recargo_para_llevar_centavos),
     monedaCodigo: r.moneda_codigo,
     estado: r.estado,
     abiertoAhora: r.abierto_ahora,

@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { DbService } from '../db/db.service';
 import { ClientInfo, SecurityEventsService } from '../security/security-events.service';
 import { LoginDto, RegisterDto, RegisterOwnerDto, RegisterResponseDto, TokenResponseDto } from './dto';
+import { validarPerfil } from '../restaurant/profile';
 import { PasswordService } from './password.service';
 import { SessionsService } from './sessions.service';
 import { TokenService } from './token.service';
@@ -17,6 +18,7 @@ const slugify = (s: string) =>
     .slice(0, 40) || 'local';
 
 const TERMINOS_VERSION = 'v1';
+const PUESTOS_POR_DEFECTO = 20; // default de restaurante.puestos
 
 @Injectable()
 export class AuthService {
@@ -106,11 +108,34 @@ export class AuthService {
         if (rest) {
           const c = await q.query<{ pais_codigo: string }>('SELECT pais_codigo FROM ciudad WHERE ciudad_id = $1', [rest.ciudadId]);
           if (!c.rows[0]) throw new BadRequestException('ciudadId no existe.');
+          // El slug siempre se genera aquí (nombre sin acentos + sufijo aleatorio corto): la app nunca lo envía.
           const slug = `${slugify(rest.nombre)}-${randomBytes(3).toString('hex')}`;
+          // El 20 por defecto no cuenta como puestos definidos: `mesas` solo se compara con `puestos` si viene en la misma petición.
+          const perfil = validarPerfil(c.rows[0].pais_codigo, rest, { puestos: PUESTOS_POR_DEFECTO, puestosDefinidos: false, mesas: null });
           const r = await q.query<{ restaurante_id: string; public_id: string; estado: string }>(
-            `INSERT INTO restaurante (nombre, slug, pais_codigo, ciudad_id, moneda_codigo, zona_horaria, precio_suelto_centavos)
-             VALUES ($1, $2, $3, $4, 'USD', 'America/Guayaquil', 0) RETURNING restaurante_id, public_id, estado`,
-            [rest.nombre, slug, c.rows[0].pais_codigo, rest.ciudadId],
+            `INSERT INTO restaurante (nombre, slug, pais_codigo, ciudad_id, moneda_codigo, zona_horaria, precio_suelto_centavos,
+                                      direccion, latitud, longitud, telefono_e164, puestos, puestos_definidos, mesas_total,
+                                      precio_solo_segundo_centavos, precio_solo_sopa_centavos, recargo_para_llevar_centavos)
+             VALUES ($1, $2, $3, $4, 'USD', 'America/Guayaquil', COALESCE($5::bigint, 0),
+                     $6, $7::numeric, $8::numeric, $9, COALESCE($10::int, ${PUESTOS_POR_DEFECTO}), $10::int IS NOT NULL, $11::int,
+                     $12::bigint, $13::bigint, COALESCE($14::bigint, 25))
+             RETURNING restaurante_id, public_id, estado`,
+            [
+              rest.nombre,
+              slug,
+              c.rows[0].pais_codigo,
+              rest.ciudadId,
+              rest.precioAlmuerzoCentavos ?? null,
+              rest.direccion ?? null,
+              rest.latitud ?? null,
+              rest.longitud ?? null,
+              perfil.telefono ?? null,
+              rest.puestos ?? null,
+              rest.mesas ?? null,
+              rest.precioSoloSegundoCentavos ?? null,
+              rest.precioSoloSopaCentavos ?? null,
+              rest.recargoParaLlevarCentavos ?? null,
+            ],
           );
           const row = r.rows[0]!;
           await q.query(`INSERT INTO personal_restaurante (restaurante_id, usuario_id, rol, nombre_visible) VALUES ($1, $2, 'DUENO', $3)`, [
@@ -118,6 +143,12 @@ export class AuthService {
             usuarioId,
             dto.nombre,
           ]);
+          if (rest.cedulaRuc) {
+            await q.query('INSERT INTO restaurante_fiscal (restaurante_id, cedula_ruc) VALUES ($1, $2)', [
+              row.restaurante_id,
+              rest.cedulaRuc,
+            ]);
+          }
           restaurante = { id: row.public_id, nombre: rest.nombre, slug, estado: row.estado };
         }
         return { usuarioId: String(usuarioId), publicId, restaurante };

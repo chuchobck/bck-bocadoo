@@ -6,7 +6,6 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
@@ -15,15 +14,12 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Text } from '../security/sanitize';
+import { PerfilNegocioDto, present } from './profile.dto';
 
-/** Campos NOT NULL: si vienen, no pueden ser null. */
-const present = () => ValidateIf((_: unknown, v: unknown) => v !== undefined);
-
-export class UpdateRestauranteDto {
+export class UpdateRestauranteDto extends PerfilNegocioDto {
   @ApiPropertyOptional() @present() @Text() @IsString() @Length(2, 100) nombre?: string;
   @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) descripcionCorta?: string | null;
   @ApiPropertyOptional({ type: [String], example: ['casero', 'vegetariano'] })
@@ -34,44 +30,25 @@ export class UpdateRestauranteDto {
   @IsString({ each: true })
   @Length(1, 30, { each: true })
   etiquetas?: string[];
-  @ApiPropertyOptional({ type: String, nullable: true }) @IsOptional() @Text() @IsString() @MaxLength(200) direccion?: string | null;
-  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-90) @Max(90) latitud?:
-    number | null;
-  @ApiPropertyOptional({ type: Number, nullable: true }) @IsOptional() @IsNumber({ maxDecimalPlaces: 6 }) @Min(-180) @Max(180) longitud?:
-    number | null;
-  @ApiPropertyOptional({ type: String, nullable: true, example: '+593990000001' })
-  @IsOptional()
-  @IsString()
-  @Matches(/^\+[1-9][0-9]{6,14}$/, { message: 'telefono debe estar en formato E.164, p. ej. +593990000001' })
-  telefono?: string | null;
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(500)
   logoUrl?: string | null;
-  @ApiPropertyOptional({ description: 'Puestos del local; base del cálculo de ocupación' })
-  @present()
-  @IsInt()
-  @Min(1)
-  @Max(1000)
-  puestos?: number;
   @ApiPropertyOptional() @present() @IsBoolean() anotarMesa?: boolean;
   @ApiPropertyOptional({ enum: ['ANTES_DE_SERVIR', 'DESPUES_DE_SERVIR'] })
   @present()
   @IsIn(['ANTES_DE_SERVIR', 'DESPUES_DE_SERVIR'])
   momentoCobro?: string;
-  @ApiPropertyOptional({ description: 'Precio del almuerzo suelto, en centavos' })
+  @ApiPropertyOptional({
+    description:
+      'Precio del almuerzo suelto, en centavos. Es el mismo dato que `precioAlmuerzoCentavos` (100..5000); se conserva por compatibilidad.',
+  })
   @present()
   @IsInt()
   @Min(0)
   @Max(100_000_000)
   precioSueltoCentavos?: number;
-  @ApiPropertyOptional({ description: 'Recargo por llevar, en centavos' })
-  @present()
-  @IsInt()
-  @Min(0)
-  @Max(100_000_000)
-  recargoParaLlevarCentavos?: number;
   @ApiPropertyOptional({ type: Number, nullable: true, description: 'zona_id del catálogo (debe ser de la ciudad del local)' })
   @IsOptional()
   @IsInt()

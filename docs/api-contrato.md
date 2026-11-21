@@ -244,6 +244,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 - **Estado:** Estable
 
 > Crea la cuenta y el restaurante en estado `BORRADOR` (el usuario queda como `DUENO`). No devuelve tokens: hay que hacer login.
+>
+> `restaurante` exige solo `nombre` y `ciudadId`. Admite además, **todos opcionales y validados solo si vienen**, los datos de negocio de «Perfil de negocio» (más abajo): `direccion`, `latitud`, `longitud`, `telefono`, `puestos`, `mesas`, `cedulaRuc`, `precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos`, `recargoParaLlevarCentavos`. El `slug` lo genera siempre el servidor (nombre sin acentos, minúsculas y guiones + sufijo aleatorio de 6 caracteres); no se envía.
 
 Request:
 
@@ -408,6 +410,33 @@ Response `200`:
 
 ### Restaurante
 
+#### Perfil de negocio (campos opcionales)
+
+Datos que completa la app después del registro. **Todos son opcionales** en `POST /v1/auth/register-owner` (dentro de `restaurante`) y en `PATCH /v1/restaurante`: quien no los envía sigue funcionando igual que antes. La obligatoriedad la impone la app, no la API. **Dinero siempre en centavos enteros.**
+
+| Campo                       | Tipo / rango                   | Notas                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `direccion`                 | texto ≤ 200, `null` borra      |                                                                                                                                                                                                                                                                                                              |
+| `latitud`, `longitud`       | número, 6 decimales, `null`    | Deben caer dentro del país del local (Ecuador, con Galápagos; cajas aproximadas). Si solo llega una se valida por eje.                                                                                                                                                                                       |
+| `telefono`                  | texto, `null` borra            | Ecuador: móvil `09XXXXXXXX` (10 dígitos). También acepta el mismo número ya en E.164 (`+5939XXXXXXXX`). **Se guarda y responde en E.164.** Otros formatos: 400                                                                                                                                               |
+| `puestos`                   | entero 1..1000                 | Ya existía (antes también 1..1000). Base de la ocupación.                                                                                                                                                                                                                                                    |
+| `mesas`                     | entero 1..200, `null` borra    | Informativo (no crea mesas operativas). `puestos` ≥ `mesas`: si llegan las dos se comparan entre sí; si llega una se compara con la guardada, pero solo si `puestos` ya fue indicado alguna vez (el 20 por defecto no cuenta: `mesas: 30` sin `puestos` pasa; con `puestos: 20` da 400). 400 si no se cumple |
+| `cedulaRuc`                 | 10 dígitos (cédula) o 13 (RUC) | Validada por país. **Privada**: nunca en endpoints públicos; en `GET /v1/restaurante` sale enmascarada (`*********0001`). `null` la borra                                                                                                                                                                    |
+| `precioAlmuerzoCentavos`    | entero 100..5000               | Es el mismo dato que `precioSueltoCentavos` (misma columna). Si llegan los dos deben ser iguales. Los dos salen en las respuestas                                                                                                                                                                            |
+| `precioSoloSegundoCentavos` | entero 1..5000, `null`         | `null` = no se vende solo el segundo                                                                                                                                                                                                                                                                         |
+| `precioSoloSopaCentavos`    | entero 1..5000, `null`         | `null` = no se vende solo la sopa                                                                                                                                                                                                                                                                            |
+| `recargoParaLlevarCentavos` | entero ≥ 0                     | Ya existía. Los locales **nuevos** parten en 25 (antes 0); los existentes no cambian                                                                                                                                                                                                                         |
+
+Validación por país (hoy solo `EC`; otros países usan reglas genéricas: teléfono E.164, rangos del planeta y `cedulaRuc` no admitido → 400). El punto de extensión es `src/restaurant/country/`.
+
+- **Cédula (10 dígitos):** provincia `01`–`24` o `30`; tercer dígito < 6; dígito verificador módulo 10.
+- **RUC (13 dígitos):** provincia como la cédula y los 3 últimos dígitos distintos de `000`. Persona natural: tercer dígito < 6 y módulo 10 sobre los 10 primeros. Sociedad privada: tercer dígito 9, módulo 11. Sociedad pública: tercer dígito 6, módulo 11.
+- Ejemplo válido generado (no es de nadie): `1700000993001`.
+
+`GET /v1/restaurante` suma `perfilCompleto` (boolean) y `datosPendientes` (lista, en este orden, de `cedulaRuc`, `telefono`, `direccion`, `coordenadas`, `mesas`, `puestos`, `precioAlmuerzo`). **No bloquea ninguna operación** (activar, caja, etc. siguen con sus reglas de siempre). `puestos` figura como pendiente mientras el dueño no lo haya indicado (los locales anteriores a este cambio cuentan como indicados); `precioAlmuerzo`, mientras el precio sea 0; `coordenadas`, si falta la latitud o la longitud.
+
+Los precios (`precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos`) y `recargoParaLlevarCentavos` son **públicos**: salen también en `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}`. La cédula/RUC, no.
+
 Errores propios del módulo (estas fases usan el `code` genérico del estado HTTP; se distinguen por el `detail`):
 
 - 400 · "No hay nada que actualizar." · horarios que se traslapan o con `cierra` ≤ `abre` · `zonaId` que no es de la ciudad del local
@@ -441,10 +470,15 @@ Response `200`:
   "telefono": null,
   "logoUrl": null,
   "puestos": 20,
+  "mesas": null,
+  "cedulaRuc": null,
   "anotarMesa": false,
   "momentoCobro": "ANTES_DE_SERVIR",
   "precioSueltoCentavos": 0,
-  "recargoParaLlevarCentavos": 0,
+  "precioAlmuerzoCentavos": 0,
+  "precioSoloSegundoCentavos": null,
+  "precioSoloSopaCentavos": null,
+  "recargoParaLlevarCentavos": 25,
   "llenoManualHasta": null,
   "concurridoManualHasta": null,
   "estado": "BORRADOR",
@@ -452,6 +486,8 @@ Response `200`:
   "actualizadoEn": "2026-11-13T03:47:35.716Z"
 }
 ```
+
+Campos `perfilCompleto` (boolean) y `datosPendientes` (lista de nombres) en este GET: ver «Perfil de negocio». `cedulaRuc` siempre enmascarada.
 
 Campo `menuAgotado` (boolean, siempre presente) y `ocupacion` (ver «Estados públicos» al final de la sección 4): `menuAgotado` es `true` solo con menú publicado hoy y todas las sopas y todos los segundos agotados.
 
@@ -4948,6 +4984,14 @@ Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles).
 - **409 `RESTAURANTE_PAUSADO`** (problem+json) si el local está `PAUSADO`: `POST /v1/mis/pedidos`, `POST /v1/mis/mesas` (mesa nueva) y `POST /v1/ofertas/{id}/canjear`. Un `BORRADOR`/`BAJA` sigue respondiendo 404 `RESTAURANTE_NO_ENCONTRADO` en pedidos y mesas. Lo ya creado no se toca: pedidos y mesas existentes se leen igual, el reintento con la misma `Idempotency-Key` devuelve el original, y `POST /v1/caja/pedidos/{id}/canjear` y `POST /v1/caja/validar` no cambian. Unirse a una mesa ya creada tampoco cambia.
 - **409 `LOCAL_LLENO_SOLO_LLEVAR`** en `POST /v1/mis/pedidos` cuando la ocupación vigente es `LLENO` (la misma de `ocupacion.nivel`: "Lleno" manual vigente o aforo ≥ 90 %) y el pedido no es para llevar (`paraLlevar` ausente o `false`, es decir tipo `AQUI`; incluye pedidos solo de extras). Con `paraLlevar: true` se permite, con los mismos precios y recargo de siempre. No afecta a caja, QR, validar ni planes. Orden de las comprobaciones: `RESTAURANTE_PAUSADO` → `MENU_NO_PUBLICADO` → `LOCAL_LLENO_SOLO_LLEVAR`.
 - **`menuAgotado` (boolean)** en la vitrina, el detalle y `GET /v1/restaurante`: `true` solo si hay menú publicado hoy (fecha local del local) y **todos** los platos de las secciones `SOPA` y `FUERTE` del día tienen `agotado = true` (el mismo marcador de `PATCH /v1/menu/{fecha}/items/{id}/agotado`). Jugo, postre y adicionales no cuentan. Sin menú publicado, o sin ninguna sopa ni segundo en el menú, es `false` (eso lo cubre `MENU_NO_PUBLICADO`).
+
+### Perfil de negocio del restaurante (rama `feat/perfil-restaurante-v2`)
+
+Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles). Detalle en «Perfil de negocio» (sección Restaurante).
+
+- Campos nuevos **opcionales** en `register-owner` (dentro de `restaurante`) y `PATCH /v1/restaurante`: `mesas`, `cedulaRuc`, `precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos` (más `telefono`, `direccion`, `latitud`, `longitud`, `puestos` y `recargoParaLlevarCentavos`, que ya existían y ahora comparten reglas).
+- Respuestas nuevas: `mesas`, `cedulaRuc` (enmascarada), `precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos` en `GET`/`PATCH`/`activar`/`pausar` de `/v1/restaurante`; `perfilCompleto` y `datosPendientes` solo en `GET /v1/restaurante`; precios y `recargoParaLlevarCentavos` también en la vitrina y el detalle.
+- Cambio de comportamiento sin cambio de esquema: `telefono` ahora se valida por país (Ecuador: móvil `09XXXXXXXX` o `+5939XXXXXXXX`; antes aceptaba cualquier E.164) y se guarda en E.164; los locales nuevos parten con `recargoParaLlevarCentavos` = 25.
 
 ## 5. Mantenimiento de este contrato
 

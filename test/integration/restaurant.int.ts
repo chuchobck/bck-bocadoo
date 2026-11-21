@@ -53,7 +53,9 @@ describe('Restaurante: perfil, estado, horarios, mesas y "local lleno"', () => {
     expect((await patch({ puestos: null })).statusCode).toBe(400);
     expect((await patch({ nombre: null })).statusCode).toBe(400);
     expect((await patch({ precioSueltoCentavos: -1 })).statusCode).toBe(400);
-    expect((await patch({ telefono: '0990000123' })).statusCode).toBe(400);
+    // Un móvil 09XXXXXXXX ahora es válido (se guarda en E.164); fijos y números de otros países no.
+    expect((await patch({ telefono: '022345678' })).statusCode).toBe(400);
+    expect((await patch({ telefono: '+573001234567' })).statusCode).toBe(400);
     expect((await patch({ logoUrl: 'http://inseguro.test/x.png' })).statusCode).toBe(400);
     expect((await patch({ latitud: 91 })).statusCode).toBe(400);
     expect((await patch({})).statusCode).toBe(400);

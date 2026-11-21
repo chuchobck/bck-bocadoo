@@ -2,10 +2,14 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { DbService, Queryable } from '../db/db.service';
 import { ActualizarMesaDto, CrearMesaDto, HorarioDto, LlenoDto, NivelManual, UpdateRestauranteDto } from './dto';
 import { menuAgotadoSql, occupancy } from '../catalog/catalog.service';
+import { datosPendientes, enmascararCedulaRuc, validarPerfil } from './profile';
 
-const COLS = `public_id, nombre, slug, descripcion_corta, etiquetas, pais_codigo, ciudad_id, zona_id, moneda_codigo, zona_horaria,
-  direccion, latitud, longitud, telefono_e164, logo_url, puestos, anotar_mesa, momento_cobro, precio_suelto_centavos,
-  recargo_para_llevar_centavos, lleno_manual_hasta, concurrido_manual_hasta, estado, creado_en, actualizado_en`;
+/** La cédula/RUC vive en `restaurante_fiscal` (tabla privada del tenant), no en `restaurante`. */
+const COLS = `r.public_id, r.nombre, r.slug, r.descripcion_corta, r.etiquetas, r.pais_codigo, r.ciudad_id, r.zona_id, r.moneda_codigo, r.zona_horaria,
+  r.direccion, r.latitud, r.longitud, r.telefono_e164, r.logo_url, r.puestos, r.mesas_total, r.puestos_definidos, r.anotar_mesa, r.momento_cobro,
+  r.precio_suelto_centavos, r.precio_solo_segundo_centavos, r.precio_solo_sopa_centavos, r.recargo_para_llevar_centavos,
+  r.lleno_manual_hasta, r.concurrido_manual_hasta, r.estado, r.creado_en, r.actualizado_en, f.cedula_ruc`;
+const FROM = 'FROM restaurante r LEFT JOIN restaurante_fiscal f ON f.restaurante_id = r.restaurante_id';
 
 interface Row {
   public_id: string;
@@ -24,10 +28,15 @@ interface Row {
   telefono_e164: string | null;
   logo_url: string | null;
   puestos: number;
+  mesas_total: number | null;
+  puestos_definidos: boolean;
   anotar_mesa: boolean;
   momento_cobro: string;
   precio_suelto_centavos: string;
+  precio_solo_segundo_centavos: string | null;
+  precio_solo_sopa_centavos: string | null;
   recargo_para_llevar_centavos: string;
+  cedula_ruc: string | null;
   lleno_manual_hasta: Date | null;
   concurrido_manual_hasta: Date | null;
   estado: string;
@@ -36,7 +45,7 @@ interface Row {
 }
 
 /** Campo del DTO → columna. Solo lo que está aquí se puede actualizar (nunca estado, slug, moneda ni país). */
-const UPDATABLE: Record<keyof UpdateRestauranteDto, string> = {
+const UPDATABLE: Record<Exclude<keyof UpdateRestauranteDto, 'cedulaRuc'>, string> = {
   nombre: 'nombre',
   descripcionCorta: 'descripcion_corta',
   etiquetas: 'etiquetas',
@@ -46,9 +55,13 @@ const UPDATABLE: Record<keyof UpdateRestauranteDto, string> = {
   telefono: 'telefono_e164',
   logoUrl: 'logo_url',
   puestos: 'puestos',
+  mesas: 'mesas_total',
   anotarMesa: 'anotar_mesa',
   momentoCobro: 'momento_cobro',
   precioSueltoCentavos: 'precio_suelto_centavos',
+  precioAlmuerzoCentavos: 'precio_suelto_centavos',
+  precioSoloSegundoCentavos: 'precio_solo_segundo_centavos',
+  precioSoloSopaCentavos: 'precio_solo_sopa_centavos',
   recargoParaLlevarCentavos: 'recargo_para_llevar_centavos',
   zonaId: 'zona_id',
 };
@@ -73,9 +86,14 @@ export function toRestauranteDto(r: Row) {
     telefono: r.telefono_e164,
     logoUrl: r.logo_url,
     puestos: r.puestos,
+    mesas: r.mesas_total,
+    cedulaRuc: enmascararCedulaRuc(r.cedula_ruc),
     anotarMesa: r.anotar_mesa,
     momentoCobro: r.momento_cobro,
     precioSueltoCentavos: Number(r.precio_suelto_centavos),
+    precioAlmuerzoCentavos: Number(r.precio_suelto_centavos),
+    precioSoloSegundoCentavos: num(r.precio_solo_segundo_centavos),
+    precioSoloSopaCentavos: num(r.precio_solo_sopa_centavos),
     recargoParaLlevarCentavos: Number(r.recargo_para_llevar_centavos),
     llenoManualHasta: r.lleno_manual_hasta,
     concurridoManualHasta: r.concurrido_manual_hasta,
@@ -101,8 +119,11 @@ export class RestaurantService {
         const m = await q.query<{ menu_agotado: boolean }>(
           `SELECT ${menuAgotadoSql('r')} AS menu_agotado FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
         );
+        const pendientes = datosPendientes(r);
         return {
           ...toRestauranteDto(r),
+          perfilCompleto: pendientes.length === 0,
+          datosPendientes: pendientes,
           menuAgotado: m.rows[0]?.menu_agotado ?? false,
           ocupacion: f ? occupancy(f.personas, f.puestos, f.lleno_manual, f.concurrido_manual) : null,
         };
@@ -112,15 +133,28 @@ export class RestaurantService {
   }
 
   async update(dto: UpdateRestauranteDto) {
-    const sets: string[] = [];
-    const params: unknown[] = [];
-    for (const [key, col] of Object.entries(UPDATABLE) as [keyof UpdateRestauranteDto, string][]) {
-      if (dto[key] === undefined) continue;
-      params.push(dto[key]);
-      sets.push(`${col} = $${params.length}`);
-    }
-    if (sets.length === 0) throw new BadRequestException('No hay nada que actualizar.');
     return this.db.forRequest(async (q) => {
+      // Se bloquea la fila: las comparaciones con lo guardado (puestos ≥ mesas) no se cruzan con otro PATCH.
+      const actual = await this.load(q, true);
+      const perfil = validarPerfil(actual.pais_codigo, dto, {
+        puestos: actual.puestos,
+        puestosDefinidos: actual.puestos_definidos,
+        mesas: actual.mesas_total,
+      });
+      const values: Partial<Record<keyof UpdateRestauranteDto, unknown>> = { ...dto, telefono: perfil.telefono };
+      // precioSueltoCentavos y precioAlmuerzoCentavos son la misma columna (ya validados como iguales si vienen ambos).
+      if (dto.precioAlmuerzoCentavos !== undefined) delete values.precioSueltoCentavos;
+
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      for (const [key, col] of Object.entries(UPDATABLE) as [Exclude<keyof UpdateRestauranteDto, 'cedulaRuc'>, string][]) {
+        if (values[key] === undefined) continue;
+        params.push(values[key]);
+        sets.push(`${col} = $${params.length}`);
+      }
+      if (dto.puestos !== undefined) sets.push('puestos_definidos = true');
+      if (sets.length === 0 && dto.cedulaRuc === undefined) throw new BadRequestException('No hay nada que actualizar.');
+
       if (dto.zonaId) {
         const z = await q.query(
           `SELECT 1 FROM zona z WHERE z.zona_id = $1 AND z.activa AND z.ciudad_id = (SELECT ciudad_id FROM restaurante WHERE restaurante_id = app_tenant_id())`,
@@ -128,11 +162,21 @@ export class RestaurantService {
         );
         if (!z.rowCount) throw new BadRequestException('zonaId no existe o no es de la ciudad del local.');
       }
-      const r = await q.query<Row>(
-        `UPDATE restaurante SET ${sets.join(', ')}, actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() RETURNING ${COLS}`,
-        params,
-      );
-      return toRestauranteDto(r.rows[0]!);
+      if (sets.length) {
+        await q.query(
+          `UPDATE restaurante SET ${sets.join(', ')}, actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id()`,
+          params,
+        );
+      }
+      if (dto.cedulaRuc !== undefined) {
+        // `null` borra el dato (la app no tiene DELETE). Nunca se registra en el log de auditoría: esa tabla no tiene trigger.
+        await q.query(
+          `INSERT INTO restaurante_fiscal (restaurante_id, cedula_ruc) VALUES (app_tenant_id(), $1)
+           ON CONFLICT (restaurante_id) DO UPDATE SET cedula_ruc = EXCLUDED.cedula_ruc`,
+          [dto.cedulaRuc],
+        );
+      }
+      return toRestauranteDto(await this.load(q));
     });
   }
 
@@ -147,10 +191,8 @@ export class RestaurantService {
       if (Number(r.precio_suelto_centavos) <= 0) faltan.push('precio del almuerzo suelto');
       if (!h.rowCount) faltan.push('al menos un horario');
       if (faltan.length) throw new ConflictException(`Para activar el local falta: ${faltan.join(' y ')}.`);
-      const u = await q.query<Row>(
-        `UPDATE restaurante SET estado = 'ACTIVO', actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() RETURNING ${COLS}`,
-      );
-      return toRestauranteDto(u.rows[0]!);
+      await q.query(`UPDATE restaurante SET estado = 'ACTIVO', actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id()`);
+      return toRestauranteDto(await this.load(q));
     });
   }
 
@@ -159,10 +201,8 @@ export class RestaurantService {
       const r = await this.load(q);
       if (r.estado === 'PAUSADO') return toRestauranteDto(r);
       if (r.estado !== 'ACTIVO') throw new ConflictException('Solo un restaurante activo se puede pausar.');
-      const u = await q.query<Row>(
-        `UPDATE restaurante SET estado = 'PAUSADO', actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() RETURNING ${COLS}`,
-      );
-      return toRestauranteDto(u.rows[0]!);
+      await q.query(`UPDATE restaurante SET estado = 'PAUSADO', actualizado_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id()`);
+      return toRestauranteDto(await this.load(q));
     });
   }
 
@@ -276,8 +316,8 @@ export class RestaurantService {
     });
   }
 
-  private async load(q: Queryable): Promise<Row> {
-    const r = await q.query<Row>(`SELECT ${COLS} FROM restaurante WHERE restaurante_id = app_tenant_id()`);
+  private async load(q: Queryable, lock = false): Promise<Row> {
+    const r = await q.query<Row>(`SELECT ${COLS} ${FROM} WHERE r.restaurante_id = app_tenant_id()${lock ? ' FOR UPDATE OF r' : ''}`);
     if (!r.rows[0]) throw new NotFoundException('Restaurante no encontrado.');
     return r.rows[0];
   }
