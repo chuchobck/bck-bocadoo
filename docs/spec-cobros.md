@@ -140,7 +140,14 @@ EntradaCobro
     ofertaId           uuid | null  obligatorio si tipo = OFERTA
     categoriaBase      ALMUERZO | A_LA_CARTA | EXTRA | BEBIDA | null   (categoría del plato de la oferta)
     disponible         bool         false = agotado al momento de aplicar (solo MESA, B.3 paso 4)
+    nombre             string | null  opcional; se copia tal cual a la línea de salida
+    platoId            uuid | null    opcional (public_id); se copia tal cual a la línea de salida
 ```
+
+`cotizar` rechaza con un error tipado (`CotizarError`, con `code`) las entradas que no cumplen este contrato. Además de
+los rangos de arriba: `paraLlevar` por línea fuera del POS, `disponible = false` fuera de `MESA`, `tipo = LIBRE` fuera del
+POS, `OFERTA` sin `ofertaId`, y un `ALMUERZO` (sin `ofertaId`) cuyo `precioUnitario` ≠ `precioAlmuerzo` (el precio del
+almuerzo es P, B.3 paso 2; así `cubierto = P × unidades PLAN` se cumple siempre).
 
 `plan.disponibles` se calcula con la **misma** condición que `fn_descontar_almuerzo`
 (`db/migrations/20261116000000_descontar_almuerzo_mesa.sql:82-87`): `estado = 'ACTIVA'`, `vence_el >= hoy` y hoy en
@@ -184,7 +191,13 @@ EntradaCobro
    - `cubierto(i) = fuente(i) = PLAN ? subtotal(i) : 0`
    - `porCobrar(i) = subtotal(i) − cubierto(i) + recargo(i)`
    - Si `omitida(i)`: `subtotal = recargo = cubierto = porCobrar = 0`.
-   - Una línea `ALMUERZO` con `q > 1` parcialmente cubierta se parte en dos líneas de salida (`PLAN` × k y `CAJA` × q − k).
+   - **Partición del plan.** Cada unidad que el plan cubre es su propia línea de salida `PLAN` de cantidad 1 (así cada
+     una tiene su consumo, F.1). Una línea `ALMUERZO` de cantidad q con k unidades cubiertas da k líneas `PLAN` × 1 y,
+     si k < q, una línea `CAJA` (u omitida) × (q − k).
+   - **Refs de salida** (los usa la clave por línea de F.3, que exige refs únicos): la línea `PLAN` de la unidad k lleva
+     `ref#k` (k = 1, 2, …, en orden de descuento), aunque la línea de entrada tenga cantidad 1; todas las demás (`CAJA`,
+     incluido el resto no cubierto, `OFERTA` y omitidas) conservan el `ref` de entrada sin sufijo. Por eso el `ref` de
+     entrada no puede contener `#`. `avisos[].lineaRef` usa el `ref` de entrada.
 7. **Totales** (por pagador y de la operación):
    - `subtotalCentavos = Σ subtotal(i)`
    - `recargoCentavos = Σ recargo(i)`
@@ -226,13 +239,18 @@ Cotizacion
   avisos[]                  { codigo, lineaRef | null }  OFERTA_AGOTADA, OFERTA_EXPIRADA, PLATO_AGOTADO, DUPLICADO, LIMITE_SAAS, PLAN_NO_ALCANZA
 ```
 
+`estimada` no viene en la entrada: es un segundo parámetro, `cotizar(entrada, { estimada })`, con `true` por defecto
+(flujos del comensal); `aplicar` lo pasa en `false`. `monedaCodigo` (ejemplo de E.1) no lo pone la función: lo agrega el
+endpoint al responder.
+
 **Fuente de pago por línea.** Las cuatro fuentes pedidas (PLAN, OFERTA, EFECTIVO/TRANSFERENCIA, ANFITRION) quedan en dos
 campos, porque son preguntas distintas:
 
 - `fuente` dice **de dónde sale el precio**: `PLAN` (lo cubre un almuerzo del plan; 0 por cobrar del precio), `OFERTA`
   (precio de la oferta, se cobra) o `CAJA` (precio normal, se cobra).
 - `pagador` dice **quién paga**: `PROPIO` o `ANFITRION` (`INVITO_YO`). Con un solo campo se perdería si el anfitrión pagó
-  con su plan o en caja.
+  con su plan o en caja. En `INVITO_YO`, las líneas propias del anfitrión son `PROPIO`; `ANFITRION` solo aparece en las
+  líneas de los invitados (`pagador = PROPIO` exactamente cuando `pagadorRef = personaRef`).
 - El **método** (`EFECTIVO`, `TRANSFERENCIA`, `DEUNA`, `src/checkout/pos.ts:43`) es del pago que salda la cuenta, no de
   la línea: una cuenta se puede pagar con varios métodos (I-14).
 
@@ -364,7 +382,7 @@ cambia de tipo ni de significado. Lo que no se pudo hacer así está en la secci
   "estimada": false,
   "lineas": [
     {
-      "ref": "u0",
+      "ref": "u0#1",
       "tipo": "ALMUERZO",
       "nombre": "Almuerzo",
       "platoId": null,
@@ -630,10 +648,12 @@ Todo en migraciones nuevas (dbmate). Ninguna aplicada se edita. Las de la entreg
 - `cantidad` (≠ 0; negativa = reverso), `precio_unitario_centavos ≥ 0`, `recargo_unitario_centavos ≥ 0`,
   `subtotal_centavos`, `recargo_centavos`, `cubierto_centavos`.
 - `clave_idempotencia` UUID, `revierte_a_linea_id`, `creada_en`.
-- CHECKs: `subtotal = cantidad × precio_unitario`; `recargo = cantidad × recargo_unitario`;
-  `cubierto = (fuente = 'PLAN') ? subtotal : 0`; `fuente = 'PLAN' ⇒ tipo = 'ALMUERZO' ∧ consumo_id NOT NULL ∧ |cantidad| = 1`;
+- CHECKs: con `omitida IS NULL`, `subtotal = cantidad × precio_unitario`, `recargo = cantidad × recargo_unitario` y
+  `cubierto = (fuente = 'PLAN') ? subtotal : 0`; con `omitida IS NOT NULL`, `fuente = 'CAJA'` y
+  `subtotal = recargo = cubierto = 0` (la línea conserva su cantidad y su precio unitario, solo informativos);
+  `fuente = 'PLAN' ⇒ tipo = 'ALMUERZO' ∧ consumo_id NOT NULL ∧ |cantidad| = 1`;
   `fuente = 'OFERTA' ⇒ oferta_flash_id NOT NULL`; `(cantidad > 0) = (revierte_a_linea_id IS NULL)` (como
-  `consumo_almuerzo`, `baseline:602`); omitida ⇒ montos 0.
+  `consumo_almuerzo`, `baseline:602`).
 - `UNIQUE (restaurante_id, clave_idempotencia)`; índice único parcial "un solo reverso por línea" (como
   `baseline:604`).
 - Trigger `fn_solo_insercion` (el de `baseline:1158-1169`): ni `UPDATE` ni `DELETE`.
