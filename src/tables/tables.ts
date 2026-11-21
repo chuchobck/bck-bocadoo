@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Injectable, Module, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Injectable, Module, Param, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsISO8601, IsOptional, Matches } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
@@ -7,6 +7,7 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, restaurantePausado, restauranteRef } from '../diner/common';
+import { SeleccionDto, SeleccionMiembroResponse, TableSelectionService, loadSelections, seleccionDe } from './selection';
 
 const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
 /** La hora de llegada va de 5 minutos atrás a 12 horas adelante. */
@@ -35,6 +36,13 @@ class MiembroMesa {
   @ApiProperty() esAnfitrion!: boolean;
   @ApiProperty() paraLlevar!: boolean;
   @ApiProperty({ description: 'Es el comensal que consulta' }) soyYo!: boolean;
+  @ApiProperty({
+    type: SeleccionMiembroResponse,
+    nullable: true,
+    description:
+      'Lo que eligió este miembro. El anfitrión ve la de todos; un invitado solo la suya (las demás vienen `null`: no se muestran). Vacía = aún no eligió.',
+  })
+  seleccion!: SeleccionMiembroResponse | null;
 }
 class MesaResponse {
   @ApiProperty({ description: 'public_id de la mesa' }) id!: string;
@@ -250,11 +258,12 @@ export class TablesService {
   }
 
   private async render(q: Queryable, m: MesaRow): Promise<MesaResponse> {
-    const members = await q.query<{ nombre: string; es_anfitrion: boolean; para_llevar: boolean; soy_yo: boolean }>(
-      `SELECT nombre, es_anfitrion, para_llevar, usuario_id IS NOT DISTINCT FROM app_user_id() AS soy_yo
+    const members = await q.query<{ miembro_id: string; nombre: string; es_anfitrion: boolean; para_llevar: boolean; soy_yo: boolean }>(
+      `SELECT miembro_id, nombre, es_anfitrion, para_llevar, usuario_id IS NOT DISTINCT FROM app_user_id() AS soy_yo
          FROM mesa_compartida_miembro WHERE mesa_compartida_id = $1 ORDER BY es_anfitrion DESC, unido_en, miembro_id`,
       [m.mesa_compartida_id],
     );
+    const selecciones = await loadSelections(q, m.mesa_compartida_id);
     return {
       id: m.public_id,
       invitacion: m.public_id,
@@ -265,7 +274,13 @@ export class TablesService {
       modo: m.modo,
       estado: m.estado,
       validadaEn: m.validada_en,
-      miembros: members.rows.map((x) => ({ nombre: x.nombre, esAnfitrion: x.es_anfitrion, paraLlevar: x.para_llevar, soyYo: x.soy_yo })),
+      miembros: members.rows.map((x) => ({
+        nombre: x.nombre,
+        esAnfitrion: x.es_anfitrion,
+        paraLlevar: x.para_llevar,
+        soyYo: x.soy_yo,
+        seleccion: m.soy_anfitrion || x.soy_yo ? seleccionDe(selecciones, x.miembro_id) : null,
+      })),
     };
   }
 }
@@ -274,7 +289,10 @@ export class TablesService {
 @ApiBearerAuth()
 @Controller('v1/mis/mesas')
 export class TablesController {
-  constructor(private readonly svc: TablesService) {}
+  constructor(
+    private readonly svc: TablesService,
+    private readonly selection: TableSelectionService,
+  ) {}
 
   @Post()
   @ApiIdempotent()
@@ -304,6 +322,25 @@ export class TablesController {
   @ApiOkResponse({ type: MesaResponse })
   @ApiProblems({ 404: ['MESA_NO_ENCONTRADA'] })
   one(@CurrentUser() user: AuthUser, @Param('id', UuidPipe) id: string) {
+    return this.svc.one(user, id);
+  }
+
+  @Put(':id/seleccion')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Elegir mi almuerzo y mis platos en la mesa (reemplaza mi selección completa)',
+    description:
+      'Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.',
+  })
+  @ApiOkResponse({ type: MesaResponse })
+  @ApiProblems({
+    400: ['ALMUERZO_INVALIDO', 'SELECCION_INVALIDA'],
+    404: ['MESA_NO_ENCONTRADA'],
+    409: ['MESA_CERRADA', 'RESTAURANTE_PAUSADO', 'RESTAURANTE_NO_DISPONIBLE', 'MENU_NO_PUBLICADO', 'PLATO_AGOTADO'],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
+  })
+  async setSelection(@CurrentUser() user: AuthUser, @Param('id', UuidPipe) id: string, @Body() dto: SeleccionDto) {
+    await this.selection.set(user, id, dto);
     return this.svc.one(user, id);
   }
 
@@ -351,5 +388,5 @@ export class InvitationsController {
   }
 }
 
-@Module({ controllers: [TablesController, InvitationsController], providers: [TablesService] })
+@Module({ controllers: [TablesController, InvitationsController], providers: [TablesService, TableSelectionService] })
 export class TablesModule {}

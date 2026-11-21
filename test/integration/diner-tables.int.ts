@@ -56,8 +56,8 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
     expect(j.statusCode, j.body).toBe(200);
     expect(j.json().soyAnfitrion).toBe(false);
     expect(j.json().miembros).toEqual([
-      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false },
-      { nombre: 'Comensal Prueba', esAnfitrion: false, paraLlevar: true, soyYo: true },
+      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, seleccion: null },
+      { nombre: 'Comensal Prueba', esAnfitrion: false, paraLlevar: true, soyYo: true, seleccion: { almuerzo: null, extras: [] } },
     ]);
     expect((await join(guest, mesa.id)).json().miembros).toHaveLength(2);
     expect((await k.as(guest).get(`/v1/mesas/invitacion/${mesa.id}`)).json()).toMatchObject({
