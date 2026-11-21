@@ -66,7 +66,8 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 
 | Código                        | HTTP | Dónde puede aparecer                                                                                                       |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ALMUERZO_INVALIDO`           | 400  | `POST /v1/mis/pedidos`                                                                                                     |
+| `ALMUERZO_INVALIDO`           | 400  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                 |
+| `SELECCION_INVALIDA`          | 400  | `PUT /v1/mis/mesas/{id}/seleccion` (un plato del almuerzo repetido como plato suelto)                                      |
 | `CURSOR_INVALIDO`             | 400  | `GET /v1/mis/consumos`; `GET /v1/mis/pedidos`; `GET /v1/opiniones`                                                         |
 | `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`                                                                                                       |
 | `IDEMPOTENCY_KEY_INVALIDA`    | 400  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/reclamo`; `POST /v1/mis/mesas` y 1 más                   |
@@ -75,35 +76,37 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `SOLO_ANFITRION`              | 403  | `POST /v1/mis/mesas/{id}/cancelar`                                                                                         |
 | `CLIENTE_NO_ENCONTRADO`       | 404  | `GET /v1/clientes/{id}/sellos`; `POST /v1/clientes/{id}/sellos/canjear`                                                    |
 | `CONSUMO_NO_ENCONTRADO`       | 404  | `GET /v1/mis/consumos/{id}`; `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar` y 1 más  |
-| `MESA_NO_ENCONTRADA`          | 404  | `GET /v1/mesas/invitacion/{id}`; `GET /v1/mis/mesas/{id}`; `POST /v1/mesas/invitacion/{id}/unirse` y 1 más                 |
+| `MESA_NO_ENCONTRADA`          | 404  | `GET /v1/mesas/invitacion/{id}`; `GET /v1/mis/mesas/{id}`; `PUT /v1/mis/mesas/{id}/seleccion` y 2 más                      |
+| `PLATO_NO_ENCONTRADO`         | 404  | `PATCH /v1/menu/platos/{id}/agotado`                                                                                       |
 | `OPINION_NO_ENCONTRADA`       | 404  | `POST /v1/opiniones/{id}/responder`                                                                                        |
 | `PEDIDO_NO_ENCONTRADO`        | 404  | `GET /v1/caja/pedidos/{id}`; `GET /v1/mis/pedidos/{id}`; `POST /v1/caja/pedidos/{id}/canjear` y 2 más                      |
-| `RESTAURANTE_NO_ENCONTRADO`   | 404  | `GET /v1/pase`; `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`                                                               |
+| `RESTAURANTE_NO_ENCONTRADO`   | 404  | `GET /v1/pase`; `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `GET /v1/restaurantes/{slug}/carta`                          |
 | `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                           |
 | `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo` |
 | `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más                |
 | `LOCAL_LLENO_SOLO_LLEVAR`     | 409  | `POST /v1/mis/pedidos` (con `paraLlevar` ausente o `false` y el local `LLENO`)                                             |
-| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`                                     |
-| `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`                                                |
+| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`; `PUT /v1/mis/mesas/{id}/seleccion` |
+| `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`; `PUT /v1/mis/mesas/{id}/seleccion`            |
 | `MESA_LLENA`                  | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
 | `MESA_VENCIDA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
 | `OPINION_AUN_NO_DISPONIBLE`   | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                       |
 | `OPINION_VENCIDA`             | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                       |
 | `OPINION_YA_ENVIADA`          | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                       |
 | `OPINION_YA_RESPONDIDA`       | 409  | `POST /v1/opiniones/{id}/responder`                                                                                        |
-| `RESTAURANTE_PAUSADO`         | 409  | `POST /v1/mis/pedidos`; `POST /v1/mis/mesas`; `POST /v1/ofertas/{id}/canjear`                                              |
+| `RESTAURANTE_PAUSADO`         | 409  | `POST /v1/mis/pedidos`; `POST /v1/mis/mesas`; `POST /v1/ofertas/{id}/canjear`; `PUT /v1/mis/mesas/{id}/seleccion`          |
 | `PEDIDO_ACTIVO`               | 409  | `POST /v1/mis/pedidos`                                                                                                     |
 | `PEDIDO_CANCELADO`            | 409  | `POST /v1/caja/pedidos/{id}/canjear`                                                                                       |
 | `PEDIDO_EXPIRADO`             | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/mis/pedidos/{id}/cancelar`                                                 |
 | `PEDIDO_NO_CANCELABLE`        | 409  | `POST /v1/mis/pedidos/{id}/cancelar`                                                                                       |
 | `PEDIDO_NO_CANJEADO`          | 409  | `POST /v1/caja/pedidos/{id}/servir`                                                                                        |
-| `PLATO_AGOTADO`               | 409  | `POST /v1/mis/pedidos`                                                                                                     |
+| `PLATO_AGOTADO`               | 409  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                 |
 | `RECLAMO_VENCIDO`             | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                       |
 | `RECLAMO_YA_EXISTE`           | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                       |
-| `RESTAURANTE_NO_DISPONIBLE`   | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
+| `RESTAURANTE_NO_DISPONIBLE`   | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `PUT /v1/mis/mesas/{id}/seleccion`                                                |
 | `SIN_PREMIOS`                 | 409  | `POST /v1/clientes/{id}/sellos/canjear`                                                                                    |
-| `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`                                                                                                     |
-| `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`                                                                                                     |
+| `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                 |
+| `PLATO_NO_ES_DE_CARTA`        | 422  | `PATCH /v1/menu/platos/{id}/agotado` (el plato es de ALMUERZO: se agota en el menú del día)                                |
+| `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                 |
 
 Resultados del escáner de caja: **no son errores**. `POST /v1/caja/validar` responde 200 con `resultado` ∈ `OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`.
 
@@ -948,6 +951,38 @@ Response `200`:
 }
 ```
 
+#### `GET /v1/restaurantes/{slug}/carta`
+
+**Carta fija de un restaurante (a la carta, extras y bebidas)**
+
+- **Rol:** público, sin token
+- **Estado:** Nuevo (rama `feat/carta-fija-seleccion-mesa`)
+
+Solo platos **activos y con precio** de las categorías `A_LA_CARTA`, `EXTRA` y `BEBIDA`, de un local `ACTIVO` (en borrador, pausado, de baja o inexistente → 404 `RESTAURANTE_NO_ENCONTRADO`). No depende del menú del día. Orden: categoría, `orden`, nombre. Sin ids internos: `id` es el `public_id` del plato. No incluye `agotadoEn`.
+
+Response `200`:
+
+```json
+{
+  "monedaCodigo": "USD",
+  "items": [
+    {
+      "id": "6a9c3a52-6c6e-4a41-8d0d-0a3f4e2a9b11",
+      "categoria": "A_LA_CARTA",
+      "nombre": "Ceviche",
+      "descripcion": "De camarón",
+      "fotoUrl": null,
+      "etiquetas": [],
+      "precioCentavos": 700,
+      "agotado": false,
+      "orden": 1
+    }
+  ]
+}
+```
+
+`agotado` es "agotado hoy" (lo marcan dueño o cajero) y vuelve solo a medianoche en la zona horaria del local.
+
 #### `POST /v1/restaurantes/{slug}/solicitudes-plan`
 
 **Pedir un plan a un restaurante (comensal con sesión)**
@@ -1093,7 +1128,10 @@ Response `200`:
     "precioCentavos": null,
     "fotoUrl": null,
     "etiquetas": [],
-    "activo": true
+    "activo": true,
+    "orden": 0,
+    "agotado": false,
+    "agotadoEn": null
   }
 ]
 ```
@@ -1127,7 +1165,10 @@ Response `201`:
   "precioCentavos": null,
   "fotoUrl": null,
   "etiquetas": [],
-  "activo": true
+  "activo": true,
+  "orden": 0,
+  "agotado": false,
+  "agotadoEn": null
 }
 ```
 
@@ -1161,9 +1202,30 @@ Response `200`:
   "precioCentavos": null,
   "fotoUrl": null,
   "etiquetas": [],
-  "activo": true
+  "activo": true,
+  "orden": 0,
+  "agotado": false,
+  "agotadoEn": null
 }
 ```
+
+#### `PATCH /v1/menu/platos/{id}/agotado`
+
+**Marcar o quitar "agotado" en un plato de la carta fija**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** Nuevo (rama `feat/carta-fija-seleccion-mesa`) · requiere la migración `20261121140000`
+
+Para los platos de carta (`A_LA_CARTA`, `EXTRA`, `BEBIDA`). El cajero solo puede esto: crear, editar precios o desactivar sigue siendo del dueño (403). El agotado vale **hasta medianoche en la zona horaria del local** y luego el plato vuelve solo; repetir `agotado: true` conserva la hora original. Un plato `ALMUERZO` se agota en el menú del día (`PATCH /v1/menu/{fecha}/items/{id}/agotado`).
+
+Request: `{ "agotado": true }` (cualquier otro campo → 400). Response `200`: el plato, con `agotado` y `agotadoEn` (hora en que se marcó; `null` si no está agotado hoy).
+
+| HTTP | `code`                 | Ejemplo de `detail`                                                         |
+| ---- | ---------------------- | --------------------------------------------------------------------------- |
+| 404  | `PLATO_NO_ENCONTRADO`  | No existe o es de otro local                                                |
+| 422  | `PLATO_NO_ES_DE_CARTA` | Solo los platos de la carta se agotan aquí; el almuerzo, en el menú del día |
+
+Campos nuevos en los platos (todas las respuestas de `/v1/menu/platos*`): `orden` (entero 0–1000, menor primero dentro de su categoría; también se envía, opcional, en `POST` y `PATCH`), `agotado` (boolean) y `agotadoEn`. El listado `GET /v1/menu/platos` ahora ordena por categoría, `orden` y nombre.
 
 #### `GET /v1/menu/{fecha}`
 
@@ -2420,11 +2482,17 @@ Response `200`:
       "esAnfitrion": true,
       "paraLlevar": false,
       "tieneCuenta": true,
-      "almuerzosDisponibles": 3
+      "almuerzosDisponibles": 3,
+      "seleccion": {
+        "almuerzo": { "platos": [{ "id": "…", "nombre": "Seco de pollo", "seccion": "FUERTE" }] },
+        "extras": [{ "id": "…", "nombre": "Cola", "categoria": "BEBIDA", "cantidad": 1 }]
+      }
     }
   ]
 }
 ```
+
+`miembros[].seleccion` (nuevo, solo lectura para el personal): lo que eligió cada miembro con `PUT /v1/mis/mesas/{id}/seleccion`; vacía si aún no eligió. También sale en la respuesta de `POST /v1/caja/mesas/{id}/validar`. Es informativa: no cambia cómo se descuentan los planes ni genera cobro de extras.
 
 #### `POST /v1/caja/mesas/{id}/validar`
 
@@ -3778,17 +3846,74 @@ Response `200`:
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
-      "soyYo": true
+      "soyYo": true,
+      "seleccion": { "almuerzo": null, "extras": [] }
     }
   ]
 }
 ```
+
+`miembros[].seleccion` (nuevo): lo que eligió ese miembro (ver `PUT …/seleccion`). **El anfitrión ve la de todos; un invitado solo la suya** y las demás vienen `null` (no se muestran). Vacía (`{ "almuerzo": null, "extras": [] }`) = todavía no eligió. La misma regla aplica a `GET /v1/mis/mesas` y a las respuestas de crear, unirse y cancelar.
 
 Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 | HTTP | `code`               | Ejemplo de `detail` |
 | ---- | -------------------- | ------------------- |
 | 404  | `MESA_NO_ENCONTRADA` | —                   |
+
+#### `PUT /v1/mis/mesas/{id}/seleccion`
+
+**Elegir mi almuerzo y mis platos en la mesa (reemplaza mi selección completa)**
+
+- **Rol:** Usuario con sesión (`Authorization`), sin `x-restaurant-id`; cualquier miembro (anfitrión o invitado), solo sobre lo suyo
+- **Estado:** Nuevo (rama `feat/carta-fija-seleccion-mesa`) · requiere la migración `20261121140100`
+- **Idempotencia:** no lleva `Idempotency-Key`: es un reemplazo completo, repetir la misma petición deja el mismo resultado
+
+Request:
+
+```json
+{
+  "almuerzo": { "platos": ["<public_id jugo>", "<public_id sopa>", "<public_id fuerte>"] },
+  "extras": [
+    { "plato": "<public_id de un extra del menú de hoy>", "cantidad": 2 },
+    { "plato": "<public_id de un plato de la carta fija>", "cantidad": 1 }
+  ]
+}
+```
+
+- `almuerzo.platos`: 1 a 4 `public_id` del **menú publicado de hoy**, a lo sumo uno por sección (`JUGO`, `SOPA`, `FUERTE`, `POSTRE`; las mismas reglas que `POST /v1/mis/pedidos`). Omitido = sin almuerzo.
+- `extras`: hasta 10 platos sueltos con `cantidad` entera 1–10; sin repetir plato. Cada uno debe tener precio y ser de la carta fija (`A_LA_CARTA`, `EXTRA`, `BEBIDA`, activo, no agotado hoy) **o** estar en el menú publicado de hoy. Los de carta no exigen menú publicado.
+- Cuerpo `{}` = borra mi selección. Cualquier campo no declarado → 400.
+- Mientras la mesa esté `ABIERTA` o `EN_CAMINO` y sin validar. El local debe estar `ACTIVO`. Una selección rechazada **no** borra la anterior. No calcula ni cobra importes: la caja sigue validando la mesa como antes.
+
+Response `200`: la mesa completa (igual que `GET /v1/mis/mesas/{id}`), con mi `seleccion`:
+
+```json
+{
+  "almuerzo": {
+    "platos": [
+      { "id": "…", "nombre": "Jugo de mora", "seccion": "JUGO" },
+      { "id": "…", "nombre": "Seco de pollo", "seccion": "FUERTE" }
+    ]
+  },
+  "extras": [{ "id": "…", "nombre": "Cola", "categoria": "BEBIDA", "cantidad": 2 }]
+}
+```
+
+Errores posibles (además de los comunes: 401, 400 de validación —cantidad fuera de 1–10 o decimal, UUID mal formado, platos repetidos, más de 4 o 10 elementos—, 429, 5xx):
+
+| HTTP | `code`                      | Cuándo                                                                     |
+| ---- | --------------------------- | -------------------------------------------------------------------------- |
+| 400  | `ALMUERZO_INVALIDO`         | Dos platos de la misma sección, o uno que no es de JUGO/SOPA/FUERTE/POSTRE |
+| 400  | `SELECCION_INVALIDA`        | El mismo plato en `almuerzo` y en `extras`                                 |
+| 404  | `MESA_NO_ENCONTRADA`        | No existe o no soy miembro                                                 |
+| 409  | `MESA_CERRADA`              | Cancelada, validada en caja o ya no abierta                                |
+| 409  | `RESTAURANTE_PAUSADO`       | El local está pausado                                                      |
+| 409  | `RESTAURANTE_NO_DISPONIBLE` | El local no está activo                                                    |
+| 409  | `MENU_NO_PUBLICADO`         | Hay almuerzo (o un plato de almuerzo suelto) y hoy no hay menú publicado   |
+| 409  | `PLATO_AGOTADO`             | Agotado en el menú del día o en la carta (hoy)                             |
+| 422  | `PLATO_NO_DISPONIBLE`       | No existe, está inactivo, es de otro local o no está en el menú de hoy     |
+| 422  | `PLATO_SIN_PRECIO`          | Plato suelto que solo se sirve dentro del almuerzo                         |
 
 #### `POST /v1/mis/mesas/{id}/cancelar`
 
@@ -4992,6 +5117,16 @@ Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles). Detalle en «
 - Campos nuevos **opcionales** en `register-owner` (dentro de `restaurante`) y `PATCH /v1/restaurante`: `mesas`, `cedulaRuc`, `precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos` (más `telefono`, `direccion`, `latitud`, `longitud`, `puestos` y `recargoParaLlevarCentavos`, que ya existían y ahora comparten reglas).
 - Respuestas nuevas: `mesas`, `cedulaRuc` (enmascarada), `precioAlmuerzoCentavos`, `precioSoloSegundoCentavos`, `precioSoloSopaCentavos` en `GET`/`PATCH`/`activar`/`pausar` de `/v1/restaurante`; `perfilCompleto` y `datosPendientes` solo en `GET /v1/restaurante`; precios y `recargoParaLlevarCentavos` también en la vitrina y el detalle.
 - Cambio de comportamiento sin cambio de esquema: `telefono` ahora se valida por país (Ecuador: móvil `09XXXXXXXX` o `+5939XXXXXXXX`; antes aceptaba cualquier E.164) y se guarda en E.164; los locales nuevos parten con `recargoParaLlevarCentavos` = 25.
+
+### Carta fija y selección por comensal en mesas (rama `feat/carta-fija-seleccion-mesa`)
+
+Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles). Migraciones nuevas, **sin aplicar en Neon**: `20261121140000_carta_fija_agotado_orden` y `20261121140100_mesa_miembro_seleccion`.
+
+- `PATCH /v1/menu/platos/{id}/agotado` (dueño y cajero) y campos `orden`, `agotado`, `agotadoEn` en los platos.
+- `GET /v1/restaurantes/{slug}/carta` (público, solo locales `ACTIVO`).
+- `PUT /v1/mis/mesas/{id}/seleccion` y `miembros[].seleccion` en `GET /v1/mis/mesas`, `GET /v1/mis/mesas/{id}`, `GET /v1/caja/mesas/{id}` y `POST /v1/caja/mesas/{id}/validar`.
+- Códigos nuevos: `PLATO_NO_ENCONTRADO`, `PLATO_NO_ES_DE_CARTA`, `SELECCION_INVALIDA`. Se reutilizan `MENU_NO_PUBLICADO`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MESA_CERRADA`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO` y `ALMUERZO_INVALIDO`.
+- Cambio de comportamiento sin cambio de esquema: `GET /v1/menu/platos` ordena por categoría, `orden` y nombre (antes, categoría y nombre).
 
 ## 5. Mantenimiento de este contrato
 

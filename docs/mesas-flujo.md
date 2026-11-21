@@ -153,6 +153,10 @@ si el UUID no existe.
 Los miembros **no traen id** ni saldo: la app solo puede identificarse a sí misma con `soyYo`. El `nombre` es una
 copia del nombre del usuario al momento de unirse.
 
+#### Selección de cada comensal (rama `feat/carta-fija-seleccion-mesa`)
+
+Después de crear o unirse, cada miembro puede decir qué va a comer con `PUT /v1/mis/mesas/{id}/seleccion` (reemplaza su selección completa; `{}` la borra): almuerzo por sección del **menú publicado de hoy** más platos sueltos con cantidad (extras del menú o de la carta fija). Se valida con las reglas de los pedidos (`MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `ALMUERZO_INVALIDO`) y además `MESA_CERRADA` y `RESTAURANTE_PAUSADO`. La selección se ve en `miembros[].seleccion`: el anfitrión ve la de todos, un invitado solo la suya (las demás `null`) y la caja la de todos en `GET /v1/caja/mesas/{id}`. Es informativa: validar la mesa no la convierte en cobro.
+
 ### 2.2 Lado de caja
 
 #### `GET /v1/caja/mesas/{id}` — vista previa
