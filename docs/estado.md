@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (perfil de negocio del restaurante). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (carta fija y selección por comensal en mesas). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -16,6 +16,48 @@
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Carta fija y selección por comensal en mesas (rama `feat/carta-fija-seleccion-mesa`)
+
+Entrega C. Sin fase propia; **solo adiciones al contrato** (`pnpm openapi:breaking`: sin cambios incompatibles). Detalle en `docs/api-contrato.md`.
+
+### Auditoría (lo que había antes)
+
+- **Carta fija**: `plato` ya tenía `A_LA_CARTA`/`EXTRA`/`BEBIDA`, precio, descripción, foto y `activo`, y el dueño los gestionaba con `POST`/`PATCH /v1/menu/platos`. Faltaban: agotado por plato (solo existía `menu_diario_detalle.agotado`), `orden`, que el cajero pudiera marcar agotado, y una lectura pública de la carta.
+- **Mesa compartida**: `mesa_compartida_miembro.sopa_plato_id`/`fuerte_plato_id` no los leía ni escribía ningún código; no había forma de guardar la selección, ni de verla en `GET /v1/mis/mesas/{id}` ni en `GET /v1/caja/mesas/{id}`.
+- **Ofertas flash**: el contrato (`api-contrato.md`, Fase 9) estaba cubierto: estados, stock con `UPDATE` condicional, idempotencia, `RESTAURANTE_PAUSADO`. Ver "Huecos de ofertas" abajo.
+
+### Checklist
+
+- [x] **Migración** `20261121140000_carta_fija_agotado_orden` (con su down, idempotente): `plato.agotado_en` y `plato.orden`. Agotado = `agotado_en` dentro de la fecha local de hoy del local: vuelve solo a medianoche, sin job.
+- [x] **Migración** `20261121140100_mesa_miembro_seleccion` (con su down, idempotente): tabla `mesa_compartida_miembro_item` (FK compuestas: el plato es del mismo local que la mesa; RLS: personal solo lee, el miembro escribe lo suyo mientras la mesa esté abierta, el anfitrión lee toda su mesa). **Ninguna aplicada en Neon.** Las columnas `sopa_plato_id`/`fuerte_plato_id` no se tocan.
+- [x] `PATCH /v1/menu/platos/{id}/agotado` (dueño y cajero; el cajero sigue sin editar nada más), `orden`/`agotado`/`agotadoEn` en los platos.
+- [x] `GET /v1/restaurantes/{slug}/carta` público, solo locales `ACTIVO`.
+- [x] `PUT /v1/mis/mesas/{id}/seleccion` con validación contra el menú publicado de hoy, agotados (menú y carta), plato de otro local, sección única, precio y cantidad; `miembros[].seleccion` para anfitrión, invitado y caja.
+- [x] Pruebas: `test/integration/carta-fija.int.ts` (8), `test/integration/mesa-seleccion.int.ts` (9, incluye RLS directo) y `test/unit/seleccion-dto.spec.ts`. Se corrigió además un test viejo de `diner-tables` (esperaba 404 donde el contrato ya decía 409 `RESTAURANTE_PAUSADO`).
+- [x] `docs/openapi.json` regenerado, `openapi:lint` y `openapi:breaking` limpios.
+- [ ] `pnpm test:db` **no se corrió** (el `.env` apunta a Neon). Las integraciones se corrieron contra un Postgres 16 local descartable (mismo montaje que el job `integration` de CI) con un config temporal sin `.env`.
+
+### Decisiones pendientes
+
+1. **Selección → cobro.** `POST /v1/caja/mesas/{id}/validar` sigue igual: la selección es informativa y no genera ventas ni cobra extras. _Recomendación_: en la siguiente entrega, al validar, crear una venta por miembro con sus extras (clave de idempotencia derivada por miembro, ya existe el patrón) y, en `INVITO_YO`, cargarlas al anfitrión.
+2. **Quién ve la selección de quién.** Hoy: anfitrión ve todas, invitado solo la suya, caja todas (lo impone RLS). _Recomendación_: mantenerlo (privacidad); abrirlo solo si producto lo pide.
+3. **Duración del agotado de la carta.** Hoy vale hasta medianoche local. _Recomendación_: mantenerlo; un agotado "permanente" que alguien olvida quitar esconde platos por días.
+4. **Importes por miembro.** La mesa no muestra totales. _Recomendación_: añadir `totalEstimadoCentavos` por miembro cuando se defina la regla de cobro del punto 1.
+5. **Pedidos con carta.** `POST /v1/mis/pedidos` solo acepta platos del menú del día; la selección de mesa sí acepta la carta fija. _Recomendación_: extender los pedidos de forma aditiva con las mismas reglas (no se hizo aquí para no tocar un endpoint con tanta lógica: `LOCAL_LLENO_SOLO_LLEVAR`, planes, etc.).
+6. **Unirse con selección.** `unirse` no recibe selección: son dos llamadas (`unirse` y luego `PUT …/seleccion`). _Recomendación_: dejarlo así.
+7. **Columnas heredadas** `sopa_plato_id`/`fuerte_plato_id`. Sin uso; quitarlas es un cambio de esquema destructivo. _Recomendación_: dejarlas y quitarlas más adelante, cuando se confirme que en Neon están vacías.
+8. **Ofertas: publicar con el local pausado** (ver abajo). _Recomendación_: responder 409 `RESTAURANTE_PAUSADO`, anunciándolo como cambio de comportamiento.
+
+### Huecos de ofertas flash que NO se cerraron
+
+Revisados contra `src/offers/offers.ts` y el contrato; no se tocó el módulo.
+
+- `offers.ts:189-227` (`publish`): no mira el estado del local, así que un local `PAUSADO` puede publicar. Cambiarlo altera un endpoint existente: queda como decisión 8.
+- `offers.ts:294-295` (`redeem`): solo bloquea `PAUSADO`. El contrato dice exactamente eso; no es un hueco del contrato.
+- `offers.ts:311-318`: el canje no exige menú publicado ni plato activo. El contrato no lo pide; no se inventó la regla.
+- `offers.ts:298`: la búsqueda de `comensalId` usa la política `lectura_perfil_minimo` (`USING (true)`): el personal puede saber si un UUID de comensal existe (404 vs 201). Riesgo bajo; arreglarlo es una decisión de privacidad sobre `usuario`.
+- Sin eventos de servidor en el canje ni tope por comensal: el contrato tampoco los prevé (los eventos son `POST /v1/eventos`, del cliente).
 
 ## Perfil de negocio del restaurante (rama `feat/perfil-restaurante-v2`)
 
