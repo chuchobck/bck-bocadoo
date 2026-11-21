@@ -15,6 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Email, Text } from '../security/sanitize';
+import { PerfilNegocioDto } from '../restaurant/profile.dto';
 
 export class RegisterDto {
   @ApiProperty({ example: 'María Guamán' }) @Text() @IsString() @Length(2, 100) nombre!: string;
@@ -32,7 +33,8 @@ export class RegisterDto {
   aceptaTerminos!: boolean;
 }
 
-export class RestauranteNuevoDto {
+/** Mínimo: nombre y ciudad. Los datos de negocio de `PerfilNegocioDto` son opcionales y se validan solo si vienen. */
+export class RestauranteNuevoDto extends PerfilNegocioDto {
   @ApiProperty({ example: 'La Cuchara de San Blas' }) @Text() @IsString() @Length(2, 100) nombre!: string;
   @ApiProperty({ description: 'ciudad_id del catálogo (1 = Quito)', example: 1 }) @IsInt() @Min(1) ciudadId!: number;
 }

@@ -30,6 +30,12 @@ export class RestauranteCardResponse {
   @ApiProperty({ type: Number, nullable: true, example: -78.49 }) longitud!: number | null;
   @ApiProperty({ type: String, nullable: true, example: 'https://cdn.ejemplo.com/logo.png' }) logoUrl!: string | null;
   @ApiProperty({ example: 350, description: 'Precio del almuerzo suelto, en centavos' }) precioSueltoCentavos!: number;
+  @ApiProperty({ example: 350, description: 'Igual a `precioSueltoCentavos` (mismo dato), en centavos' }) precioAlmuerzoCentavos!: number;
+  @ApiProperty({ type: Number, nullable: true, example: 200, description: 'Precio de solo el segundo, en centavos; null = no se vende' })
+  precioSoloSegundoCentavos!: number | null;
+  @ApiProperty({ type: Number, nullable: true, example: 150, description: 'Precio de solo la sopa, en centavos; null = no se vende' })
+  precioSoloSopaCentavos!: number | null;
+  @ApiProperty({ example: 25, description: 'Recargo por llevar, en centavos' }) recargoParaLlevarCentavos!: number;
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
   @ApiProperty({
     enum: ['ACTIVO', 'PAUSADO'],

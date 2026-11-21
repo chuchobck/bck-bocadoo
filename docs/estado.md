@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (estados públicos: pausado, lleno y menú agotado). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (perfil de negocio del restaurante). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -16,6 +16,22 @@
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Perfil de negocio del restaurante (rama `feat/perfil-restaurante-v2`)
+
+Sin fase propia. La app hace `register-owner` mínimo → login → `PATCH /v1/restaurante`; **sin cambios incompatibles**: todo campo nuevo es opcional y se valida solo si viene. Detalle en `docs/api-contrato.md` («Perfil de negocio»).
+
+- [x] **Migración** `20261121120000_perfil_negocio_restaurante` (con su down), **no aplicada en Neon**: `restaurante.mesas_total`, `precio_solo_segundo_centavos`, `precio_solo_sopa_centavos` (nullable), `puestos_definidos` (default `true`: no inventa pendientes a locales existentes), `CHECK puestos >= mesas_total`, default de `recargo_para_llevar_centavos` a 25 (solo filas nuevas) y la tabla `restaurante_fiscal`
+- [x] **Columnas reutilizadas**: `direccion`, `latitud`, `longitud`, `telefono_e164` (ya exigía E.164), `puestos` (ya permitía hasta 1000), `precio_suelto_centavos` (= `precioAlmuerzoCentavos`; el nombre antiguo sigue vivo en request y response) y `recargo_para_llevar_centavos`
+- [x] **Cédula/RUC en tabla aparte** (`restaurante_fiscal`): `restaurante` tiene política `lectura_publica` (`USING true`) y un trigger de auditoría que copia la fila completa a `log_actividad`; la tabla nueva solo tiene política de tenant, sin lectura pública y sin trigger. La app no tiene DELETE: borrar = `NULL`
+- [x] Validadores por país en `src/restaurant/country/` (`EC` + genérico como punto de extensión): teléfono, cédula, RUC, coordenadas (cajas aproximadas del continente y Galápagos), con tabla de casos en `test/unit/country-ec.spec.ts`
+- [x] Privacidad: enmascarada en `GET`/`PATCH` de `/v1/restaurante`, ausente de la vitrina, redactada en pino (`src/common/log-redact.ts`), ejemplo del OpenAPI generado y comprobado con el validador
+- [x] `slug`: el registro ya lo generaba (sin cambios, no se pide)
+- [x] `GET /v1/restaurante`: `perfilCompleto` y `datosPendientes`; precios y recargo públicos en vitrina y detalle
+- [x] Pruebas: unitarias (`country-ec`, `profile`) y de integración `test/integration/perfil-negocio.int.ts` (clientes anteriores, registro con campos, validaciones, aislamiento y auditoría)
+- [x] `docs/openapi.json` regenerado; `pnpm openapi:breaking` sin cambios incompatibles
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR; las pruebas de integración nuevas están sin ejecutar
+- [ ] Decisiones a confirmar: rango 1..5000 para `precioSoloSegundo/Sopa` (el pedido solo fijaba 100..5000 para el almuerzo); `telefono` ya no acepta E.164 de otros países ni fijos; en el registro, `mesas` sin `puestos` se compara con los 20 por defecto
 
 ## Estados públicos del restaurante (rama `fix/estados-publicos`)
 
