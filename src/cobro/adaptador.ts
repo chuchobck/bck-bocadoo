@@ -44,11 +44,11 @@ export function planDesdeFilas(f: PlanFilas | null | undefined): PlanPersona {
 /**
  * B.3 paso 1: tipo de un plato pedido suelto. Un plato de categoría ALMUERZO se mapea por su sección (así lo que hoy no
  * paga recargo sigue sin pagarlo, I-1): JUGO → BEBIDA, POSTRE → EXTRA, SOPA y FUERTE → A_LA_CARTA. Sin sección
- * (o ADICIONAL) no se sabe qué es y se trata como A_LA_CARTA.
+ * ADICIONAL → EXTRA. Sin sección no se sabe qué es y se trata como A_LA_CARTA.
  */
 export const tipoDePlato = (c: CategoriaPlato, seccion?: string | null): TipoItem => {
   if (c !== 'ALMUERZO') return c;
-  return seccion === 'JUGO' ? 'BEBIDA' : seccion === 'POSTRE' ? 'EXTRA' : 'A_LA_CARTA';
+  return seccion === 'JUGO' ? 'BEBIDA' : seccion === 'POSTRE' || seccion === 'ADICIONAL' ? 'EXTRA' : 'A_LA_CARTA';
 };
 
 export interface PlatoSuelto {

@@ -47,7 +47,7 @@ describe('tipoDePlato', () => {
     expect(tipoDePlato('ALMUERZO', 'POSTRE')).toBe('EXTRA');
     expect(tipoDePlato('ALMUERZO', 'SOPA')).toBe('A_LA_CARTA');
     expect(tipoDePlato('ALMUERZO', 'FUERTE')).toBe('A_LA_CARTA');
-    expect(tipoDePlato('ALMUERZO', 'ADICIONAL')).toBe('A_LA_CARTA');
+    expect(tipoDePlato('ALMUERZO', 'ADICIONAL')).toBe('EXTRA');
     expect(tipoDePlato('ALMUERZO', null)).toBe('A_LA_CARTA');
     expect(tipoDePlato('EXTRA')).toBe('EXTRA');
     expect(tipoDePlato('BEBIDA')).toBe('BEBIDA');
@@ -57,6 +57,7 @@ describe('tipoDePlato', () => {
   it.each([
     ['jugo para llevar: sin recargo', 'JUGO', 0],
     ['postre para llevar: sin recargo', 'POSTRE', 0],
+    ['adicional para llevar: sin recargo', 'ADICIONAL', 0],
     ['fuerte suelto para llevar: con recargo', 'FUERTE', R],
     ['sopa suelta para llevar: con recargo', 'SOPA', R],
   ])('%s', (_n, seccion, recargo) => {

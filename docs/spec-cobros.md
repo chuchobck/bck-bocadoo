@@ -159,9 +159,9 @@ almuerzo es P, B.3 paso 2; así `cubierto = P × unidades PLAN` se cumple siempr
    - Un almuerzo con `ofertaId` se convierte en una línea `OFERTA` con `categoriaBase = ALMUERZO` (D4: precio de la
      oferta, no consume plan).
    - Un plato pedido suelto toma `tipo = plato.categoria`. Un plato de categoría `ALMUERZO` con precio pedido como
-     suelto se mapea por su sección (`plato.seccion`): `JUGO` → `BEBIDA`, `POSTRE` → `EXTRA`, `SOPA` y `FUERTE` →
-     `A_LA_CARTA` (sin sección o `ADICIONAL`: `A_LA_CARTA`, el caso conservador). Así lo que hoy no paga recargo (un
-     jugo o un postre aparte) sigue sin pagarlo, alineado con I-1; solo el plato fuerte o la sopa servidos aparte, que
+     suelto se mapea por su sección (`plato.seccion`): `JUGO` → `BEBIDA`, `POSTRE` y `ADICIONAL` → `EXTRA`, `SOPA` y
+     `FUERTE` → `A_LA_CARTA` (sin sección: `A_LA_CARTA`, el caso conservador). Así lo que hoy no paga recargo (un
+     jugo, un postre o un adicional aparte) sigue sin pagarlo, alineado con I-1; solo el plato fuerte o la sopa servidos aparte, que
      ocupan envase propio, pagan recargo como `A_LA_CARTA`.
    - Las líneas se ordenan por `(persona.orden, posición en el pedido)`.
 2. **Precio unitario** (lo pone siempre el servidor):
