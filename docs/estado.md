@@ -17,6 +17,8 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md).
+
 ## Carta fija y selección por comensal en mesas (rama `feat/carta-fija-seleccion-mesa`)
 
 Entrega C. Sin fase propia; **solo adiciones al contrato** (`pnpm openapi:breaking`: sin cambios incompatibles). Detalle en `docs/api-contrato.md`.
@@ -30,7 +32,7 @@ Entrega C. Sin fase propia; **solo adiciones al contrato** (`pnpm openapi:breaki
 ### Checklist
 
 - [x] **Migración** `20261121140000_carta_fija_agotado_orden` (con su down, idempotente): `plato.agotado_en` y `plato.orden`. Agotado = `agotado_en` dentro de la fecha local de hoy del local: vuelve solo a medianoche, sin job.
-- [x] **Migración** `20261121140100_mesa_miembro_seleccion` (con su down, idempotente): tabla `mesa_compartida_miembro_item` (FK compuestas: el plato es del mismo local que la mesa; RLS: personal solo lee, el miembro escribe lo suyo mientras la mesa esté abierta, el anfitrión lee toda su mesa). **Ninguna aplicada en Neon.** Las columnas `sopa_plato_id`/`fuerte_plato_id` no se tocan.
+- [x] **Migración** `20261121140100_mesa_miembro_seleccion` (con su down, idempotente): tabla `mesa_compartida_miembro_item` (FK compuestas: el plato es del mismo local que la mesa; RLS: personal solo lee, el miembro escribe lo suyo mientras la mesa esté abierta, el anfitrión lee toda su mesa). **Aplicadas en Neon (19 aplicadas, 0 pendientes, 2026-11-21).** Las columnas `sopa_plato_id`/`fuerte_plato_id` no se tocan.
 - [x] `PATCH /v1/menu/platos/{id}/agotado` (dueño y cajero; el cajero sigue sin editar nada más), `orden`/`agotado`/`agotadoEn` en los platos.
 - [x] `GET /v1/restaurantes/{slug}/carta` público, solo locales `ACTIVO`.
 - [x] `PUT /v1/mis/mesas/{id}/seleccion` con validación contra el menú publicado de hoy, agotados (menú y carta), plato de otro local, sección única, precio y cantidad; `miembros[].seleccion` para anfitrión, invitado y caja.
@@ -63,7 +65,7 @@ Revisados contra `src/offers/offers.ts` y el contrato; no se tocó el módulo.
 
 Sin fase propia. La app hace `register-owner` mínimo → login → `PATCH /v1/restaurante`; **sin cambios incompatibles**: todo campo nuevo es opcional y se valida solo si viene. Detalle en `docs/api-contrato.md` («Perfil de negocio»).
 
-- [x] **Migración** `20261121120000_perfil_negocio_restaurante` (con su down), **no aplicada en Neon**: `restaurante.mesas_total`, `precio_solo_segundo_centavos`, `precio_solo_sopa_centavos` (nullable), `puestos_definidos` (default `true`: no inventa pendientes a locales existentes), `CHECK puestos >= mesas_total`, default de `recargo_para_llevar_centavos` a 25 (solo filas nuevas) y la tabla `restaurante_fiscal`
+- [x] **Migración** `20261121120000_perfil_negocio_restaurante` (con su down), **aplicada en Neon** (2026-11-21): `restaurante.mesas_total`, `precio_solo_segundo_centavos`, `precio_solo_sopa_centavos` (nullable), `puestos_definidos` (default `true`: no inventa pendientes a locales existentes), `CHECK puestos >= mesas_total`, default de `recargo_para_llevar_centavos` a 25 (solo filas nuevas) y la tabla `restaurante_fiscal`
 - [x] **Columnas reutilizadas**: `direccion`, `latitud`, `longitud`, `telefono_e164` (ya exigía E.164), `puestos` (ya permitía hasta 1000), `precio_suelto_centavos` (= `precioAlmuerzoCentavos`; el nombre antiguo sigue vivo en request y response) y `recargo_para_llevar_centavos`
 - [x] **Cédula/RUC en tabla aparte** (`restaurante_fiscal`): `restaurante` tiene política `lectura_publica` (`USING true`) y un trigger de auditoría que copia la fila completa a `log_actividad`; la tabla nueva solo tiene política de tenant, sin lectura pública y sin trigger. La app no tiene DELETE: borrar = `NULL`
 - [x] Validadores por país en `src/restaurant/country/` (`EC` + genérico como punto de extensión): teléfono, cédula, RUC, coordenadas (cajas aproximadas del continente y Galápagos), con tabla de casos en `test/unit/country-ec.spec.ts`
@@ -93,7 +95,7 @@ Sin fase propia. Pedido del frontend para alinear los estados del local. Detalle
 
 Sin fase propia. Pedido del frontend: mostrar los mismos 4 estados (Libre, Concurrido, Lleno, Cerrado) en las apps de dueño y comensal. Detalle en `docs/api-contrato.md` (`POST /v1/restaurante/lleno`).
 
-- [x] **Migración** `20261120000817_concurrido_manual` (con su down): `restaurante.concurrido_manual_hasta TIMESTAMPTZ` nullable y `fn_ocupacion_local` recreada con una columna más (`concurrido_manual`); `lleno_manual_hasta` queda igual. **No aplicada en Neon**: solo la prueba la CI
+- [x] **Migración** `20261120000817_concurrido_manual` (con su down): `restaurante.concurrido_manual_hasta TIMESTAMPTZ` nullable y `fn_ocupacion_local` recreada con una columna más (`concurrido_manual`); `lleno_manual_hasta` queda igual. **Aplicada en Neon** (2026-11-21)
 - [x] `POST /v1/restaurante/lleno` acepta `nivel` (`LIBRE` | `CONCURRIDO` | `LLENO`) además de `lleno`; con los dos, gana `nivel`. LLENO y CONCURRIDO duran 20 min, son excluyentes y LIBRE limpia ambos. La respuesta suma `nivel` y `concurridoManualHasta`. Mismos roles (dueño, cajero) y RLS
 - [x] **Escala sin ampliar**: el valor intermedio que ya existía en `ocupacion.nivel` es `MODERADO`; "Concurrido" manual se muestra como `MODERADO`. El aforo ≥90% (o "Lleno" manual) sigue dando `LLENO` y un "Concurrido" manual nunca lo baja. La vigencia se decide con `CURRENT_TIMESTAMP` de la base
 - [x] `GET /v1/restaurante` (personal) ahora trae `ocupacion` (misma que la vitrina) y `concurridoManualHasta`; `ocupacion` es `null` si el local no está `ACTIVO`. Antes no traía ocupación
