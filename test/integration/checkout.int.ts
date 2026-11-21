@@ -568,7 +568,7 @@ describe('Fase 7: caja', () => {
       const o = await h.owner('Cierre');
       await h.publishMenu(o);
       const cashier = await h.cashier(o.restaurante);
-      await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300 });
+      await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300, recargoParaLlevarCentavos: 0 }); // fija el recargo: el default de locales nuevos es 25
       const p = await plan(o); // 1500
       const [c1, c2, c3] = [await customer(o), await customer(o), await customer(o)];
       await sellPlan(o, c1, p); // +1500 efectivo
