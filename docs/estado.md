@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-19 (estado manual "Concurrido"). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (estados públicos: pausado, lleno y menú agotado). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -16,6 +16,20 @@
 | 8   | Comensal                     | 🔶     | `v0.8.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
+
+## Estados públicos del restaurante (rama `fix/estados-publicos`)
+
+Sin fase propia. Pedido del frontend para alinear los estados del local. Detalle en `docs/api-contrato.md` («Estados públicos»). **Sin migración.**
+
+- [x] **PAUSADO visible**: `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}` incluyen locales `PAUSADO` con el campo nuevo `estado` (`ACTIVO` | `PAUSADO`) y `abiertoAhora = false`. `BORRADOR` y `BAJA` siguen ocultos (404 por slug). Reemplaza lo dicho en la sección «Concurrido» (un PAUSADO ya no da 404)
+- [x] **Sin órdenes nuevas en PAUSADO**: 409 `RESTAURANTE_PAUSADO` en `POST /v1/mis/pedidos`, `POST /v1/mis/mesas` y `POST /v1/ofertas/{id}/canjear`. Lo ya creado no se toca (lectura, reintento idempotente, canje de pedidos existentes, `validar`, unirse a una mesa existente). Se comprueba después de la lectura idempotente y antes de cualquier escritura
+- [x] **LLENO → solo para llevar**: en `POST /v1/mis/pedidos`, si `fn_ocupacion_local` + `occupancy()` (la misma lógica de `ocupacion.nivel`) da `LLENO` y el pedido no es `paraLlevar` (tipo `AQUI`), 409 `LOCAL_LLENO_SOLO_LLEVAR`. Se reutiliza `paraLlevar` → `orden_cabecera.tipo` (`AQUI` | `LLEVAR`); precios y recargos **no se tocaron**
+- [x] **`menuAgotado`** en vitrina, detalle y `GET /v1/restaurante`: `true` solo con menú publicado hoy y todos los platos `SOPA` y `FUERTE` con `agotado`. Una sola subconsulta SQL (`menuAgotadoSql`) compartida
+- [x] **Decisiones**: (1) el orden de las comprobaciones es PAUSADO → `MENU_NO_PUBLICADO` → LLENO. (2) Un pedido solo de extras sin `paraLlevar` cuenta como `AQUI` y se rechaza con el local lleno. (3) Si el menú no tiene ninguna sopa ni segundo, `menuAgotado` es `false` (no hay nada que agotar). (4) La `ocupacion` de un PAUSADO en la vitrina sale `LIBRE`/0 % porque `fn_ocupacion_local` solo responde para locales `ACTIVO`; se dejó así para no volver nulable un campo requerido (no sería aditivo) y el frontend debe decidir por `estado`. (5) Los códigos `RESTAURANTE_PAUSADO` y `LOCAL_LLENO_SOLO_LLEVAR` son estables y se documentan en la tabla de errores
+- [x] Pruebas: `test/integration/estados-publicos.int.ts` (nuevo: visibilidad, los tres 409 de pausa, creado antes de pausar, caja intacta, LLENO manual y por aforo, LLEVAR permitido, `menuAgotado` en las tres lecturas, aislamiento entre locales) y `catalog.int.ts` ajustado al nuevo comportamiento
+- [x] Contrato: `docs/openapi.json` regenerado; `pnpm openapi:breaking` sin cambios incompatibles; `pnpm openapi:lint` limpio
+- [ ] `pnpm test:db` **no se corrió** (sus URLs apuntan a Neon): lo valida la CI de la PR. Las pruebas nuevas están sin ejecutar
+- [ ] Pendiente frontend: tratar 409 `RESTAURANTE_PAUSADO` y `LOCAL_LLENO_SOLO_LLEVAR` en preórdenes/mesas
 
 ## Estado manual "Concurrido" (rama `feat/ocupacion-concurrido`)
 

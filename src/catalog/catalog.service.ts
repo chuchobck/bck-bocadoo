@@ -27,7 +27,9 @@ interface ListRow {
   logo_url: string | null;
   precio_suelto_centavos: string;
   moneda_codigo: string;
+  estado: 'ACTIVO' | 'PAUSADO';
   abierto_ahora: boolean;
+  menu_agotado: boolean;
   personas: number | null;
   puestos: number | null;
   lleno_manual: boolean | null;
@@ -73,9 +75,21 @@ const OPEN_NOW = `EXISTS (SELECT 1 FROM restaurante_horario h
           AND (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::time >= h.abre
           AND (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::time < h.cierra)`;
 
+/**
+ * `true` solo con menú publicado hoy (fecha local del local) y TODAS las sopas y TODOS los segundos (sección FUERTE) del
+ * día agotados (`menu_diario_detalle.agotado`). Sin menú publicado, o sin ninguna sopa ni segundo, es `false`.
+ */
+export const menuAgotadoSql = (alias: string) => `COALESCE((SELECT bool_and(d.agotado)
+        FROM menu_diario_cabecera m
+        JOIN menu_diario_detalle d ON d.menu_diario_id = m.menu_diario_id
+       WHERE m.restaurante_id = ${alias}.restaurante_id
+         AND m.fecha_local = (CURRENT_TIMESTAMP AT TIME ZONE ${alias}.zona_horaria)::date
+         AND m.publicado_en IS NOT NULL
+         AND d.seccion IN ('SOPA', 'FUERTE')), false)`;
+
 const BASE_SELECT = `SELECT r.restaurante_id, r.public_id, r.nombre, r.slug, r.descripcion_corta, r.etiquetas, r.zona_id, z.nombre AS zona_nombre,
-       r.ciudad_id, r.direccion, r.latitud, r.longitud, r.logo_url, r.precio_suelto_centavos, r.moneda_codigo,
-       ${OPEN_NOW} AS abierto_ahora, o.personas, o.puestos, o.lleno_manual, o.concurrido_manual
+       r.ciudad_id, r.direccion, r.latitud, r.longitud, r.logo_url, r.precio_suelto_centavos, r.moneda_codigo, r.estado,
+       (r.estado = 'ACTIVO' AND ${OPEN_NOW}) AS abierto_ahora, ${menuAgotadoSql('r')} AS menu_agotado, o.personas, o.puestos, o.lleno_manual, o.concurrido_manual
   FROM restaurante r
   LEFT JOIN zona z ON z.zona_id = r.zona_id
   LEFT JOIN LATERAL fn_ocupacion_local(r.restaurante_id) o ON true`;
@@ -95,14 +109,16 @@ function toCard(r: ListRow) {
     logoUrl: r.logo_url,
     precioSueltoCentavos: Number(r.precio_suelto_centavos),
     monedaCodigo: r.moneda_codigo,
+    estado: r.estado,
     abiertoAhora: r.abierto_ahora,
+    menuAgotado: r.menu_agotado,
     ocupacion: occupancy(r.personas, r.puestos, r.lleno_manual, r.concurrido_manual),
   };
 }
 
 /**
  * Vitrina pública: sin token. Corre como bck_api sin tenant; las políticas `lectura_publica` dejan leer todos los
- * restaurantes, por eso TODA consulta filtra estado = 'ACTIVO' y solo devuelve campos públicos.
+ * restaurantes, por eso TODA consulta filtra estado IN ('ACTIVO', 'PAUSADO') (BORRADOR y BAJA no se ven) y solo devuelve campos públicos.
  */
 @Injectable()
 export class CatalogService {
@@ -113,7 +129,7 @@ export class CatalogService {
     return this.db.scope({ readOnly: true }, async (q) => {
       const r = await q.query<ListRow>(
         `${BASE_SELECT}
-          WHERE r.estado = 'ACTIVO'
+          WHERE r.estado IN ('ACTIVO', 'PAUSADO')
             AND ($1::bigint IS NULL OR r.zona_id = $1)
             AND ($2::bigint IS NULL OR r.ciudad_id = $2)
             AND ($3::text IS NULL OR r.nombre ILIKE '%' || $3 || '%')
@@ -144,7 +160,7 @@ export class CatalogService {
     return this.db.scope({ readOnly: true }, async (q) => {
       const r = await q.query<ListRow & { telefono_e164: string | null; hoy: string }>(
         `${BASE_SELECT.replace('r.moneda_codigo,', 'r.moneda_codigo, r.telefono_e164, (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date::text AS hoy,')}
-          WHERE r.estado = 'ACTIVO' AND r.slug = $1`,
+          WHERE r.estado IN ('ACTIVO', 'PAUSADO') AND r.slug = $1`,
         [slug],
       );
       const row = r.rows[0];

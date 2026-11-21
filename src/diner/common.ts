@@ -24,6 +24,10 @@ export async function assertMenuPublicado(q: Queryable, restauranteId?: string):
   return r.rows[0].menu_diario_id;
 }
 
+/** 409 `RESTAURANTE_PAUSADO`: un local pausado no admite órdenes nuevas (lo ya creado no se toca). */
+export const restaurantePausado = () =>
+  conflict('RESTAURANTE_PAUSADO', 'El restaurante está pausado y no recibe pedidos nuevos por ahora.');
+
 /** Paginación por cursor opaco (fecha + public_id: nunca ids internos). */
 export class PageQuery {
   @ApiPropertyOptional({ minimum: 1, maximum: 50, default: 20 })

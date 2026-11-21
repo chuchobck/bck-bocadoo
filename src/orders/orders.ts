@@ -24,7 +24,18 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { PassEventBus } from '../pass-events/bus';
-import { CURSOR_TS, HOY_LOCAL, PageQuery, assertMenuPublicado, UUID_RE, decodeCursor, encodeCursor, restauranteRef } from '../diner/common';
+import { occupancy } from '../catalog/catalog.service';
+import {
+  CURSOR_TS,
+  HOY_LOCAL,
+  PageQuery,
+  assertMenuPublicado,
+  restaurantePausado,
+  UUID_RE,
+  decodeCursor,
+  encodeCursor,
+  restauranteRef,
+} from '../diner/common';
 
 /** Minutos que vive una preorden: después la caja ya no la canjea. */
 export const PREORDER_MINUTES = 30;
@@ -262,15 +273,27 @@ export class DinerOrdersService {
     const replay = await this.byKeyIn(q, key, restaurante);
     if (replay) return replay;
     const rest = (
-      await q.query<{ restaurante_id: string; precio: string; recargo: string; moneda: string; hoy: string }>(
-        `SELECT r.restaurante_id, r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo, r.moneda_codigo AS moneda,
+      await q.query<{ restaurante_id: string; estado: string; precio: string; recargo: string; moneda: string; hoy: string }>(
+        `SELECT r.restaurante_id, r.estado, r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo, r.moneda_codigo AS moneda,
                 ${HOY_LOCAL('r')}::text AS hoy
-           FROM restaurante r WHERE r.public_id = $1 AND r.estado = 'ACTIVO'`,
+           FROM restaurante r WHERE r.public_id = $1 AND r.estado IN ('ACTIVO', 'PAUSADO')`,
         [restaurante],
       )
     ).rows[0];
     if (!rest) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
+    if (rest.estado === 'PAUSADO') throw restaurantePausado();
     const menu = { menu_diario_id: await assertMenuPublicado(q, rest.restaurante_id) };
+    // Con el local LLENO (manual o por aforo, la misma ocupación de la vitrina) solo se admite para llevar.
+    if (!dto.paraLlevar) {
+      const o = (
+        await q.query<{ personas: number; puestos: number; lleno_manual: boolean; concurrido_manual: boolean }>(
+          'SELECT personas, puestos, lleno_manual, concurrido_manual FROM fn_ocupacion_local($1)',
+          [rest.restaurante_id],
+        )
+      ).rows[0];
+      if (o && occupancy(o.personas, o.puestos, o.lleno_manual, o.concurrido_manual).nivel === 'LLENO')
+        throw conflict('LOCAL_LLENO_SOLO_LLEVAR', 'El local está lleno: por ahora solo se aceptan pedidos para llevar.');
+    }
     // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
     // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
     const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
@@ -427,7 +450,14 @@ export class DinerOrdersController {
   @ApiProblems({
     400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO', 'IDEMPOTENCY_KEY_INVALIDA'],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
-    409: ['MENU_NO_PUBLICADO', 'PEDIDO_ACTIVO', 'PLATO_AGOTADO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    409: [
+      'RESTAURANTE_PAUSADO',
+      'LOCAL_LLENO_SOLO_LLEVAR',
+      'MENU_NO_PUBLICADO',
+      'PEDIDO_ACTIVO',
+      'PLATO_AGOTADO',
+      'IDEMPOTENCY_KEY_REUTILIZADA',
+    ],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
   })
   create(@CurrentUser() user: AuthUser, @Body() dto: CrearPedidoDto, @IdempotencyKey() key: string) {

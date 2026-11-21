@@ -6,7 +6,7 @@ import { ApiProblems, BusinessError, badRequest, conflict, notFound } from '../c
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
-import { UUID_RE, restauranteRef } from '../diner/common';
+import { UUID_RE, restaurantePausado, restauranteRef } from '../diner/common';
 
 const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
 /** La hora de llegada va de 5 minutos atrás a 12 horas adelante. */
@@ -126,11 +126,13 @@ export class TablesService {
         const prev = await this.byKey(q, key, restaurante);
         if (prev) return prev;
         const rest = (
-          await q.query<{ restaurante_id: string }>(`SELECT restaurante_id FROM restaurante WHERE public_id = $1 AND estado = 'ACTIVO'`, [
-            restaurante,
-          ])
+          await q.query<{ restaurante_id: string; estado: string }>(
+            `SELECT restaurante_id, estado FROM restaurante WHERE public_id = $1 AND estado IN ('ACTIVO', 'PAUSADO')`,
+            [restaurante],
+          )
         ).rows[0];
         if (!rest) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
+        if (rest.estado === 'PAUSADO') throw restaurantePausado();
         const m = (
           await q.query<{ mesa_compartida_id: string; public_id: string }>(
             `INSERT INTO mesa_compartida (restaurante_id, anfitrion_usuario_id, hora_llegada, modo, clave_idempotencia)
@@ -284,7 +286,7 @@ export class TablesController {
   @ApiProblems({
     400: ['HORA_LLEGADA_INVALIDA', 'IDEMPOTENCY_KEY_INVALIDA'],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
-    409: ['IDEMPOTENCY_KEY_REUTILIZADA'],
+    409: ['RESTAURANTE_PAUSADO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
   })
   create(@CurrentUser() user: AuthUser, @Body() dto: CrearMesaCompartidaDto, @IdempotencyKey() key: string) {
     return this.svc.create(user, dto, key);

@@ -34,6 +34,11 @@ export class RestauranteResponse {
 /** Perfil del local para su personal (GET): suma la ocupación vigente, igual que la vitrina. */
 export class MiRestauranteResponse extends RestauranteResponse {
   @ApiProperty({
+    description: 'true solo si hay menú publicado hoy y TODAS las sopas y TODOS los segundos (FUERTE) del día están agotados',
+  })
+  menuAgotado!: boolean;
+
+  @ApiProperty({
     type: OcupacionResponse,
     nullable: true,
     description: 'Ocupación vigente (misma que ve el comensal). null si el local no está ACTIVO (p. ej. PAUSADO).',

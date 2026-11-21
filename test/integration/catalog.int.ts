@@ -26,7 +26,7 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     return { ...o, slug: act.json().slug as string };
   }
 
-  it('es público: no pide token y solo muestra restaurantes ACTIVOS', async () => {
+  it('es público: no pide token; muestra ACTIVOS y PAUSADOS, nunca BORRADOR', async () => {
     const tag = unique();
     const a = await activeLocal(`Vitrina ${tag} Activo`);
     const borrador = await h.owner(`Vitrina ${tag} Borrador`);
@@ -34,16 +34,16 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     await own(pausado).post('/v1/restaurante/pausar');
     const res = await pub(`/v1/restaurantes?q=${encodeURIComponent(`Vitrina ${tag}`)}`);
     expect(res.statusCode).toBe(200);
-    expect(res.json().items.map((i: { nombre: string }) => i.nombre)).toEqual([`Vitrina ${tag} Activo`]);
+    expect(res.json().items.map((i: { nombre: string }) => i.nombre)).toEqual([`Vitrina ${tag} Activo`, `Vitrina ${tag} Pausado`]);
     expect((await pub(`/v1/restaurantes/${a.slug}`)).statusCode).toBe(200);
     expect((await pub('/v1/restaurantes/no-existe')).statusCode).toBe(404);
     expect((await pub('/v1/restaurantes/' + 'x'.repeat(90))).statusCode).toBe(404);
     expect((await pub('/v1/restaurantes/Mal_Slug!')).statusCode).toBe(404);
-    // Borrador y pausado: ni en la búsqueda ni por slug.
+    // Borrador: ni en la búsqueda ni por slug. Pausado: sí, con estado PAUSADO.
     const slugBorrador = (await h.call('GET', '/v1/restaurante', { token: borrador.token, restaurante: borrador.restaurante })).json().slug;
     const slugPausado = (await h.call('GET', '/v1/restaurante', { token: pausado.token, restaurante: pausado.restaurante })).json().slug;
     expect((await pub(`/v1/restaurantes/${slugBorrador}`)).statusCode).toBe(404);
-    expect((await pub(`/v1/restaurantes/${slugPausado}`)).statusCode).toBe(404);
+    expect((await pub(`/v1/restaurantes/${slugPausado}`)).json()).toMatchObject({ estado: 'PAUSADO', abiertoAhora: false });
   });
 
   it('solo expone datos públicos: sin ids internos, correos ni datos del dueño', async () => {
@@ -293,11 +293,11 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     await expectAll(o, { nivel: 'LLENO', porcentaje: 90, lleno: true });
   });
 
-  it('un local PAUSADO sale de la vitrina (404 / fuera del listado) y su GET propio no trae ocupación', async () => {
+  it('un local PAUSADO sigue en la vitrina con estado PAUSADO y su GET propio no trae ocupación', async () => {
     const o = await activeLocal(`Pausado ${unique()} Local`);
     expect((await pub(`/v1/restaurantes/${o.slug}`)).statusCode).toBe(200);
     expect((await own(o).post('/v1/restaurante/pausar')).statusCode).toBe(200);
-    expect((await pub(`/v1/restaurantes/${o.slug}`)).statusCode).toBe(404);
+    expect((await pub(`/v1/restaurantes/${o.slug}`)).json()).toMatchObject({ estado: 'PAUSADO', abiertoAhora: false });
     const mine = (await h.call('GET', '/v1/restaurante', { token: o.token, restaurante: o.restaurante })).json();
     expect(mine).toMatchObject({ estado: 'PAUSADO', ocupacion: null });
   });

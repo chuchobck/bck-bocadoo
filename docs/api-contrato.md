@@ -82,6 +82,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                           |
 | `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo` |
 | `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más                |
+| `LOCAL_LLENO_SOLO_LLEVAR`     | 409  | `POST /v1/mis/pedidos` (con `paraLlevar` ausente o `false` y el local `LLENO`)                                             |
 | `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`                                     |
 | `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`                                                |
 | `MESA_LLENA`                  | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                    |
@@ -90,6 +91,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `OPINION_VENCIDA`             | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                       |
 | `OPINION_YA_ENVIADA`          | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                       |
 | `OPINION_YA_RESPONDIDA`       | 409  | `POST /v1/opiniones/{id}/responder`                                                                                        |
+| `RESTAURANTE_PAUSADO`         | 409  | `POST /v1/mis/pedidos`; `POST /v1/mis/mesas`; `POST /v1/ofertas/{id}/canjear`                                              |
 | `PEDIDO_ACTIVO`               | 409  | `POST /v1/mis/pedidos`                                                                                                     |
 | `PEDIDO_CANCELADO`            | 409  | `POST /v1/caja/pedidos/{id}/canjear`                                                                                       |
 | `PEDIDO_EXPIRADO`             | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/mis/pedidos/{id}/cancelar`                                                 |
@@ -451,6 +453,8 @@ Response `200`:
 }
 ```
 
+Campo `menuAgotado` (boolean, siempre presente) y `ocupacion` (ver «Estados públicos» al final de la sección 4): `menuAgotado` es `true` solo con menú publicado hoy y todas las sopas y todos los segundos agotados.
+
 Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 | HTTP | `code`        | Ejemplo de `detail`                                  |
@@ -781,7 +785,7 @@ Se lee en `GET /v1/restaurantes`, `GET /v1/restaurantes/{slug}` y `GET /v1/resta
 ##### Los 4 estados para las apps (Libre, Concurrido, Lleno, Cerrado)
 
 - Libre / Concurrido / Lleno: `ocupacion.nivel` = `LIBRE` / `MODERADO` / `LLENO`. Ojo: `MODERADO` también aparece por aforo (50–89%) sin que nadie lo marque; la API no distingue si es manual o automático.
-- Cerrado: hoy **no hay un campo `activo`/`abierto`**. Un local `PAUSADO` desaparece de `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}` responde 404; solo su personal lo ve con `GET /v1/restaurante` (`estado: "PAUSADO"`, `ocupacion: null`). `abiertoAhora` es solo el horario del local y no se afecta por el estado manual.
+- Cerrado: un local `PAUSADO` **sí aparece** en `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}` con `estado: "PAUSADO"` y `abiertoAhora: false` (ver «Estados públicos» al final). Su `ocupacion` en la vitrina es la de un local sin consumos (`LIBRE`, 0 %): no es un dato real, la app debe mostrar «Cerrado» por `estado`. Su personal lo ve con `GET /v1/restaurante` (`ocupacion: null`).
 - **No hay evento en tiempo real** para la ocupación: las apps la leen con los GET anteriores (polling). Una opción futura, solo como idea: reutilizar el canal SSE del pase (`pass-events`) o agregar un SSE público por local; no está construida.
 
 #### `GET /v1/restaurantes`
@@ -792,9 +796,9 @@ Se lee en `GET /v1/restaurantes`, `GET /v1/restaurantes/{slug}` y `GET /v1/resta
 - **Estado:** Estable
 - **Query:** `q`, `zonaId`, `ciudadId`, `etiqueta`, `limit`, `cursor`
 
-Público, sin token. Solo restaurantes activos. Paginación por cursor: máximo 50 por página; pasa `nextCursor` como `cursor`.
+Público, sin token. Restaurantes `ACTIVO` y `PAUSADO` (campo `estado`); `BORRADOR` y `BAJA` no aparecen. Paginación por cursor: máximo 50 por página; pasa `nextCursor` como `cursor`.
 
-> Solo locales activos. Paginación por cursor.
+> Un `PAUSADO` se lista con `estado: "PAUSADO"` y `abiertoAhora: false`. Paginación por cursor.
 
 Response `200`:
 
@@ -815,7 +819,9 @@ Response `200`:
       "logoUrl": null,
       "precioSueltoCentavos": 300,
       "monedaCodigo": "USD",
+      "estado": "ACTIVO",
       "abiertoAhora": false,
+      "menuAgotado": false,
       "ocupacion": {
         "nivel": "LIBRE",
         "porcentaje": 0,
@@ -834,9 +840,9 @@ Response `200`:
 - **Rol:** Público (sin token)
 - **Estado:** Estable · requiere la migración 20261117000000 (aplicada en Neon)
 
-Público, sin token. Un menú sin publicar o un local en borrador o pausado no aparecen.
+Público, sin token. Un local `PAUSADO` se ve (`estado: "PAUSADO"`, `abiertoAhora: false`); uno en `BORRADOR` o `BAJA` responde 404.
 
-> Los platos de `menuHoy` traen `id` (UUID): es el que se manda en `POST /v1/mis/pedidos`. El menú no publicado y los locales en `BORRADOR` o `PAUSADO` responden 404.
+> Los platos de `menuHoy` traen `id` (UUID): es el que se manda en `POST /v1/mis/pedidos`. Los locales en `BORRADOR` o `BAJA` responden 404; un `PAUSADO` responde 200 pero no admite órdenes nuevas.
 
 Response `200`:
 
@@ -855,7 +861,9 @@ Response `200`:
   "logoUrl": null,
   "precioSueltoCentavos": 300,
   "monedaCodigo": "USD",
+  "estado": "ACTIVO",
   "abiertoAhora": false,
+  "menuAgotado": false,
   "ocupacion": {
     "nivel": "LIBRE",
     "porcentaje": 0,
@@ -3126,9 +3134,11 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | 400  | `PEDIDO_VACIO`                | Pide un almuerzo, extras o ambos.                 |
 | 404  | `RESTAURANTE_NO_ENCONTRADO`   | —                                                 |
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                                                 |
+| 409  | `LOCAL_LLENO_SOLO_LLEVAR`     | Local lleno y la preorden no es para llevar       |
 | 409  | `MENU_NO_PUBLICADO`           | —                                                 |
 | 409  | `PEDIDO_ACTIVO`               | Ya tienes un pedido en camino a este restaurante. |
 | 409  | `PLATO_AGOTADO`               | —                                                 |
+| 409  | `RESTAURANTE_PAUSADO`         | El local está pausado                             |
 | 422  | `PLATO_NO_DISPONIBLE`         | —                                                 |
 | 422  | `PLATO_SIN_PRECIO`            | —                                                 |
 
@@ -3654,12 +3664,13 @@ Response `201`:
 
 Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
-| HTTP | `code`                        | Ejemplo de `detail` |
-| ---- | ----------------------------- | ------------------- |
-| 400  | `HORA_LLEGADA_INVALIDA`       | —                   |
-| 400  | `IDEMPOTENCY_KEY_INVALIDA`    | —                   |
-| 404  | `RESTAURANTE_NO_ENCONTRADO`   | —                   |
-| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                   |
+| HTTP | `code`                        | Ejemplo de `detail`   |
+| ---- | ----------------------------- | --------------------- |
+| 400  | `HORA_LLEGADA_INVALIDA`       | —                     |
+| 400  | `IDEMPOTENCY_KEY_INVALIDA`    | —                     |
+| 404  | `RESTAURANTE_NO_ENCONTRADO`   | —                     |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                     |
+| 409  | `RESTAURANTE_PAUSADO`         | El local está pausado |
 
 #### `GET /v1/mis/mesas`
 
@@ -4505,6 +4516,7 @@ Errores posibles (además de los comunes: 401, 403, 400 de validación, 429, 5xx
 | 409  | `OFERTA_EXPIRADA`             | Ya pasó `expiraEn`                                     |
 | 409  | `OFERTA_NO_INICIADA`          | Aún no empieza                                         |
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya se usó con otra oferta                     |
+| 409  | `RESTAURANTE_PAUSADO`         | El local está pausado: no se canjean ofertas           |
 | 422  | `METODO_PAGO_NO_DISPONIBLE`   | El método no existe en el país del local               |
 
 #### `GET /v1/restaurantes/{slug}/ofertas`
@@ -4927,6 +4939,15 @@ Cambios de contrato (solo adiciones): respuesta `409` en los tres primeros endpo
 - Los reportes son solo para el dueño y usan la zona horaria del local; no hay gating por plan SaaS (`limites.reportesAvanzados` se informa, pero no se exige).
 - `info.version` del OpenAPI es `1.0.0-rc.1` (candidata de la fase 10); aún no hay tag.
 - `POST /v1/auth/register*` no devuelve tokens; el comensal debe iniciar sesión tras registrarse.
+
+### Estados públicos: PAUSADO, LLENO y menuAgotado (rama `fix/estados-publicos`)
+
+Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles).
+
+- **`estado` (`ACTIVO` | `PAUSADO`)** en `GET /v1/restaurantes` y `GET /v1/restaurantes/{slug}`. Un `PAUSADO` aparece en el listado y en el detalle (menú, horarios y planes incluidos) con `abiertoAhora: false` aunque el horario esté abierto. `BORRADOR` y `BAJA` siguen sin aparecer (404 por slug). `ocupacion` de un `PAUSADO` es `LIBRE`/0 % (no hay dato real): mostrar «Cerrado» por `estado`.
+- **409 `RESTAURANTE_PAUSADO`** (problem+json) si el local está `PAUSADO`: `POST /v1/mis/pedidos`, `POST /v1/mis/mesas` (mesa nueva) y `POST /v1/ofertas/{id}/canjear`. Un `BORRADOR`/`BAJA` sigue respondiendo 404 `RESTAURANTE_NO_ENCONTRADO` en pedidos y mesas. Lo ya creado no se toca: pedidos y mesas existentes se leen igual, el reintento con la misma `Idempotency-Key` devuelve el original, y `POST /v1/caja/pedidos/{id}/canjear` y `POST /v1/caja/validar` no cambian. Unirse a una mesa ya creada tampoco cambia.
+- **409 `LOCAL_LLENO_SOLO_LLEVAR`** en `POST /v1/mis/pedidos` cuando la ocupación vigente es `LLENO` (la misma de `ocupacion.nivel`: "Lleno" manual vigente o aforo ≥ 90 %) y el pedido no es para llevar (`paraLlevar` ausente o `false`, es decir tipo `AQUI`; incluye pedidos solo de extras). Con `paraLlevar: true` se permite, con los mismos precios y recargo de siempre. No afecta a caja, QR, validar ni planes. Orden de las comprobaciones: `RESTAURANTE_PAUSADO` → `MENU_NO_PUBLICADO` → `LOCAL_LLENO_SOLO_LLEVAR`.
+- **`menuAgotado` (boolean)** en la vitrina, el detalle y `GET /v1/restaurante`: `true` solo si hay menú publicado hoy (fecha local del local) y **todos** los platos de las secciones `SOPA` y `FUERTE` del día tienen `agotado = true` (el mismo marcador de `PATCH /v1/menu/{fecha}/items/{id}/agotado`). Jugo, postre y adicionales no cuentan. Sin menú publicado, o sin ninguna sopa ni segundo en el menú, es `false` (eso lo cubre `MENU_NO_PUBLICADO`).
 
 ## 5. Mantenimiento de este contrato
 
