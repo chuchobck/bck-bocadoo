@@ -14,6 +14,8 @@ import {
   type TotalPagador,
   type UnidadPlan,
   type Aviso,
+  SEPARADOR_UNIDAD,
+  refUnidadPlan,
 } from './tipos';
 
 const CANTIDAD_MAX = 100;
@@ -55,6 +57,8 @@ function validar(entrada: EntradaCobro): Map<string, PersonaCobro> {
   for (const i of items) {
     if (refs.has(i.ref)) throw new CotizarError('LINEA_REPETIDA', `línea repetida: ${i.ref}`, i.ref);
     refs.add(i.ref);
+    if (i.ref.includes(SEPARADOR_UNIDAD))
+      throw new CotizarError('ENTRADA_INVALIDA', `el ref de una línea no puede contener "${SEPARADOR_UNIDAD}"`, i.ref);
     if (!porRef.has(i.personaRef)) throw new CotizarError('PERSONA_DESCONOCIDA', `persona desconocida: ${i.personaRef}`, i.ref);
     if (!Number.isInteger(i.cantidad) || i.cantidad < 1 || i.cantidad > CANTIDAD_MAX)
       throw new CotizarError('CANTIDAD_INVALIDA', `cantidad debe ser entero 1..${CANTIDAD_MAX}`, i.ref);
@@ -116,12 +120,12 @@ export function cotizar(entrada: EntradaCobro, opciones: OpcionesCotizar = {}): 
     const precio = item.tipo === 'ALMUERZO' ? P : item.precioUnitario;
 
     // Paso 6: montos de una línea de salida.
-    const linea = (fuente: Fuente, cantidad: number, omitida: MotivoOmision | null = null): LineaCotizada => {
+    const linea = (fuente: Fuente, cantidad: number, omitida: MotivoOmision | null = null, ref = item.ref): LineaCotizada => {
       const subtotal = omitida ? 0 : seguro(cantidad * precio, 'subtotal', item.ref);
       const recargo = omitida ? 0 : seguro(cantidad * recargoUnitario, 'recargo', item.ref);
       const cubierto = fuente === 'PLAN' ? subtotal : 0;
       return {
-        ref: item.ref,
+        ref,
         personaRef: duenio.ref,
         pagadorRef: pagadorPersona.ref,
         tipo: item.tipo,
@@ -167,9 +171,11 @@ export function cotizar(entrada: EntradaCobro, opciones: OpcionesCotizar = {}): 
     const cubiertas = Math.min(saldo, item.cantidad);
     const resto = item.cantidad - cubiertas;
     saldoPlan.set(pagadorPersona.ref, saldo - cubiertas);
-    for (let u = 0; u < cubiertas; u++) unidadesPlan.push({ personaRef: duenio.ref, pagadorRef: pagadorPersona.ref });
-
-    if (cubiertas > 0) lineas.push(linea('PLAN', cubiertas));
+    // Una línea PLAN por unidad, de cantidad 1 y ref único (ver refUnidadPlan).
+    for (let u = 1; u <= cubiertas; u++) {
+      unidadesPlan.push({ personaRef: duenio.ref, pagadorRef: pagadorPersona.ref });
+      lineas.push(linea('PLAN', 1, null, refUnidadPlan(item.ref, u)));
+    }
     if (resto === 0) continue;
     if (ESTADOS_OMITEN.has(estado)) {
       const motivo = estado as MotivoOmision;

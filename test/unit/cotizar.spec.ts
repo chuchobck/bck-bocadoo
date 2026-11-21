@@ -104,8 +104,14 @@ function verificarInvariantes(c: Cotizacion, precioAlmuerzo = P): void {
   expect(c.saldoPorCobrarCentavos).toBe(c.totalCentavos - c.cubiertoPorPlanCentavos);
   expect(c.saldoPorCobrarCentavos).toBeGreaterThanOrEqual(0);
   expect(c.cubiertoPorPlanCentavos).toBe(precioAlmuerzo * c.unidadesPlan.length);
-  const unidadesEnLineas = c.lineas.filter((l) => l.fuente === 'PLAN').reduce((s, l) => s + l.cantidad, 0);
-  expect(unidadesEnLineas).toBe(c.unidadesPlan.length);
+  // Una línea PLAN por unidad, de cantidad 1, y refs de salida únicos.
+  const lineasPlan = c.lineas.filter((l) => l.fuente === 'PLAN');
+  expect(lineasPlan).toHaveLength(c.unidadesPlan.length);
+  for (const l of lineasPlan) {
+    expect(l.cantidad).toBe(1);
+    expect(l.ref).toMatch(/#\d+$/);
+  }
+  expect(new Set(c.lineas.map((l) => l.ref)).size).toBe(c.lineas.length);
 
   // La suma por pagador es el total de la operación, campo por campo.
   const suma = (k: 'subtotal' | 'recargo' | 'total' | 'cubierto' | 'saldo') => c.porPagador.reduce((s, t) => s + t[k], 0);
@@ -633,7 +639,7 @@ describe('cotizar: orden estable', () => {
     const desordenada: EntradaCobro = { ...base, personas: [...base.personas].reverse(), items: [...base.items].reverse() };
     const c = cotizar(desordenada);
     // Dentro de cada persona se respeta la posición en el pedido (aquí, invertida).
-    expect(c.lineas.map((l) => l.ref)).toEqual(['A:1', 'A:0', 'B:1', 'B:0', 'C:0']);
+    expect(c.lineas.map((l) => l.ref)).toEqual(['A:1', 'A:0#1', 'B:1', 'B:0#1', 'C:0']);
     expect(c.porPagador.map((t) => t.pagadorRef)).toEqual(['A', 'B', 'C']);
     expect(c.unidadesPlan.map((u) => u.personaRef)).toEqual(['A', 'B']);
     verificarInvariantes(c);
@@ -674,18 +680,20 @@ describe('cotizar: orden estable', () => {
 });
 
 describe('cotizar: partición de un ALMUERZO con q > 1', () => {
-  it('parte la línea en PLAN × k y CAJA × (q − k) con el recargo en cada parte', () => {
+  it('parte la línea en k líneas PLAN de cantidad 1 (ref#1, ref#2) y una CAJA × (q − k) con el ref original', () => {
     const c = cotizar(simple('PREORDEN', true, ok(2), [alm(3)]));
+    const unidadPlan = {
+      fuente: 'PLAN',
+      cantidad: 1,
+      subtotalCentavos: 350,
+      recargoCentavos: 25,
+      cubiertoPorPlanCentavos: 350,
+      porCobrarCentavos: 25,
+    };
+    expect(c.lineas).toHaveLength(3);
     expect(c.lineas).toMatchObject([
-      {
-        ref: '0:0',
-        fuente: 'PLAN',
-        cantidad: 2,
-        subtotalCentavos: 700,
-        recargoCentavos: 50,
-        cubiertoPorPlanCentavos: 700,
-        porCobrarCentavos: 50,
-      },
+      { ref: '0:0#1', ...unidadPlan },
+      { ref: '0:0#2', ...unidadPlan },
       {
         ref: '0:0',
         fuente: 'CAJA',
@@ -707,14 +715,21 @@ describe('cotizar: partición de un ALMUERZO con q > 1', () => {
   it('el saldo del plan se comparte entre líneas del mismo pagador', () => {
     const c = cotizar(simple('QR', false, ok(1), [alm(1), alm(1)]));
     expect(resumen(c)).toEqual(['0:ALMUERZO·PLAN×1', '0:ALMUERZO·CAJA×1']);
+    expect(c.lineas.map((l) => l.ref)).toEqual(['0:0#1', '0:1']);
     verificarInvariantes(c);
   });
 
-  it('una línea totalmente cubierta no se parte', () => {
+  it('una línea totalmente cubierta da una línea PLAN por unidad y ninguna CAJA', () => {
     const c = cotizar(simple('PREORDEN', false, ok(5), [alm(3)]));
-    expect(resumen(c)).toEqual(['0:ALMUERZO·PLAN×3']);
+    expect(resumen(c)).toEqual(['0:ALMUERZO·PLAN×1', '0:ALMUERZO·PLAN×1', '0:ALMUERZO·PLAN×1']);
+    expect(c.lineas.map((l) => l.ref)).toEqual(['0:0#1', '0:0#2', '0:0#3']);
     expect(c.avisos).toEqual([]);
     verificarInvariantes(c);
+  });
+
+  it('rechaza un ref de entrada con "#" (reservado para las unidades del plan)', () => {
+    const e = simple('QR', false, ok(), [alm()]);
+    expect(() => cotizar({ ...e, items: [{ ...e.items[0], ref: 'x#1' }] })).toThrow(expect.objectContaining({ code: 'ENTRADA_INVALIDA' }));
   });
 });
 

@@ -71,7 +71,19 @@ export interface OpcionesCotizar {
   estimada?: boolean;
 }
 
+/**
+ * Refs de las líneas de salida (B.3 paso 6; los usa la clave por línea de F.3):
+ * - Cada unidad cubierta por el plan es su propia línea PLAN, de cantidad 1, con ref `<ref>#<k>` (k = 1, 2, …, en
+ *   orden de descuento), aunque la línea de entrada tenga cantidad 1.
+ * - Todas las demás líneas (CAJA, incluido el resto no cubierto de un almuerzo, OFERTA y omitidas) conservan el ref de
+ *   entrada sin sufijo y su cantidad.
+ * Por eso el ref de entrada no puede contener `#`: así los refs de salida son únicos.
+ */
+export const SEPARADOR_UNIDAD = '#';
+export const refUnidadPlan = (ref: string, k: number) => `${ref}${SEPARADOR_UNIDAD}${k}`;
+
 export interface LineaCotizada {
+  /** Ver `SEPARADOR_UNIDAD`. */
   ref: string;
   personaRef: string;
   pagadorRef: string;
@@ -108,6 +120,7 @@ export interface UnidadPlan {
 
 export interface Aviso {
   codigo: CodigoAviso;
+  /** Ref de la línea de entrada (sin sufijo `#k`). */
   lineaRef: string | null;
 }
 
