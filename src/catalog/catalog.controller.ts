@@ -6,7 +6,7 @@ import { Public } from '../authz/public.decorator';
 import { ApiProblems } from '../common/errors';
 import { Text } from '../security/sanitize';
 import { CatalogService } from './catalog.service';
-import { RestauranteBusquedaResponse, RestauranteDetalleResponse } from './dto';
+import { CartaResponse, RestauranteBusquedaResponse, RestauranteDetalleResponse } from './dto';
 
 class SearchQuery {
   @ApiPropertyOptional({ description: 'Texto a buscar en el nombre' }) @IsOptional() @Text() @IsString() @Length(1, 60) q?: string;
@@ -62,5 +62,17 @@ export class CatalogController {
   @ApiProblems({ 404: ['NOT_FOUND'] })
   detail(@Param('slug') slug: string) {
     return this.catalog.detail(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && slug.length <= 80 ? slug : '');
+  }
+
+  @Get(':slug/carta')
+  @ApiOperation({
+    summary: 'Carta fija de un restaurante (a la carta, extras y bebidas)',
+    description:
+      'Público, sin token. Solo platos activos con precio de un local ACTIVO; no depende del menú del día. `agotado` vale hasta medianoche (hora del local).',
+  })
+  @ApiOkResponse({ type: CartaResponse })
+  @ApiProblems({ 404: ['RESTAURANTE_NO_ENCONTRADO'] })
+  carta(@Param('slug') slug: string) {
+    return this.catalog.carta(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && slug.length <= 80 ? slug : '');
   }
 }

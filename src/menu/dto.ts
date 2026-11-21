@@ -51,6 +51,12 @@ export class CrearPlatoDto {
   @IsString({ each: true })
   @Length(1, 30, { each: true })
   etiquetas?: string[];
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000, default: 0, description: 'Orden de aparición dentro de su categoría (menor primero)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  orden?: number;
 }
 
 export class ActualizarPlatoDto {
@@ -73,6 +79,7 @@ export class ActualizarPlatoDto {
   @Length(1, 30, { each: true })
   etiquetas?: string[];
   @ApiPropertyOptional() @present() @IsBoolean() activo?: boolean;
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000 }) @present() @IsInt() @Min(0) @Max(1000) orden?: number;
 }
 
 export class ItemMenuDto {

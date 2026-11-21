@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { notFound, unprocessable } from '../common/errors';
 import { DbService, Queryable } from '../db/db.service';
+import { CATEGORIAS_CARTA, platoAgotadoSql } from './carta';
 import { ActualizarPlatoDto, CrearPlatoDto, DefinirMenuDto } from './dto';
 
 // --- Platos -------------------------------------------------------------------------------------------------------
@@ -14,8 +16,13 @@ interface PlatoRow {
   foto_url: string | null;
   etiquetas: string[];
   activo: boolean;
+  orden: number;
+  agotado: boolean;
+  agotado_en: Date | null;
 }
-const PLATO_COLS = 'plato_id, categoria, seccion, nombre, descripcion, precio_centavos, foto_url, etiquetas, activo';
+/** Columnas del plato con `p` = plato y `r` = restaurante (para saber si está agotado hoy en la zona del local). */
+const PLATO_COLS = `p.plato_id, p.categoria, p.seccion, p.nombre, p.descripcion, p.precio_centavos, p.foto_url, p.etiquetas, p.activo, p.orden,
+       ${platoAgotadoSql('p', 'r')} AS agotado, CASE WHEN ${platoAgotadoSql('p', 'r')} THEN p.agotado_en END AS agotado_en`;
 const toPlato = (p: PlatoRow) => ({
   id: p.plato_id,
   categoria: p.categoria,
@@ -26,6 +33,9 @@ const toPlato = (p: PlatoRow) => ({
   fotoUrl: p.foto_url,
   etiquetas: p.etiquetas,
   activo: p.activo,
+  orden: p.orden,
+  agotado: p.agotado,
+  agotadoEn: p.agotado_en,
 });
 
 const PLATO_UPDATABLE: Record<keyof ActualizarPlatoDto, string> = {
@@ -37,6 +47,7 @@ const PLATO_UPDATABLE: Record<keyof ActualizarPlatoDto, string> = {
   fotoUrl: 'foto_url',
   etiquetas: 'etiquetas',
   activo: 'activo',
+  orden: 'orden',
 };
 
 // --- Menú del día -------------------------------------------------------------------------------------------------
@@ -99,9 +110,10 @@ export class MenuService {
     return this.db.forRequest(
       async (q) => {
         const r = await q.query<PlatoRow>(
-          `SELECT ${PLATO_COLS} FROM plato WHERE restaurante_id = app_tenant_id()
-              AND ($1::text IS NULL OR categoria::text = $1) AND (NOT $2::boolean OR activo)
-            ORDER BY categoria, nombre LIMIT 500`,
+          `SELECT ${PLATO_COLS} FROM plato p JOIN restaurante r ON r.restaurante_id = p.restaurante_id
+            WHERE p.restaurante_id = app_tenant_id()
+              AND ($1::text IS NULL OR p.categoria::text = $1) AND (NOT $2::boolean OR p.activo)
+            ORDER BY p.categoria, p.orden, p.nombre LIMIT 500`,
           [categoria ?? null, soloActivos],
         );
         return r.rows.map(toPlato);
@@ -110,11 +122,21 @@ export class MenuService {
     );
   }
 
+  private async dishById(q: Queryable, id: string) {
+    const r = await q.query<PlatoRow>(
+      `SELECT ${PLATO_COLS} FROM plato p JOIN restaurante r ON r.restaurante_id = p.restaurante_id
+        WHERE p.restaurante_id = app_tenant_id() AND p.plato_id = $1`,
+      [id],
+    );
+    if (!r.rows[0]) throw notFound('PLATO_NO_ENCONTRADO', 'Plato no encontrado.');
+    return toPlato(r.rows[0]);
+  }
+
   createDish(dto: CrearPlatoDto) {
     return this.db.forRequest(async (q) => {
-      const r = await q.query<PlatoRow>(
-        `INSERT INTO plato (restaurante_id, categoria, seccion, nombre, descripcion, precio_centavos, foto_url, etiquetas)
-         VALUES (app_tenant_id(), $1, $2, $3, $4, $5, $6, $7) RETURNING ${PLATO_COLS}`,
+      const r = await q.query<{ plato_id: string }>(
+        `INSERT INTO plato (restaurante_id, categoria, seccion, nombre, descripcion, precio_centavos, foto_url, etiquetas, orden)
+         VALUES (app_tenant_id(), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING plato_id`,
         [
           dto.categoria,
           dto.seccion ?? null,
@@ -123,9 +145,10 @@ export class MenuService {
           dto.precioCentavos ?? null,
           dto.fotoUrl ?? null,
           dto.etiquetas ?? [],
+          dto.orden ?? 0,
         ],
       );
-      return toPlato(r.rows[0]!);
+      return this.dishById(q, r.rows[0]!.plato_id);
     });
   }
 
@@ -139,13 +162,37 @@ export class MenuService {
     }
     if (!sets.length) throw new BadRequestException('No hay nada que actualizar.');
     return this.db.forRequest(async (q) => {
-      const r = await q.query<PlatoRow>(
+      const r = await q.query(
         `UPDATE plato SET ${sets.join(', ')}, actualizado_en = CURRENT_TIMESTAMP
-          WHERE restaurante_id = app_tenant_id() AND plato_id = $1 RETURNING ${PLATO_COLS}`,
+          WHERE restaurante_id = app_tenant_id() AND plato_id = $1`,
         params,
       );
-      if (!r.rows[0]) throw new NotFoundException('Plato no encontrado.');
-      return toPlato(r.rows[0]);
+      if (!r.rowCount) throw new NotFoundException('Plato no encontrado.');
+      return this.dishById(q, id);
+    });
+  }
+
+  /**
+   * Marca o quita "agotado" en un plato de la carta fija. Lo pueden hacer dueño y cajero (el cajero no edita nada más).
+   * Vale hasta medianoche (hora local). Repetir "agotado" conserva la hora original. Un plato del almuerzo se agota
+   * en el menú del día, no aquí: 422 `PLATO_NO_ES_DE_CARTA`.
+   */
+  setDishSoldOut(id: string, agotado: boolean) {
+    return this.db.forRequest(async (q) => {
+      const cur = await this.dishById(q, id);
+      if (!(CATEGORIAS_CARTA as readonly string[]).includes(cur.categoria))
+        throw unprocessable(
+          'PLATO_NO_ES_DE_CARTA',
+          'Solo los platos de la carta (A_LA_CARTA, EXTRA, BEBIDA) se agotan aquí; el almuerzo, en el menú del día.',
+        );
+      await q.query(
+        `UPDATE plato p SET agotado_en = CASE WHEN $2::boolean THEN (CASE WHEN ${platoAgotadoSql('p', 'r')} THEN p.agotado_en ELSE CURRENT_TIMESTAMP END) END,
+                            actualizado_en = CURRENT_TIMESTAMP
+           FROM restaurante r
+          WHERE r.restaurante_id = p.restaurante_id AND p.restaurante_id = app_tenant_id() AND p.plato_id = $1`,
+        [id, agotado],
+      );
+      return this.dishById(q, id);
     });
   }
 

@@ -3,6 +3,7 @@ import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPropertyO
 import { MenuDiaResponse, PlatoResponse } from './responses';
 import { IsIn, IsOptional } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
+import { ApiProblems } from '../common/errors';
 import { FechaOHoyPipe, IdPipe } from '../common/pipes';
 import { ActualizarPlatoDto, AgotadoDto, CATEGORIAS, CopiarMenuDto, CrearPlatoDto, DefinirMenuDto } from './dto';
 import { MenuService } from './menu.service';
@@ -39,6 +40,19 @@ export class DishesController {
   @ApiOkResponse({ type: PlatoResponse })
   update(@Param('id', IdPipe) id: string, @Body() dto: ActualizarPlatoDto) {
     return this.menu.updateDish(id, dto);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Patch(':id/agotado')
+  @ApiOperation({
+    summary: 'Marcar o quitar "agotado" en un plato de la carta fija',
+    description:
+      'Dueño y cajero. Vale hasta medianoche (hora del local). Solo platos A_LA_CARTA, EXTRA o BEBIDA; el almuerzo se agota en `PATCH /v1/menu/{fecha}/items/{id}/agotado`.',
+  })
+  @ApiOkResponse({ type: PlatoResponse })
+  @ApiProblems({ 404: ['PLATO_NO_ENCONTRADO'], 422: ['PLATO_NO_ES_DE_CARTA'] })
+  setSoldOut(@Param('id', IdPipe) id: string, @Body() dto: AgotadoDto) {
+    return this.menu.setDishSoldOut(id, dto.agotado);
   }
 }
 
