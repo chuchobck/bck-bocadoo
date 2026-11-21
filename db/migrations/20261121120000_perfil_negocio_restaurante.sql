@@ -10,7 +10,7 @@ ALTER TABLE restaurante
     -- puestos es NOT NULL con default 20: esta bandera distingue "el dueño ya lo indicó" del valor por defecto. Las filas
     -- existentes quedan en true (no se les inventan pendientes); el registro la deja en false si no manda puestos.
     ADD COLUMN puestos_definidos            BOOLEAN NOT NULL DEFAULT true,
-    ADD CONSTRAINT ck_restaurante_puestos_mesas CHECK (mesas_total IS NULL OR NOT puestos_definidos OR puestos >= mesas_total);
+    ADD CONSTRAINT ck_restaurante_puestos_mesas CHECK (mesas_total IS NULL OR puestos >= mesas_total);
 COMMENT ON COLUMN restaurante.mesas_total IS 'Cantidad de mesas del local, solo informativa (las mesas operativas están en mesa_local)';
 
 -- Solo cambia el valor por defecto de filas NUEVAS; las existentes no se tocan.
