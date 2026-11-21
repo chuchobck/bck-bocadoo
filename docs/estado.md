@@ -42,7 +42,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 ### Diferencias entre la cotización y los totales actuales (a resolver en el PR 7 / snapshot)
 
 1. **Recargo por unidad (esperada, D2):** un extra del menú de categoría `A_LA_CARTA` pedido `paraLlevar` paga recargo por unidad en la cotización y `totalCentavos` aún no. Fijada por prueba; **cambia en el PR 7**.
-2. **Misma causa, otra categoría (no esperada):** un plato de categoría `ALMUERZO` con precio pedido como extra se trata como `A_LA_CARTA` (B.3 paso 1) y también paga recargo en la cotización. También fijada por prueba; también cambia en el PR 7.
+2. **Resuelta:** un plato de categoría `ALMUERZO` pedido suelto se mapea por sección (`JUGO` → `BEBIDA`, `POSTRE` → `EXTRA`, `SOPA`/`FUERTE` → `A_LA_CARTA`); solo sopa y fuerte sueltos para llevar pagan recargo en la cotización (y divergen hasta el PR 7). Jugo y postre no divergen.
 3. **Almuerzo cubierto al pedir:** el pedido guarda el almuerzo en 0, así que la cotización de un pedido creado muestra el almuerzo `PLAN` a precio 0 (`subtotal`, `total` y `cubierto` menores en P que los de `POST …/cotizar`; el saldo coincide). Se corrige con el snapshot del precio (F.2, PR 4/5).
 4. **Plan cambiado después de pedir:** la cotización de un pedido ya creado usa el plan de hoy (si el comensal compró un plan después, la cotización cubre el almuerzo y `totalCentavos` no). Un almuerzo guardado en 0 se muestra siempre cubierto, aunque el plan ya se haya gastado al canjear.
 
