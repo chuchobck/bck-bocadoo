@@ -104,9 +104,7 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
     const pausada = await mk();
     expect((await k.as(o).post('/v1/restaurante/pausar')).statusCode).toBe(200);
     expect((await join(guest, pausada)).json()).toMatchObject({ status: 409, code: 'RESTAURANTE_NO_DISPONIBLE' });
-    expect((await createTable(host, { restaurante: o.restaurante, horaLlegada: inMinutes(10) })).json().code).toBe(
-      'RESTAURANTE_NO_ENCONTRADO',
-    );
+    expect((await createTable(host, { restaurante: o.restaurante, horaLlegada: inMinutes(10) })).json().code).toBe('RESTAURANTE_PAUSADO');
 
     expect((await createTable(host, { restaurante: o.restaurante, horaLlegada: inMinutes(-60) })).json().code).toBe(
       'HORA_LLEGADA_INVALIDA',
