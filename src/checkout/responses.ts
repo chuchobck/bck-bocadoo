@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { SeleccionMiembroResponse } from '../tables/selection';
 
 export class ConsumoRevertidoResponse {
   @ApiProperty({ format: 'uuid', description: 'public_id del consumo' }) id!: string;
@@ -11,6 +12,11 @@ class MiembroMesaResponse {
   @ApiProperty() paraLlevar!: boolean;
   @ApiProperty({ description: 'Es cliente del local (tiene ficha)' }) tieneCuenta!: boolean;
   @ApiProperty({ example: 4 }) almuerzosDisponibles!: number;
+  @ApiProperty({
+    type: SeleccionMiembroResponse,
+    description: 'Lo que eligió este miembro (la caja ve la de todos). Vacía = aún no eligió.',
+  })
+  seleccion!: SeleccionMiembroResponse;
 }
 
 export class MesaVistaResponse {

@@ -119,3 +119,20 @@ export class CodigoPaseResponse {
   @ApiProperty({ example: 30 }) validoSegundos!: number;
   @ApiProperty({ description: 'Cuándo deja de servir este código (la caja acepta además ±1 paso)' }) expiraEn!: Date;
 }
+
+export class PlatoCartaResponse {
+  @ApiProperty({ format: 'uuid', description: 'public_id del plato' }) id!: string;
+  @ApiProperty({ enum: ['A_LA_CARTA', 'EXTRA', 'BEBIDA'] }) categoria!: string;
+  @ApiProperty({ example: 'Encebollado' }) nombre!: string;
+  @ApiProperty({ type: String, nullable: true }) descripcion!: string | null;
+  @ApiProperty({ type: String, nullable: true }) fotoUrl!: string | null;
+  @ApiProperty({ type: [String], example: [] }) etiquetas!: string[];
+  @ApiProperty({ example: 450, description: 'Centavos' }) precioCentavos!: number;
+  @ApiProperty({ description: 'Agotado hoy; vuelve solo a medianoche (hora del local)' }) agotado!: boolean;
+  @ApiProperty({ example: 0, description: 'Orden de aparición dentro de su categoría' }) orden!: number;
+}
+
+export class CartaResponse {
+  @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
+  @ApiProperty({ type: [PlatoCartaResponse], description: 'Por categoría, luego `orden`, luego nombre' }) items!: PlatoCartaResponse[];
+}

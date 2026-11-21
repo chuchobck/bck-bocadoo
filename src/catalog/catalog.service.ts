@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DbService, Queryable } from '../db/db.service';
+import { notFound } from '../common/errors';
+import { CATEGORIAS_CARTA, platoAgotadoSql } from '../menu/carta';
 import { fetchMenuItems } from '../menu/menu.service';
 
 export interface SearchFilters {
@@ -179,6 +181,52 @@ export class CatalogService {
         this.plans(q, row.restaurante_id),
       ]);
       return { ...toCard(row), telefono: row.telefono_e164, horarios, menuHoy: menu, planes };
+    });
+  }
+
+  /**
+   * Carta fija pública: platos A_LA_CARTA, EXTRA y BEBIDA activos y con precio, de un local ACTIVO (un local en
+   * borrador, pausado o de baja responde 404). No depende del menú del día. Sin ids internos.
+   */
+  carta(slug: string) {
+    return this.db.scope({ readOnly: true }, async (q) => {
+      const rest = await q.query<{ restaurante_id: string; moneda_codigo: string }>(
+        `SELECT restaurante_id, moneda_codigo FROM restaurante WHERE slug = $1 AND estado = 'ACTIVO'`,
+        [slug],
+      );
+      if (!rest.rows[0]) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
+      const r = await q.query<{
+        public_id: string;
+        categoria: string;
+        nombre: string;
+        descripcion: string | null;
+        foto_url: string | null;
+        etiquetas: string[];
+        precio_centavos: string;
+        orden: number;
+        agotado: boolean;
+      }>(
+        `SELECT p.public_id, p.categoria, p.nombre, p.descripcion, p.foto_url, p.etiquetas, p.precio_centavos, p.orden,
+                ${platoAgotadoSql('p', 'r')} AS agotado
+           FROM plato p JOIN restaurante r ON r.restaurante_id = p.restaurante_id
+          WHERE p.restaurante_id = $1 AND p.activo AND p.precio_centavos IS NOT NULL AND p.categoria::text = ANY($2::text[])
+          ORDER BY p.categoria, p.orden, p.nombre, p.plato_id`,
+        [rest.rows[0].restaurante_id, [...CATEGORIAS_CARTA]],
+      );
+      return {
+        monedaCodigo: rest.rows[0].moneda_codigo,
+        items: r.rows.map((p) => ({
+          id: p.public_id,
+          categoria: p.categoria,
+          nombre: p.nombre,
+          descripcion: p.descripcion,
+          fotoUrl: p.foto_url,
+          etiquetas: p.etiquetas,
+          precioCentavos: Number(p.precio_centavos),
+          agotado: p.agotado,
+          orden: p.orden,
+        })),
+      };
     });
   }
 

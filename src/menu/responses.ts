@@ -12,6 +12,14 @@ export class PlatoResponse {
   @ApiProperty({ type: String, nullable: true }) fotoUrl!: string | null;
   @ApiProperty({ type: [String], example: [] }) etiquetas!: string[];
   @ApiProperty() activo!: boolean;
+  @ApiProperty({ example: 0, description: 'Orden de aparición dentro de su categoría (menor primero)' }) orden!: number;
+  @ApiProperty({
+    description:
+      'Carta fija: agotado hoy (hora local del local); vuelve solo a medianoche. Siempre false en platos de ALMUERZO: esos se agotan en el menú del día.',
+  })
+  agotado!: boolean;
+  @ApiProperty({ type: Date, nullable: true, description: 'Hora en que se marcó agotado; null si no está agotado hoy' })
+  agotadoEn!: Date | null;
 }
 
 export class ItemMenuResponse {

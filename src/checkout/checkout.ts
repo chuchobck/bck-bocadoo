@@ -25,6 +25,7 @@ import { DbService, Queryable } from '../db/db.service';
 import { assertMenuPublicado } from '../diner/common';
 import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
+import { loadSelections, seleccionDe } from '../tables/selection';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
 const ID = /^[1-9][0-9]{0,17}$/;
@@ -473,6 +474,7 @@ export class CheckoutService {
   ) {
     const members = await this.members(q, mesa.mesa_compartida_id);
     const host = members.find((m) => m.es_anfitrion);
+    const selecciones = await loadSelections(q, mesa.mesa_compartida_id);
     return {
       modo: mesa.modo,
       estado: mesa.estado,
@@ -488,6 +490,7 @@ export class CheckoutService {
         paraLlevar: m.para_llevar,
         tieneCuenta: m.cliente_id !== null,
         almuerzosDisponibles: m.disponibles,
+        seleccion: seleccionDe(selecciones, m.miembro_id),
       })),
     };
   }

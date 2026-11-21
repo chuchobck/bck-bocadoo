@@ -1817,7 +1817,26 @@
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
-                        "soyYo": true
+                        "soyYo": true,
+                        "seleccion": {
+                          "almuerzo": {
+                            "platos": [
+                              {
+                                "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                                "nombre": "Doña Rosa",
+                                "seccion": "JUGO"
+                              }
+                            ]
+                          },
+                          "extras": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "categoria": "BEBIDA",
+                              "cantidad": 2
+                            }
+                          ]
+                        }
                       }
                     ]
                   }
@@ -1967,7 +1986,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -2146,7 +2184,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -2901,7 +2958,10 @@
                     "precioCentavos": 350,
                     "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
                     "etiquetas": [],
-                    "activo": true
+                    "activo": true,
+                    "orden": 0,
+                    "agotado": true,
+                    "agotadoEn": "2026-11-13T17:00:00.000Z"
                   }
                 ]
               }
@@ -3039,7 +3099,8 @@
                 "descripcion": "texto",
                 "precioCentavos": 650,
                 "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
-                "etiquetas": ["vegetariano", "picante"]
+                "etiquetas": ["vegetariano", "picante"],
+                "orden": 0
               }
             }
           }
@@ -3061,7 +3122,10 @@
                   "precioCentavos": 350,
                   "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
                   "etiquetas": [],
-                  "activo": true
+                  "activo": true,
+                  "orden": 0,
+                  "agotado": true,
+                  "agotadoEn": "2026-11-13T17:00:00.000Z"
                 }
               }
             }
@@ -3210,7 +3274,8 @@
                 "precioCentavos": 650,
                 "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
                 "etiquetas": ["texto"],
-                "activo": true
+                "activo": true,
+                "orden": 1
               }
             }
           }
@@ -3232,7 +3297,10 @@
                   "precioCentavos": 350,
                   "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
                   "etiquetas": [],
-                  "activo": true
+                  "activo": true,
+                  "orden": 0,
+                  "agotado": true,
+                  "agotadoEn": "2026-11-13T17:00:00.000Z"
                 }
               }
             }
@@ -3340,6 +3408,211 @@
         ],
         "summary": "Editar o desactivar un plato",
         "tags": ["Dueño"],
+        "x-dominio": "menú"
+      }
+    },
+    "/v1/menu/platos/{id}/agotado": {
+      "patch": {
+        "description": "Dueño y cajero. Vale hasta medianoche (hora del local). Solo platos A_LA_CARTA, EXTRA o BEBIDA; el almuerzo se agota en `PATCH /v1/menu/{fecha}/items/{id}/agotado`.",
+        "operationId": "DishesController_setSoldOut",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgotadoDto"
+              },
+              "example": {
+                "agotado": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatoResponse"
+                },
+                "example": {
+                  "id": "15",
+                  "categoria": "ALMUERZO",
+                  "seccion": "JUGO",
+                  "nombre": "Seco de pollo",
+                  "descripcion": "texto",
+                  "precioCentavos": 350,
+                  "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
+                  "etiquetas": [],
+                  "activo": true,
+                  "orden": 0,
+                  "agotado": true,
+                  "agotadoEn": "2026-11-13T17:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "FORBIDDEN",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `PLATO_NO_ENCONTRADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "PLATO_NO_ENCONTRADO",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `PLATO_NO_ES_DE_CARTA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "PLATO_NO_ES_DE_CARTA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar o quitar \"agotado\" en un plato de la carta fija",
+        "tags": ["Caja"],
         "x-dominio": "menú"
       }
     },
@@ -4728,6 +5001,129 @@
           }
         },
         "summary": "Detalle de un restaurante: horarios, menú publicado de hoy, planes visibles y ocupación",
+        "tags": ["Público"],
+        "x-dominio": "vitrina"
+      }
+    },
+    "/v1/restaurantes/{slug}/carta": {
+      "get": {
+        "description": "Público, sin token. Solo platos activos con precio de un local ACTIVO; no depende del menú del día. `agotado` vale hasta medianoche (hora del local).",
+        "operationId": "CatalogController_carta",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartaResponse"
+                },
+                "example": {
+                  "monedaCodigo": "USD",
+                  "items": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "categoria": "A_LA_CARTA",
+                      "nombre": "Encebollado",
+                      "descripcion": "texto",
+                      "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
+                      "etiquetas": [],
+                      "precioCentavos": 450,
+                      "agotado": true,
+                      "orden": 0
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "RESTAURANTE_NO_ENCONTRADO",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Carta fija de un restaurante (a la carta, extras y bebidas)",
         "tags": ["Público"],
         "x-dominio": "vitrina"
       }
@@ -8798,7 +9194,26 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "tieneCuenta": true,
-                      "almuerzosDisponibles": 4
+                      "almuerzosDisponibles": 4,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -8964,7 +9379,26 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "tieneCuenta": true,
-                      "almuerzosDisponibles": 4
+                      "almuerzosDisponibles": 4,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ],
                   "yaValidada": true,
@@ -13314,7 +13748,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -13481,7 +13934,26 @@
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
-                        "soyYo": true
+                        "soyYo": true,
+                        "seleccion": {
+                          "almuerzo": {
+                            "platos": [
+                              {
+                                "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                                "nombre": "Doña Rosa",
+                                "seccion": "JUGO"
+                              }
+                            ]
+                          },
+                          "extras": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "categoria": "BEBIDA",
+                              "cantidad": 2
+                            }
+                          ]
+                        }
                       }
                     ]
                   }
@@ -13599,7 +14071,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -13712,6 +14203,240 @@
         "x-dominio": "comensal"
       }
     },
+    "/v1/mis/mesas/{id}/seleccion": {
+      "put": {
+        "description": "Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.",
+        "operationId": "TablesController_setSelection",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeleccionDto"
+              },
+              "example": {
+                "almuerzo": {
+                  "platos": ["uuid-sopa", "uuid-fuerte"]
+                },
+                "extras": [
+                  {
+                    "plato": "texto",
+                    "cantidad": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                },
+                "example": {
+                  "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                  "invitacion": "texto",
+                  "restaurante": {
+                    "id": "uuid",
+                    "nombre": "Doña Rosa",
+                    "slug": "dona-rosa"
+                  },
+                  "anfitrion": {
+                    "nombre": "Ana Pérez"
+                  },
+                  "soyAnfitrion": true,
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
+                  "modo": "CADA_UNO",
+                  "estado": "ABIERTA",
+                  "validadaEn": "2026-11-13T17:00:00.000Z",
+                  "miembros": [
+                    {
+                      "nombre": "Doña Rosa",
+                      "esAnfitrion": true,
+                      "paraLlevar": true,
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "application/problem+json con `code`: `ALMUERZO_INVALIDO`, `SELECCION_INVALIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "ALMUERZO_INVALIDO",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "MESA_NO_ENCONTRADA",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MESA_CERRADA`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "MESA_CERRADA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "PLATO_NO_DISPONIBLE",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Elegir mi almuerzo y mis platos en la mesa (reemplaza mi selección completa)",
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
+      }
+    },
     "/v1/mis/mesas/{id}/cancelar": {
       "post": {
         "operationId": "TablesController_cancel",
@@ -13754,7 +14479,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -14119,7 +14863,26 @@
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
-                      "soyYo": true
+                      "soyYo": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      }
                     }
                   ]
                 }
@@ -19573,9 +20336,37 @@
           },
           "activo": {
             "type": "boolean"
+          },
+          "orden": {
+            "type": "number",
+            "example": 0,
+            "description": "Orden de aparición dentro de su categoría (menor primero)"
+          },
+          "agotado": {
+            "type": "boolean",
+            "description": "Carta fija: agotado hoy (hora local del local); vuelve solo a medianoche. Siempre false en platos de ALMUERZO: esos se agotan en el menú del día."
+          },
+          "agotadoEn": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hora en que se marcó agotado; null si no está agotado hoy"
           }
         },
-        "required": ["id", "categoria", "seccion", "nombre", "descripcion", "precioCentavos", "fotoUrl", "etiquetas", "activo"]
+        "required": [
+          "id",
+          "categoria",
+          "seccion",
+          "nombre",
+          "descripcion",
+          "precioCentavos",
+          "fotoUrl",
+          "etiquetas",
+          "activo",
+          "orden",
+          "agotado",
+          "agotadoEn"
+        ]
       },
       "CrearPlatoDto": {
         "type": "object",
@@ -19613,6 +20404,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "orden": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000,
+            "default": 0,
+            "description": "Orden de aparición dentro de su categoría (menor primero)"
           }
         },
         "required": ["categoria", "nombre"]
@@ -19652,8 +20450,22 @@
           },
           "activo": {
             "type": "boolean"
+          },
+          "orden": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
           }
         }
+      },
+      "AgotadoDto": {
+        "type": "object",
+        "properties": {
+          "agotado": {
+            "type": "boolean"
+          }
+        },
+        "required": ["agotado"]
       },
       "ItemMenuResponse": {
         "type": "object",
@@ -19821,15 +20633,6 @@
             "description": "Si el día destino ya tiene platos, true los reemplaza"
           }
         }
-      },
-      "AgotadoDto": {
-        "type": "object",
-        "properties": {
-          "agotado": {
-            "type": "boolean"
-          }
-        },
-        "required": ["agotado"]
       },
       "ZonaResponse": {
         "type": "object",
@@ -20276,6 +21079,71 @@
           "menuHoy",
           "planes"
         ]
+      },
+      "PlatoCartaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del plato"
+          },
+          "categoria": {
+            "type": "string",
+            "enum": ["A_LA_CARTA", "EXTRA", "BEBIDA"]
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Encebollado"
+          },
+          "descripcion": {
+            "type": "string",
+            "nullable": true
+          },
+          "fotoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "etiquetas": {
+            "example": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "precioCentavos": {
+            "type": "number",
+            "example": 450,
+            "description": "Centavos"
+          },
+          "agotado": {
+            "type": "boolean",
+            "description": "Agotado hoy; vuelve solo a medianoche (hora del local)"
+          },
+          "orden": {
+            "type": "number",
+            "example": 0,
+            "description": "Orden de aparición dentro de su categoría"
+          }
+        },
+        "required": ["id", "categoria", "nombre", "descripcion", "fotoUrl", "etiquetas", "precioCentavos", "agotado", "orden"]
+      },
+      "CartaResponse": {
+        "type": "object",
+        "properties": {
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "items": {
+            "description": "Por categoría, luego `orden`, luego nombre",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatoCartaResponse"
+            }
+          }
+        },
+        "required": ["monedaCodigo", "items"]
       },
       "PlantillaPlanResponse": {
         "type": "object",
@@ -21123,6 +21991,79 @@
         },
         "required": ["id", "revertido"]
       },
+      "PlatoAlmuerzoSeleccion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "seccion": {
+            "type": "string",
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE"]
+          }
+        },
+        "required": ["id", "nombre", "seccion"]
+      },
+      "AlmuerzoSeleccion": {
+        "type": "object",
+        "properties": {
+          "platos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatoAlmuerzoSeleccion"
+            }
+          }
+        },
+        "required": ["platos"]
+      },
+      "ExtraSeleccion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "categoria": {
+            "type": "string",
+            "example": "BEBIDA",
+            "description": "Categoría del plato"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 2
+          }
+        },
+        "required": ["id", "nombre", "categoria", "cantidad"]
+      },
+      "SeleccionMiembroResponse": {
+        "type": "object",
+        "properties": {
+          "almuerzo": {
+            "nullable": true,
+            "description": "null = no eligió almuerzo",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlmuerzoSeleccion"
+              }
+            ]
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraSeleccion"
+            }
+          }
+        },
+        "required": ["extras"]
+      },
       "MiembroMesaResponse": {
         "type": "object",
         "properties": {
@@ -21143,9 +22084,17 @@
           "almuerzosDisponibles": {
             "type": "number",
             "example": 4
+          },
+          "seleccion": {
+            "description": "Lo que eligió este miembro (la caja ve la de todos). Vacía = aún no eligió.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SeleccionMiembroResponse"
+              }
+            ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "tieneCuenta", "almuerzosDisponibles"]
+        "required": ["nombre", "esAnfitrion", "paraLlevar", "tieneCuenta", "almuerzosDisponibles", "seleccion"]
       },
       "MesaVistaResponse": {
         "type": "object",
@@ -22497,9 +23446,69 @@
           "soyYo": {
             "type": "boolean",
             "description": "Es el comensal que consulta"
+          },
+          "seleccion": {
+            "nullable": true,
+            "description": "Lo que eligió este miembro. El anfitrión ve la de todos; un invitado solo la suya (las demás vienen `null`: no se muestran). Vacía = aún no eligió.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SeleccionMiembroResponse"
+              }
+            ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo"]
+        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo", "seleccion"]
+      },
+      "SeleccionAlmuerzoDto": {
+        "type": "object",
+        "properties": {
+          "platos": {
+            "description": "public_id de los platos del almuerzo, del menú publicado de hoy: a lo sumo uno por sección (JUGO, SOPA, FUERTE, POSTRE)",
+            "example": ["uuid-sopa", "uuid-fuerte"],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["platos"]
+      },
+      "SeleccionExtraDto": {
+        "type": "object",
+        "properties": {
+          "plato": {
+            "type": "string",
+            "description": "public_id de un plato con precio: de la carta fija (a la carta, extra, bebida) o del menú de hoy"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": ["plato", "cantidad"]
+      },
+      "SeleccionDto": {
+        "type": "object",
+        "properties": {
+          "almuerzo": {
+            "description": "Omitido = sin almuerzo",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SeleccionAlmuerzoDto"
+              }
+            ]
+          },
+          "extras": {
+            "description": "Platos sueltos con cantidad; un mismo plato no se repite",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeleccionExtraDto"
+            }
+          }
+        }
       },
       "InvitacionResponse": {
         "type": "object",
