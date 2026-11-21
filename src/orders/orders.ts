@@ -179,6 +179,7 @@ interface LineRow {
   cantidad: number;
   precio_unitario_centavos: string;
   categoria: CategoriaPlato;
+  plato_seccion: string | null;
 }
 
 interface PreciosRow {
@@ -204,7 +205,7 @@ export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o
 export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<PedidoResponse[]> {
   if (!rows.length) return [];
   const lines = await q.query<LineRow>(
-    `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria
+    `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion
        FROM orden_detalle d JOIN plato p ON p.plato_id = d.plato_id
       WHERE d.orden_id = ANY($1::bigint[]) ORDER BY d.orden_detalle_id`,
     [rows.map((r) => r.orden_id)],
@@ -254,6 +255,7 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
             platoId: l.plato_public_id,
             nombre: l.nombre_plato,
             categoria: l.categoria,
+            seccion: l.plato_seccion,
             cantidad: l.cantidad,
             precioUnitario: Number(l.precio_unitario_centavos),
           })),
@@ -293,6 +295,7 @@ interface MenuPick {
   public_id: string;
   nombre: string;
   categoria: CategoriaPlato;
+  plato_seccion: string | null;
   seccion: string;
   precio: string | null;
   agotado: boolean;
@@ -386,7 +389,7 @@ export class DinerOrdersService {
     const picks = new Map(
       (
         await q.query<MenuPick>(
-          `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
+          `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
              FROM menu_diario_detalle d JOIN plato p ON p.plato_id = d.plato_id AND p.restaurante_id = d.restaurante_id
             WHERE d.menu_diario_id = $1 AND p.activo AND p.public_id = ANY($2::uuid[])`,
           [menuId, wanted],
@@ -445,6 +448,7 @@ export class DinerOrdersService {
                 platoId: e.p.public_id,
                 nombre: e.p.nombre,
                 categoria: e.p.categoria,
+                seccion: e.p.plato_seccion,
                 cantidad: e.cantidad,
                 precioUnitario: e.precio,
               })),

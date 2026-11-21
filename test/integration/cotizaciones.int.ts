@@ -22,8 +22,14 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
   const cotizar = (who: { token?: string }, body: object) => k.as(who).post('/v1/mis/pedidos/cotizar', body);
 
   /** Plato extra con precio dentro del menú de hoy (publicado). Devuelve su public_id de comensal. */
-  async function platoDelMenu(o: Local, categoria: 'A_LA_CARTA' | 'ALMUERZO', nombre: string, precioCentavos: number) {
-    const crear = await k.as(o).post('/v1/menu/platos', { nombre, categoria, seccion: 'ADICIONAL', precioCentavos });
+  async function platoDelMenu(
+    o: Local,
+    categoria: 'A_LA_CARTA' | 'ALMUERZO',
+    nombre: string,
+    precioCentavos: number,
+    seccion = 'ADICIONAL',
+  ) {
+    const crear = await k.as(o).post('/v1/menu/platos', { nombre, categoria, seccion, precioCentavos });
     expect(crear.statusCode, crear.body).toBe(201);
     const hoy = (await k.as(o).get('/v1/menu/hoy')).json();
     const items = hoy.items.map((i: { platoId: string; seccion: string }) => ({ platoId: i.platoId, seccion: i.seccion }));
@@ -308,14 +314,29 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       expect(c.cotizacion.saldoPorCobrarCentavos).toBe(c.totalCentavos);
     });
 
-    it('DIVERGENCIA (para reportar): un plato de categoría ALMUERZO con precio pedido como extra también paga recargo en la cotización', async () => {
+    it('un plato ALMUERZO pedido suelto se mapea por sección: el fuerte paga recargo (diverge hasta el PR 7); jugo y postre no', async () => {
       const o = await k.activeOwner();
       await k.menu(o);
-      const plato = await platoDelMenu(o, 'ALMUERZO', 'Seco aparte', 500);
-      const r = (await pedir(await k.diner(), { restaurante: o.restaurante, paraLlevar: true, extras: [{ plato, cantidad: 1 }] })).json();
-      expect(r).toMatchObject({ totalCentavos: 500, recargoLlevarCentavos: 0 });
-      expect(r.cotizacion).toMatchObject({ recargoCentavos: R, saldoPorCobrarCentavos: 500 + R });
-      expect(r.cotizacion.lineas[0].tipo).toBe('A_LA_CARTA'); // B.3 paso 1
+      const fuerte = await platoDelMenu(o, 'ALMUERZO', 'Seco aparte', 500, 'FUERTE');
+      const jugo = await platoDelMenu(o, 'ALMUERZO', 'Jugo aparte', 200, 'JUGO');
+      const postre = await platoDelMenu(o, 'ALMUERZO', 'Postre aparte', 250, 'POSTRE');
+      const pedido = async (plato: string) =>
+        (await pedir(await k.diner(), { restaurante: o.restaurante, paraLlevar: true, extras: [{ plato, cantidad: 1 }] })).json();
+
+      const f = await pedido(fuerte);
+      expect(f).toMatchObject({ totalCentavos: 500, recargoLlevarCentavos: 0 });
+      expect(f.cotizacion).toMatchObject({ recargoCentavos: R, saldoPorCobrarCentavos: 500 + R });
+      expect(f.cotizacion.lineas[0].tipo).toBe('A_LA_CARTA');
+
+      for (const [plato, tipo, total] of [
+        [jugo, 'BEBIDA', 200],
+        [postre, 'EXTRA', 250],
+      ] as const) {
+        const r = await pedido(plato);
+        expect(r.cotizacion.lineas[0].tipo).toBe(tipo);
+        expect(r.cotizacion).toMatchObject({ recargoCentavos: 0, saldoPorCobrarCentavos: total });
+        expect(r.totalCentavos).toBe(total); // sin divergencia
+      }
     });
   });
 

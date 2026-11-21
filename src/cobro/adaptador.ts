@@ -41,14 +41,23 @@ export function planDesdeFilas(f: PlanFilas | null | undefined): PlanPersona {
   return { estado: f.hayPlan ? 'SIN_SALDO' : 'SIN_PLAN', disponibles: 0 };
 }
 
-/** B.3 paso 1: un plato de categoría ALMUERZO pedido suelto se trata como A_LA_CARTA. */
-export const tipoDePlato = (c: CategoriaPlato): TipoItem => (c === 'ALMUERZO' ? 'A_LA_CARTA' : c);
+/**
+ * B.3 paso 1: tipo de un plato pedido suelto. Un plato de categoría ALMUERZO se mapea por su sección (así lo que hoy no
+ * paga recargo sigue sin pagarlo, I-1): JUGO → BEBIDA, POSTRE → EXTRA, SOPA y FUERTE → A_LA_CARTA. Sin sección
+ * (o ADICIONAL) no se sabe qué es y se trata como A_LA_CARTA.
+ */
+export const tipoDePlato = (c: CategoriaPlato, seccion?: string | null): TipoItem => {
+  if (c !== 'ALMUERZO') return c;
+  return seccion === 'JUGO' ? 'BEBIDA' : seccion === 'POSTRE' ? 'EXTRA' : 'A_LA_CARTA';
+};
 
 export interface PlatoSuelto {
   /** public_id del plato. */
   platoId: string;
   nombre: string;
   categoria: CategoriaPlato;
+  /** Sección habitual del plato (plato.seccion); solo importa si la categoría es ALMUERZO. */
+  seccion?: string | null;
   cantidad: number;
   /** Precio unitario ya resuelto (precio del menú de hoy o, si no, el del plato). */
   precioUnitario: number;
@@ -67,7 +76,7 @@ export interface Precios {
 const lineaPlato = (personaRef: string, ref: string, e: PlatoSuelto, flujoMesa: boolean): ItemCobro => ({
   ref,
   personaRef,
-  tipo: tipoDePlato(e.categoria),
+  tipo: tipoDePlato(e.categoria, e.seccion),
   cantidad: e.cantidad,
   precioUnitario: e.precioUnitario,
   paraLlevar: null,

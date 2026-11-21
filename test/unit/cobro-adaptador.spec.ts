@@ -42,11 +42,35 @@ describe('planDesdeFilas (misma condición que fn_descontar_almuerzo)', () => {
 });
 
 describe('tipoDePlato', () => {
-  it('un plato ALMUERZO pedido suelto se trata como A_LA_CARTA (B.3 paso 1)', () => {
-    expect(tipoDePlato('ALMUERZO')).toBe('A_LA_CARTA');
+  it('un plato ALMUERZO pedido suelto se mapea por sección (B.3 paso 1)', () => {
+    expect(tipoDePlato('ALMUERZO', 'JUGO')).toBe('BEBIDA');
+    expect(tipoDePlato('ALMUERZO', 'POSTRE')).toBe('EXTRA');
+    expect(tipoDePlato('ALMUERZO', 'SOPA')).toBe('A_LA_CARTA');
+    expect(tipoDePlato('ALMUERZO', 'FUERTE')).toBe('A_LA_CARTA');
+    expect(tipoDePlato('ALMUERZO', 'ADICIONAL')).toBe('A_LA_CARTA');
+    expect(tipoDePlato('ALMUERZO', null)).toBe('A_LA_CARTA');
     expect(tipoDePlato('EXTRA')).toBe('EXTRA');
     expect(tipoDePlato('BEBIDA')).toBe('BEBIDA');
-    expect(tipoDePlato('A_LA_CARTA')).toBe('A_LA_CARTA');
+    expect(tipoDePlato('A_LA_CARTA', 'JUGO')).toBe('A_LA_CARTA');
+  });
+
+  it.each([
+    ['jugo para llevar: sin recargo', 'JUGO', 0],
+    ['postre para llevar: sin recargo', 'POSTRE', 0],
+    ['fuerte suelto para llevar: con recargo', 'FUERTE', R],
+    ['sopa suelta para llevar: con recargo', 'SOPA', R],
+  ])('%s', (_n, seccion, recargo) => {
+    const c = cotizar(
+      entradaPedido({
+        ...precios,
+        precioAlmuerzo: P,
+        paraLlevar: true,
+        conAlmuerzo: false,
+        extras: [{ ...plato('Suelto', 'ALMUERZO', 300), seccion }],
+        plan: SIN_PLAN,
+      }),
+    );
+    expect(c.recargoCentavos).toBe(recargo);
   });
 });
 

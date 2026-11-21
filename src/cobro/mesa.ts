@@ -36,12 +36,13 @@ async function cargarSelecciones(q: Queryable, mesaId: string): Promise<Map<stri
     public_id: string;
     nombre: string;
     categoria: CategoriaPlato;
+    plato_seccion: string | null;
     seccion: string | null;
     cantidad: number;
     precio: string | null;
     agotado: boolean;
   }>(
-    `SELECT i.miembro_id, p.public_id, p.nombre, p.categoria, i.seccion, i.cantidad,
+    `SELECT i.miembro_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, i.seccion, i.cantidad,
             COALESCE(d.precio_centavos, p.precio_centavos) AS precio,
             (COALESCE(d.agotado, false) OR ${platoAgotadoSql('p', 'r')}) AS agotado
        FROM mesa_compartida_miembro_item i
@@ -64,6 +65,7 @@ async function cargarSelecciones(q: Queryable, mesaId: string): Promise<Map<stri
         platoId: x.public_id,
         nombre: x.nombre,
         categoria: x.categoria,
+        seccion: x.plato_seccion,
         cantidad: x.cantidad,
         precioUnitario: Number(x.precio),
         disponible: !x.agotado,
