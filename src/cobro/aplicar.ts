@@ -7,14 +7,23 @@
 // monto: un reverso es una línea (o un pago) nueva con cantidad negativa enlazada a la original.
 
 import { cotizar } from '../billing/cotizar';
-import type { Cotizacion, EntradaCobro, EstadoPlan, LineaCotizada, MomentoCobro, UnidadPlan } from '../billing/tipos';
+import {
+  CotizarError,
+  type Cotizacion,
+  type EntradaCobro,
+  type EstadoPlan,
+  type LineaCotizada,
+  type MomentoCobro,
+  type UnidadPlan,
+} from '../billing/tipos';
 import { deriveKey } from '../common/derive-key';
 import { conflict, forbidden, notFound, unprocessable } from '../common/errors';
 import { HOY_TENANT, PERSONAL_ACTUAL } from '../common/sql';
 import type { Queryable } from '../db/db.service';
 import { RequestContextStore } from '../tenancy/request-context';
-import { aRespuesta } from './adaptador';
+import { type LineaViva, aRespuesta, diferenciaLineas, entradaDeCuenta, refItem } from './adaptador';
 import type { CuentaResponse, MetodoPago } from './cuenta.dto';
+import { type PlatoPedido, resolverPlatosSueltos } from './platos';
 
 /** De dónde sale la cuenta (exactamente uno, `ck_cuenta_origen_unico`). Ids internos. */
 export type OrigenCuenta =
@@ -124,6 +133,52 @@ async function idsInternos(q: Queryable, tabla: 'plato' | 'oferta_flash', public
 }
 
 /**
+ * Inserta líneas de la cotización en una cuenta (solo-inserción). `consumos` son los de las líneas PLAN, en su orden;
+ * `clave` da la clave de idempotencia de cada línea (F.3).
+ */
+async function insertarLineas(
+  q: Queryable,
+  cuentaId: string,
+  lineas: LineaCotizada[],
+  clave: (l: LineaCotizada) => string,
+  consumos: string[] = [],
+): Promise<void> {
+  const platos = await idsInternos(q, 'plato', [...new Set(lineas.flatMap((l) => (l.platoId ? [l.platoId] : [])))]);
+  const ofertas = await idsInternos(q, 'oferta_flash', [...new Set(lineas.flatMap((l) => (l.ofertaId ? [l.ofertaId] : [])))]);
+  let k = 0;
+  for (const l of lineas) {
+    const consumoId = l.fuente === 'PLAN' ? consumos[k++]! : null;
+    await q.query(
+      `INSERT INTO cuenta_cobro_linea (cuenta_id, restaurante_id, ref, persona_ref, tipo, fuente, pagador, omitida, plato_id, oferta_flash_id,
+                                       consumo_id, nombre, cantidad, precio_unitario_centavos, recargo_unitario_centavos, subtotal_centavos,
+                                       recargo_centavos, cubierto_centavos, clave_idempotencia)
+       VALUES ($1, app_tenant_id(), $2, $3, $4::tipo_linea_cobro_enum, $5::fuente_cobro_enum, $6::pagador_linea_enum, $7::motivo_omision_enum,
+               $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+      [
+        cuentaId,
+        l.ref,
+        l.personaRef,
+        l.tipo,
+        l.fuente,
+        l.pagador,
+        l.omitida,
+        l.platoId ? (platos.get(l.platoId) ?? null) : null,
+        l.ofertaId ? (ofertas.get(l.ofertaId) ?? null) : null,
+        consumoId,
+        l.nombre ?? NOMBRE_TIPO[l.tipo],
+        l.cantidad,
+        l.precioUnitarioCentavos,
+        l.recargoUnitarioCentavos,
+        l.subtotalCentavos,
+        l.recargoCentavos,
+        l.cubiertoPorPlanCentavos,
+        clave(l),
+      ],
+    );
+  }
+}
+
+/**
  * Inserta la cuenta y sus líneas (solo-inserción). Sin saldo nace COBRADA (no hay nada que cobrar); si no, ABIERTA.
  * No paga: el pago es `registrarPago`. Devuelve el id interno de la cuenta.
  */
@@ -132,8 +187,6 @@ export async function persistirCuenta(q: Queryable, c: CuentaNueva): Promise<str
   const planes = lineas.filter((l) => l.fuente === 'PLAN').length;
   if (planes !== c.consumos.length) throw new Error(`aplicar: ${planes} líneas PLAN y ${c.consumos.length} consumos`);
   const porCobrar = lineas.reduce((s, l) => s + l.porCobrarCentavos, 0);
-  const platos = await idsInternos(q, 'plato', [...new Set(lineas.flatMap((l) => (l.platoId ? [l.platoId] : [])))]);
-  const ofertas = await idsInternos(q, 'oferta_flash', [...new Set(lineas.flatMap((l) => (l.ofertaId ? [l.ofertaId] : [])))]);
   const o = c.origen;
   const cuentaId = (
     await q.query<{ cuenta_id: string }>(
@@ -162,44 +215,35 @@ export async function persistirCuenta(q: Queryable, c: CuentaNueva): Promise<str
       ],
     )
   ).rows[0]!.cuenta_id;
-  let k = 0;
-  for (const l of lineas) {
-    const consumoId = l.fuente === 'PLAN' ? c.consumos[k++]! : null;
-    await q.query(
-      `INSERT INTO cuenta_cobro_linea (cuenta_id, restaurante_id, ref, persona_ref, tipo, fuente, pagador, omitida, plato_id, oferta_flash_id,
-                                       consumo_id, nombre, cantidad, precio_unitario_centavos, recargo_unitario_centavos, subtotal_centavos,
-                                       recargo_centavos, cubierto_centavos, clave_idempotencia)
-       VALUES ($1, app_tenant_id(), $2, $3, $4::tipo_linea_cobro_enum, $5::fuente_cobro_enum, $6::pagador_linea_enum, $7::motivo_omision_enum,
-               $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
-      [
-        cuentaId,
-        l.ref,
-        l.personaRef,
-        l.tipo,
-        l.fuente,
-        l.pagador,
-        l.omitida,
-        l.platoId ? (platos.get(l.platoId) ?? null) : null,
-        l.ofertaId ? (ofertas.get(l.ofertaId) ?? null) : null,
-        consumoId,
-        l.nombre ?? NOMBRE_TIPO[l.tipo],
-        l.cantidad,
-        l.precioUnitarioCentavos,
-        l.recargoUnitarioCentavos,
-        l.subtotalCentavos,
-        l.recargoCentavos,
-        l.cubiertoPorPlanCentavos,
-        claveLinea(c.key, c.pagadorRef, l.ref),
-      ],
-    );
-  }
+  await insertarLineas(q, String(cuentaId), lineas, (l) => claveLinea(c.key, c.pagadorRef, l.ref), c.consumos);
   return String(cuentaId);
+}
+
+/** Forma estable del `cobro` para la huella: los opcionales ausentes cuentan como sus valores por defecto. */
+export function normalizarCobro(c: PagoCuentaOpcional | null) {
+  if (!c) return null;
+  return {
+    metodoPago: c.metodoPago ?? null,
+    saldoEsperadoCentavos: c.saldoEsperadoCentavos ?? null,
+    montoCentavos: c.montoCentavos ?? null,
+    pagoConfirmado: c.pagoConfirmado ?? false,
+    comprobanteUrl: c.comprobanteUrl ?? null,
+    referenciaExterna: c.referenciaExterna ?? null,
+  };
 }
 
 /** La cuenta (no anulada) creada con esta Idempotency-Key para ese pagador, con su origen y su huella. */
 export async function cuentaPorClave(q: Queryable, key: string, pagadorRef: string) {
-  const r = await q.query<{ cuenta_id: string; orden_id: string | null; huella: string }>(
-    `SELECT cuenta_id, orden_id, huella FROM cuenta_cobro WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1`,
+  const r = await q.query<{
+    cuenta_id: string;
+    orden_id: string | null;
+    consumo_id: string | null;
+    intento_id: string | null;
+    mesa_compartida_id: string | null;
+    huella: string;
+  }>(
+    `SELECT cuenta_id, orden_id, consumo_id, intento_id, mesa_compartida_id, huella FROM cuenta_cobro
+      WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1`,
     [claveCuenta(key, pagadorRef)],
   );
   return r.rows[0] ?? null;
@@ -215,6 +259,9 @@ export async function cuentaDeOrden(q: Queryable, ordenId: string): Promise<stri
 }
 
 // --- Pagos ------------------------------------------------------------------------------------------------------
+
+/** `CobroDto` (E.1): como un pago, con todo opcional. */
+export type PagoCuentaOpcional = Partial<PagoCuenta>;
 
 export interface PagoCuenta {
   metodoPago: MetodoPago;
@@ -448,132 +495,375 @@ export async function revertirConsumoEnCuenta(q: Queryable, consumoId: string): 
     );
 }
 
-// --- Lectura ----------------------------------------------------------------------------------------------------
+// --- Agregar y quitar líneas (E.11) -----------------------------------------------------------------------------
 
-/** La cuenta como la ve la API (E.1). `cotizacion` se arma con las líneas guardadas (reversos incluidos). */
-export async function renderCuenta(q: Queryable, cuentaId: string): Promise<CuentaResponse> {
+/** Lo que pide la caja sobre una cuenta ABIERTA: agregar platos o quitar una línea (por su `ref`). */
+export type Modificacion = { tipo: 'AGREGAR'; items: PlatoPedido[] } | { tipo: 'QUITAR'; ref: string };
+
+// Claves de las filas que escribe una modificación (F.3). Llevan el public_id de la cuenta: la misma llave en otra
+// cuenta, o la de la petición que creó la cuenta, nunca choca con estas.
+const claveLineaAgregada = (key: string, cuenta: string, ref: string) => deriveKey(key, `linea:${cuenta}:${ref}`);
+const claveReversoAgregar = (key: string, cuenta: string, lineaId: string) => deriveKey(key, `reverso:${cuenta}:${lineaId}`);
+const claveLineaQuitar = (key: string, cuenta: string, ref: string) => deriveKey(key, `quitar-linea:${cuenta}:${ref}`);
+const claveReversoQuitar = (key: string, cuenta: string, lineaId: string) => deriveKey(key, `quitar:${cuenta}:${lineaId}`);
+
+interface FilaLineaGuardada {
+  linea_id: string;
+  ref: string;
+  persona_ref: string;
+  tipo: LineaCotizada['tipo'];
+  fuente: LineaCotizada['fuente'];
+  pagador: LineaCotizada['pagador'];
+  omitida: LineaCotizada['omitida'];
+  plato: string | null;
+  oferta: string | null;
+  nombre: string;
+  cantidad: number;
+  precio_unitario_centavos: string;
+  recargo_unitario_centavos: string;
+  subtotal_centavos: string;
+  recargo_centavos: string;
+  cubierto_centavos: string;
+  clave_idempotencia: string;
+  revierte_a_linea_id: string | null;
+  revertida: boolean;
+}
+
+async function lineasGuardadas(q: Queryable, cuentaId: string): Promise<FilaLineaGuardada[]> {
+  return (
+    await q.query<FilaLineaGuardada>(
+      `SELECT l.linea_id, l.ref, l.persona_ref, l.tipo, l.fuente, l.pagador, l.omitida, p.public_id AS plato, o.public_id AS oferta, l.nombre,
+              l.cantidad, l.precio_unitario_centavos, l.recargo_unitario_centavos, l.subtotal_centavos, l.recargo_centavos, l.cubierto_centavos,
+              l.clave_idempotencia, l.revierte_a_linea_id,
+              EXISTS (SELECT 1 FROM cuenta_cobro_linea x WHERE x.revierte_a_linea_id = l.linea_id) AS revertida
+         FROM cuenta_cobro_linea l
+         LEFT JOIN plato p ON p.plato_id = l.plato_id
+         LEFT JOIN oferta_flash o ON o.oferta_flash_id = l.oferta_flash_id
+        WHERE l.restaurante_id = app_tenant_id() AND l.cuenta_id = $1 ORDER BY l.linea_id`,
+      [cuentaId],
+    )
+  ).rows;
+}
+
+const aViva = (l: FilaLineaGuardada): LineaViva => ({
+  lineaId: String(l.linea_id),
+  ref: l.ref,
+  personaRef: l.persona_ref,
+  tipo: l.tipo,
+  fuente: l.fuente,
+  pagador: l.pagador,
+  omitida: l.omitida,
+  platoId: l.plato === null ? null : String(l.plato),
+  ofertaId: l.oferta === null ? null : String(l.oferta),
+  nombre: l.nombre,
+  cantidad: l.cantidad,
+  precioUnitario: Number(l.precio_unitario_centavos),
+  recargoUnitario: Number(l.recargo_unitario_centavos),
+  subtotal: Number(l.subtotal_centavos),
+  recargo: Number(l.recargo_centavos),
+  cubierto: Number(l.cubierto_centavos),
+});
+
+/**
+ * ¿Ya se usó esta Idempotency-Key en esta cuenta? Las filas que escribe una modificación tienen claves derivadas de la
+ * llave (F.3), así que se reconocen sin guardar nada más: las líneas agregadas (con su ref) y los reversos (con la
+ * línea que revierten). Devuelve `null` si la llave es nueva, `true` si es un reintento de esta misma modificación y
+ * `false` si se usó para otra cosa (otros platos, otras cantidades, otra línea o la otra operación).
+ */
+function usoDeLlave(filas: FilaLineaGuardada[], cuenta: string, key: string, m: Modificacion): boolean | null {
+  const porId = new Map(filas.map((f) => [String(f.linea_id), f]));
+  const reversosAgregar = new Map<string, string>(); // clave → linea_id que revertiría
+  const reversosQuitar = new Map<string, string>();
+  for (const f of filas) {
+    reversosAgregar.set(claveReversoAgregar(key, cuenta, String(f.linea_id)), String(f.linea_id));
+    reversosQuitar.set(claveReversoQuitar(key, cuenta, String(f.linea_id)), String(f.linea_id));
+  }
+  const nuevasAgregar = filas.filter((f) => f.clave_idempotencia === claveLineaAgregada(key, cuenta, f.ref));
+  const nuevasQuitar = filas.filter((f) => f.clave_idempotencia === claveLineaQuitar(key, cuenta, f.ref));
+  const revAgregar = filas.filter((f) => reversosAgregar.get(f.clave_idempotencia) === String(f.revierte_a_linea_id));
+  const revQuitar = filas.filter((f) => reversosQuitar.get(f.clave_idempotencia) === String(f.revierte_a_linea_id));
+  if (!nuevasAgregar.length && !nuevasQuitar.length && !revAgregar.length && !revQuitar.length) return null;
+
+  if (m.tipo === 'QUITAR') {
+    if (nuevasAgregar.length || revAgregar.length) return false;
+    return revQuitar.length > 0 && revQuitar.every((f) => porId.get(String(f.revierte_a_linea_id))?.ref === m.ref);
+  }
+  if (nuevasQuitar.length || revQuitar.length) return false;
+  // Cada plato pedido entró con su cantidad: la línea nueva menos la que reemplazó (si ya estaba en la cuenta).
+  const previa = new Map(revAgregar.map((f) => [f.ref, -f.cantidad]));
+  const pedidas = new Map(m.items.map((i) => [refItem(i.plato), i.cantidad]));
+  const agregadasItem = nuevasAgregar.filter((f) => f.ref.startsWith('item:'));
+  if (agregadasItem.length !== pedidas.size) return false;
+  return agregadasItem.every((f) => pedidas.get(f.ref) === f.cantidad - (previa.get(f.ref) ?? 0));
+}
+
+/**
+ * Agrega platos o quita una línea de una cuenta ABIERTA (E.11) recotizando TODO con la misma regla (B.3) y los precios
+ * congelados de la cuenta: lo que cambia se revierte con una línea inversa y entra de nuevo (F.4, nunca UPDATE de un
+ * monto). Bloquea la cuenta (FOR UPDATE), así que se serializa con cobrar, anular y deshacer. Reintentar con la misma
+ * llave no cambia nada; la misma llave para otra modificación → 409 `IDEMPOTENCY_KEY_REUTILIZADA`.
+ * - COBRADA o ANULADA → 409 `CUENTA_CERRADA`. En `ANTES_DE_SERVIR`, una cuenta con pagos tampoco admite platos (B.5).
+ * - Quitar: `ref` inexistente → 404 `LINEA_NO_ENCONTRADA`; una unidad del plan → 409 `LINEA_DE_PLAN` (se quita
+ *   deshaciendo el consumo); si lo ya pagado superaría lo que queda por cobrar → 409 `SALDO_NEGATIVO`.
+ */
+export async function modificarCuenta(q: Queryable, cuentaId: string, key: string, m: Modificacion): Promise<void> {
   const c = (
     await q.query<{
       public_id: string;
+      estado: 'ABIERTA' | 'COBRADA' | 'ANULADA';
+      momento_cobro: MomentoCobro;
+      para_llevar: boolean;
       orden_id: string | null;
       mesa_compartida_id: string | null;
-      miembro_id: string | null;
-      es_anfitrion: boolean | null;
-      nombre_pagador: string;
-      momento_cobro: string;
-      moneda_codigo: string;
-      estado: string;
-      creada_en: Date;
-      cobrada_en: Date | null;
-      anulada_en: Date | null;
-      pagado_centavos: string;
-      saldo_centavos: string;
+      precio: string;
+      recargo: string;
     }>(
-      `SELECT c.public_id, c.orden_id, c.mesa_compartida_id, c.miembro_id, m.es_anfitrion, c.nombre_pagador, c.momento_cobro, c.moneda_codigo,
-              c.estado, c.creada_en, c.cobrada_en, c.anulada_en, s.pagado_centavos, s.saldo_centavos
-         FROM cuenta_cobro c
-         JOIN v_cuenta_saldo s ON s.cuenta_id = c.cuenta_id
-         LEFT JOIN mesa_compartida_miembro m ON m.miembro_id = c.miembro_id
-        WHERE c.restaurante_id = app_tenant_id() AND c.cuenta_id = $1`,
+      `SELECT c.public_id, c.estado, c.momento_cobro, c.para_llevar, c.orden_id, c.mesa_compartida_id,
+              r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo
+         FROM cuenta_cobro c JOIN restaurante r ON r.restaurante_id = c.restaurante_id
+        WHERE c.restaurante_id = app_tenant_id() AND c.cuenta_id = $1 FOR UPDATE OF c`,
       [cuentaId],
     )
   ).rows[0];
   if (!c) throw notFound('CUENTA_NO_ENCONTRADA', 'Cuenta no encontrada.');
-  const pagadorRef = c.miembro_id === null ? '0' : String(c.miembro_id);
-  const filas = await q.query<{
-    ref: string;
-    persona_ref: string;
-    tipo: LineaCotizada['tipo'];
-    fuente: LineaCotizada['fuente'];
-    pagador: LineaCotizada['pagador'];
-    omitida: LineaCotizada['omitida'];
-    plato: string | null;
-    oferta: string | null;
-    nombre: string;
-    cantidad: number;
-    precio_unitario_centavos: string;
-    recargo_unitario_centavos: string;
-    subtotal_centavos: string;
-    recargo_centavos: string;
-    cubierto_centavos: string;
-    para_llevar: boolean;
+  const filas = await lineasGuardadas(q, cuentaId);
+  const uso = usoDeLlave(filas, c.public_id, key, m);
+  if (uso === true) return;
+  if (uso === false) throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para otro cambio de esta cuenta.');
+  if (c.estado !== 'ABIERTA') throw conflict('CUENTA_CERRADA', `La cuenta está ${c.estado.toLowerCase()}.`);
+  // Las cuentas de mesa llegan con el PR 6; hoy ningún flujo las crea.
+  if (c.mesa_compartida_id !== null) throw new Error('modificarCuenta: cuentas de mesa no soportadas todavía (PR 6)');
+  const pagado = Number(
+    (await q.query<{ pagado_centavos: string }>('SELECT pagado_centavos FROM v_cuenta_saldo WHERE cuenta_id = $1', [cuentaId])).rows[0]!
+      .pagado_centavos,
+  );
+  if (m.tipo === 'AGREGAR' && c.momento_cobro === 'ANTES_DE_SERVIR' && pagado !== 0)
+    throw conflict(
+      'CUENTA_CERRADA',
+      'La cuenta ya tiene pagos y el local cobra antes de servir: lo que se pida después va por una venta nueva.',
+    );
+
+  const vivas = filas.filter((f) => f.cantidad > 0 && !f.revertida).map(aViva);
+  let base = vivas;
+  if (m.tipo === 'QUITAR') {
+    const v = vivas.find((l) => l.ref === m.ref);
+    if (!v) throw notFound('LINEA_NO_ENCONTRADA', 'Esa línea no está en la cuenta (o ya se quitó).');
+    if (v.fuente === 'PLAN')
+      throw conflict('LINEA_DE_PLAN', 'Es un almuerzo del plan: se quita deshaciendo el consumo (POST /v1/caja/consumos/{id}/deshacer).');
+    base = vivas.filter((l) => l !== v);
+  }
+  const agregar = m.tipo === 'AGREGAR' ? await resolverPlatosSueltos(q, m.items) : [];
+  let cot: Cotizacion;
+  try {
+    cot = cotizar(
+      entradaDeCuenta({
+        flujo: c.orden_id !== null ? 'PREORDEN' : 'QR',
+        momentoCobro: c.momento_cobro,
+        paraLlevar: c.para_llevar,
+        precioAlmuerzoActual: Number(c.precio),
+        recargoLlevarActual: Number(c.recargo),
+        vivas: base,
+        agregar,
+      }),
+      { estimada: false },
+    );
+  } catch (e) {
+    if (e instanceof CotizarError && e.code === 'CANTIDAD_INVALIDA')
+      throw unprocessable('CANTIDAD_INVALIDA', 'Un plato de la cuenta pasaría de 100 unidades.');
+    throw e;
+  }
+  const { revertir, insertar } = diferenciaLineas(vivas, cot);
+  if (m.tipo === 'QUITAR' && cot.saldoPorCobrarCentavos < pagado)
+    throw conflict(
+      'SALDO_NEGATIVO',
+      `Ya se pagaron ${pagado} centavos y quedarían ${cot.saldoPorCobrarCentavos} por cobrar: anula la cuenta para devolver el dinero.`,
+    );
+  const cuenta = c.public_id;
+  for (const v of revertir)
+    await revertirLinea(
+      q,
+      v.lineaId,
+      m.tipo === 'AGREGAR' ? claveReversoAgregar(key, cuenta, v.lineaId) : claveReversoQuitar(key, cuenta, v.lineaId),
+    );
+  await insertarLineas(q, cuentaId, insertar, (l) =>
+    m.tipo === 'AGREGAR' ? claveLineaAgregada(key, cuenta, l.ref) : claveLineaQuitar(key, cuenta, l.ref),
+  );
+  // Sin ninguna línea viva y sin pagos, la cuenta no tiene nada: se anula (como deshacer). Si no, el estado sigue al saldo.
+  if (cot.lineas.length === 0 && pagado === 0)
+    await q.query(
+      `UPDATE cuenta_cobro SET estado = 'ANULADA', anulada_en = CURRENT_TIMESTAMP, anulada_por_personal_id = ${PERSONAL_ACTUAL},
+              motivo_anulacion = 'Se quitaron todas las líneas'
+        WHERE restaurante_id = app_tenant_id() AND cuenta_id = $1`,
+      [cuentaId],
+    );
+  else await actualizarEstado(q, cuentaId);
+}
+
+// --- Lectura ----------------------------------------------------------------------------------------------------
+
+/** La cuenta como la ve la API (E.1). `cotizacion` se arma con las líneas guardadas (reversos incluidos). */
+export async function renderCuenta(q: Queryable, cuentaId: string): Promise<CuentaResponse> {
+  const [c] = await renderCuentas(q, [cuentaId]);
+  if (!c) throw notFound('CUENTA_NO_ENCONTRADA', 'Cuenta no encontrada.');
+  return c;
+}
+
+type FilaLinea = {
+  cuenta_id: string;
+  ref: string;
+  persona_ref: string;
+  tipo: LineaCotizada['tipo'];
+  fuente: LineaCotizada['fuente'];
+  pagador: LineaCotizada['pagador'];
+  omitida: LineaCotizada['omitida'];
+  plato: string | null;
+  oferta: string | null;
+  nombre: string;
+  cantidad: number;
+  precio_unitario_centavos: string;
+  recargo_unitario_centavos: string;
+  subtotal_centavos: string;
+  recargo_centavos: string;
+  cubierto_centavos: string;
+  para_llevar: boolean;
+};
+
+/**
+ * Varias cuentas en tres consultas (cabeceras, líneas y pagos), en el orden de `cuentaIds`: sin N+1 en la lista del
+ * día. Las que RLS no deja ver no aparecen.
+ */
+export async function renderCuentas(q: Queryable, cuentaIds: string[]): Promise<CuentaResponse[]> {
+  if (!cuentaIds.length) return [];
+  const cab = await q.query<{
+    cuenta_id: string;
+    public_id: string;
+    orden_id: string | null;
+    mesa_compartida_id: string | null;
+    miembro_id: string | null;
+    es_anfitrion: boolean | null;
+    nombre_pagador: string;
+    momento_cobro: string;
+    moneda_codigo: string;
+    estado: string;
+    creada_en: Date;
+    cobrada_en: Date | null;
+    anulada_en: Date | null;
+    pagado_centavos: string;
+    saldo_centavos: string;
   }>(
-    `SELECT l.ref, l.persona_ref, l.tipo, l.fuente, l.pagador, l.omitida, p.public_id AS plato, o.public_id AS oferta, l.nombre, l.cantidad,
-            l.precio_unitario_centavos, l.recargo_unitario_centavos, l.subtotal_centavos, l.recargo_centavos, l.cubierto_centavos,
+    `SELECT c.cuenta_id, c.public_id, c.orden_id, c.mesa_compartida_id, c.miembro_id, m.es_anfitrion, c.nombre_pagador, c.momento_cobro,
+            c.moneda_codigo, c.estado, c.creada_en, c.cobrada_en, c.anulada_en, s.pagado_centavos, s.saldo_centavos
+       FROM cuenta_cobro c
+       JOIN v_cuenta_saldo s ON s.cuenta_id = c.cuenta_id
+       LEFT JOIN mesa_compartida_miembro m ON m.miembro_id = c.miembro_id
+      WHERE c.restaurante_id = app_tenant_id() AND c.cuenta_id = ANY($1::bigint[])`,
+    [cuentaIds],
+  );
+  const filas = await q.query<FilaLinea>(
+    `SELECT l.cuenta_id, l.ref, l.persona_ref, l.tipo, l.fuente, l.pagador, l.omitida, p.public_id AS plato, o.public_id AS oferta, l.nombre,
+            l.cantidad, l.precio_unitario_centavos, l.recargo_unitario_centavos, l.subtotal_centavos, l.recargo_centavos, l.cubierto_centavos,
             (l.recargo_unitario_centavos > 0 OR c.para_llevar) AS para_llevar
        FROM cuenta_cobro_linea l
        JOIN cuenta_cobro c ON c.cuenta_id = l.cuenta_id
        LEFT JOIN plato p ON p.plato_id = l.plato_id
        LEFT JOIN oferta_flash o ON o.oferta_flash_id = l.oferta_flash_id
-      WHERE l.cuenta_id = $1 ORDER BY l.linea_id`,
-    [cuentaId],
+      WHERE l.restaurante_id = app_tenant_id() AND l.cuenta_id = ANY($1::bigint[]) ORDER BY l.cuenta_id, l.linea_id`,
+    [cuentaIds],
   );
-  const lineas: LineaCotizada[] = filas.rows.map((l) => {
-    const subtotal = Number(l.subtotal_centavos);
-    const recargo = Number(l.recargo_centavos);
-    const cubierto = Number(l.cubierto_centavos);
-    return {
-      ref: l.ref,
-      personaRef: l.persona_ref,
-      pagadorRef,
-      tipo: l.tipo,
-      nombre: l.nombre,
-      platoId: l.plato,
-      ofertaId: l.oferta,
-      cantidad: l.cantidad,
-      paraLlevar: l.para_llevar,
-      precioUnitarioCentavos: Number(l.precio_unitario_centavos),
+  const pagos = await q.query<{
+    cuenta_cobro_id: string;
+    public_id: string;
+    codigo: string;
+    monto_centavos: string;
+    estado: string;
+    creado_en: Date;
+  }>(
+    `SELECT t.cuenta_cobro_id, t.public_id, m.codigo, t.monto_centavos, t.estado, t.creado_en
+       FROM transaccion_pago t JOIN metodo_pago m ON m.metodo_pago_id = t.metodo_pago_id
+      WHERE t.restaurante_id = app_tenant_id() AND t.cuenta_cobro_id = ANY($1::bigint[]) ORDER BY t.cuenta_cobro_id, t.pago_id`,
+    [cuentaIds],
+  );
+  const agrupar = <T extends Record<K, string>, K extends string>(rows: T[], campo: K) => {
+    const m = new Map<string, T[]>();
+    for (const r of rows) {
+      const k = String(r[campo]);
+      const l = m.get(k);
+      if (l) l.push(r);
+      else m.set(k, [r]);
+    }
+    return m;
+  };
+  const lineasPor = agrupar(filas.rows, 'cuenta_id');
+  const pagosPor = agrupar(pagos.rows, 'cuenta_cobro_id');
+  const porId = new Map(cab.rows.map((c) => [String(c.cuenta_id), c]));
+  return cuentaIds.flatMap((id) => {
+    const c = porId.get(String(id));
+    if (!c) return [];
+    const pagadorRef = c.miembro_id === null ? '0' : String(c.miembro_id);
+    const lineas: LineaCotizada[] = (lineasPor.get(String(id)) ?? []).map((l) => {
+      const subtotal = Number(l.subtotal_centavos);
+      const recargo = Number(l.recargo_centavos);
+      const cubierto = Number(l.cubierto_centavos);
+      return {
+        ref: l.ref,
+        personaRef: l.persona_ref,
+        pagadorRef,
+        tipo: l.tipo,
+        nombre: l.nombre,
+        platoId: l.plato,
+        ofertaId: l.oferta,
+        cantidad: l.cantidad,
+        paraLlevar: l.para_llevar,
+        precioUnitarioCentavos: Number(l.precio_unitario_centavos),
+        subtotalCentavos: subtotal,
+        recargoUnitarioCentavos: Number(l.recargo_unitario_centavos),
+        recargoCentavos: recargo,
+        fuente: l.fuente,
+        pagador: l.pagador,
+        cubiertoPorPlanCentavos: cubierto,
+        porCobrarCentavos: subtotal - cubierto + recargo,
+        omitida: l.omitida,
+      };
+    });
+    const suma = (f: (l: LineaCotizada) => number) => lineas.reduce((s, l) => s + f(l), 0);
+    const subtotal = suma((l) => l.subtotalCentavos);
+    const recargo = suma((l) => l.recargoCentavos);
+    const cubierto = suma((l) => l.cubiertoPorPlanCentavos);
+    const cotizacion: Cotizacion = {
+      estimada: false,
+      lineas,
+      porPagador: [{ pagadorRef, subtotal, recargo, total: subtotal + recargo, cubierto, saldo: subtotal + recargo - cubierto }],
       subtotalCentavos: subtotal,
-      recargoUnitarioCentavos: Number(l.recargo_unitario_centavos),
       recargoCentavos: recargo,
-      fuente: l.fuente,
-      pagador: l.pagador,
+      totalCentavos: subtotal + recargo,
       cubiertoPorPlanCentavos: cubierto,
-      porCobrarCentavos: subtotal - cubierto + recargo,
-      omitida: l.omitida,
+      saldoPorCobrarCentavos: subtotal + recargo - cubierto,
+      unidadesPlan: [],
+      avisos: [],
     };
+    const saldo = Number(c.saldo_centavos);
+    return [
+      {
+        id: c.public_id,
+        origen: c.orden_id !== null ? 'PEDIDO' : c.mesa_compartida_id !== null ? 'MESA' : 'QR',
+        estado: c.estado,
+        momentoCobro: c.momento_cobro,
+        debeCobrarseAntesDeServir: c.momento_cobro === 'ANTES_DE_SERVIR' && c.estado === 'ABIERTA' && saldo > 0,
+        pagador: { nombre: c.nombre_pagador, esAnfitrion: c.es_anfitrion === true },
+        cotizacion: aRespuesta(cotizacion, c.moneda_codigo),
+        pagadoCentavos: Number(c.pagado_centavos),
+        saldoCentavos: saldo,
+        pagos: (pagosPor.get(String(id)) ?? []).map((p) => ({
+          id: p.public_id,
+          metodo: p.codigo,
+          montoCentavos: Number(p.monto_centavos),
+          estado: p.estado,
+          creadoEn: p.creado_en,
+        })),
+        creadaEn: c.creada_en,
+        cobradaEn: c.cobrada_en,
+        anuladaEn: c.anulada_en,
+      },
+    ];
   });
-  const suma = (f: (l: LineaCotizada) => number) => lineas.reduce((s, l) => s + f(l), 0);
-  const subtotal = suma((l) => l.subtotalCentavos);
-  const recargo = suma((l) => l.recargoCentavos);
-  const cubierto = suma((l) => l.cubiertoPorPlanCentavos);
-  const cotizacion: Cotizacion = {
-    estimada: false,
-    lineas,
-    porPagador: [{ pagadorRef, subtotal, recargo, total: subtotal + recargo, cubierto, saldo: subtotal + recargo - cubierto }],
-    subtotalCentavos: subtotal,
-    recargoCentavos: recargo,
-    totalCentavos: subtotal + recargo,
-    cubiertoPorPlanCentavos: cubierto,
-    saldoPorCobrarCentavos: subtotal + recargo - cubierto,
-    unidadesPlan: [],
-    avisos: [],
-  };
-  const pagos = await q.query<{ public_id: string; codigo: string; monto_centavos: string; estado: string; creado_en: Date }>(
-    `SELECT t.public_id, m.codigo, t.monto_centavos, t.estado, t.creado_en FROM transaccion_pago t JOIN metodo_pago m ON m.metodo_pago_id = t.metodo_pago_id
-      WHERE t.restaurante_id = app_tenant_id() AND t.cuenta_cobro_id = $1 ORDER BY t.pago_id`,
-    [cuentaId],
-  );
-  const saldo = Number(c.saldo_centavos);
-  return {
-    id: c.public_id,
-    origen: c.orden_id !== null ? 'PEDIDO' : c.mesa_compartida_id !== null ? 'MESA' : 'QR',
-    estado: c.estado,
-    momentoCobro: c.momento_cobro,
-    debeCobrarseAntesDeServir: c.momento_cobro === 'ANTES_DE_SERVIR' && c.estado === 'ABIERTA' && saldo > 0,
-    pagador: { nombre: c.nombre_pagador, esAnfitrion: c.es_anfitrion === true },
-    cotizacion: aRespuesta(cotizacion, c.moneda_codigo),
-    pagadoCentavos: Number(c.pagado_centavos),
-    saldoCentavos: saldo,
-    pagos: pagos.rows.map((p) => ({
-      id: p.public_id,
-      metodo: p.codigo,
-      montoCentavos: Number(p.monto_centavos),
-      estado: p.estado,
-      creadoEn: p.creado_en,
-    })),
-    creadaEn: c.creada_en,
-    cobradaEn: c.cobrada_en,
-    anuladaEn: c.anulada_en,
-  };
 }

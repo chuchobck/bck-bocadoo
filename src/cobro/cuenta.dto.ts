@@ -1,5 +1,26 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDefined, IsIn, IsInt, IsOptional, IsString, IsUrl, Length, Max, MaxLength, Min, ValidateIf } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsDefined,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Length,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
+import { PageQuery, UUID_RE } from '../diner/common';
 import { Text } from '../security/sanitize';
 import { CotizacionResponse } from './cotizacion.dto';
 
@@ -115,4 +136,54 @@ export class CuentaResponse {
   @ApiProperty() creadaEn!: Date;
   @ApiProperty({ type: Date, nullable: true }) cobradaEn!: Date | null;
   @ApiProperty({ type: Date, nullable: true }) anuladaEn!: Date | null;
+}
+
+/** Un plato de la carta, extra o bebida que la caja agrega (E.4 `items` y E.11 `POST …/items`). */
+export class ItemCajaDto {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'public_id de un plato con precio: de la carta fija (a la carta, extra, bebida) o del menú de hoy',
+  })
+  @Matches(UUID_RE, { message: 'plato debe ser un UUID' })
+  plato!: string;
+  @ApiProperty({ example: 1, minimum: 1, maximum: 10 }) @IsInt() @Min(1) @Max(10) cantidad!: number;
+}
+
+/** Lista de `items` de la caja: hasta 10 platos distintos (sin `paraLlevar` por ítem, D3: heredan el de la cuenta). */
+export const ItemsCaja = () => (target: object, key: string) => {
+  IsArray()(target, key);
+  ArrayMaxSize(10)(target, key);
+  ArrayUnique((e: ItemCajaDto) => String(e?.plato).toLowerCase())(target, key);
+  ValidateNested({ each: true })(target, key);
+  Type(() => ItemCajaDto)(target, key);
+};
+
+export class AgregarItemsDto {
+  @ApiProperty({
+    type: [ItemCajaDto],
+    description: 'Platos a sumar a la cuenta. Un plato que ya está en la cuenta suma cantidad a su línea.',
+  })
+  @ItemsCaja()
+  @ArrayMinSize(1)
+  items!: ItemCajaDto[];
+}
+
+export const ESTADOS_CUENTA = ['ABIERTA', 'COBRADA', 'ANULADA', 'TODAS'] as const;
+export const ORIGENES_CUENTA = ['PEDIDO', 'QR', 'MESA'] as const;
+
+export class CuentasQuery extends PageQuery {
+  @ApiPropertyOptional({ enum: ESTADOS_CUENTA, default: 'TODAS' })
+  @IsOptional()
+  @IsIn(ESTADOS_CUENTA)
+  estado?: (typeof ESTADOS_CUENTA)[number];
+  @ApiPropertyOptional({ enum: ORIGENES_CUENTA, description: 'QR = validar en caja, con o sin consumo del plan' })
+  @IsOptional()
+  @IsIn(ORIGENES_CUENTA)
+  origen?: (typeof ORIGENES_CUENTA)[number];
+}
+
+export class CuentasDelDiaResponse {
+  @ApiProperty({ example: '2026-11-21', description: 'Día local del restaurante (zona horaria del local)' }) fecha!: string;
+  @ApiProperty({ type: [CuentaResponse], description: 'De la más reciente a la más antigua' }) items!: CuentaResponse[];
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'null si no hay más páginas' }) nextCursor!: string | null;
 }

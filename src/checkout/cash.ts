@@ -108,7 +108,8 @@ export class CashService {
 
   /**
    * Lo que debería haber según el sistema. Solo cuentan pagos CONFIRMADOS; los reversos restan el día en que se hacen.
-   * `planes` = cobros de planes; `pos` = todo lo demás (ventas sueltas, pedidos, ofertas).
+   * `planes` = cobros de planes; `pos` = todo lo demás (ventas sueltas, pedidos, ofertas y pagos de cuentas de cobro). Cada pago
+   * tiene un solo origen (`ck_pago_origen_unico`): el pago de una cuenta nunca es también el de su pedido, así que no se cuenta dos veces.
    */
   private async summary(q: Queryable, date: string) {
     const pay = await q.query<MethodRow>(
@@ -142,6 +143,19 @@ export class CashService {
       almuerzosParaLlevar: n.plan_llevar + n.pos_llevar,
       pagosPendientes: n.pendientes,
     };
+  }
+
+  /** Cuentas ABIERTAS del día y su saldo pendiente (I-15: se informan, no bloquean el cierre). */
+  private async cuentasAbiertas(q: Queryable, date: string) {
+    const r = (
+      await q.query<{ cantidad: number; saldo: string }>(
+        `SELECT count(*)::int AS cantidad, COALESCE(sum(s.saldo_centavos), 0) AS saldo
+           FROM cuenta_cobro c JOIN v_cuenta_saldo s ON s.cuenta_id = c.cuenta_id
+          WHERE c.restaurante_id = app_tenant_id() AND c.fecha_local = $1 AND c.estado = 'ABIERTA'`,
+        [date],
+      )
+    ).rows[0]!;
+    return { cantidad: r.cantidad, saldoCentavos: Number(r.saldo) };
   }
 
   private async view(q: Queryable, date: string) {
@@ -178,6 +192,7 @@ export class CashService {
       almuerzosSueltos: s.almuerzosSueltos,
       almuerzosParaLlevar: s.almuerzosParaLlevar,
       pagosPendientes: s.pagosPendientes,
+      cuentasAbiertas: await this.cuentasAbiertas(q, date),
       cierre: c
         ? {
             efectivoEsperadoCentavos: Number(c.efectivo_esperado_centavos),

@@ -8,6 +8,263 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 5b: cuentas del QR en caja (solo campos y endpoints nuevos)
+
+Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (E.4, E.11, F.3, G 17–22, 44 y 48). **Una migración** (la unicidad de la referencia de pago pasa a ser por local) y **sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores). Un frontend que no cambie nada sigue funcionando igual: `validar` sin `items` ni `cobro` es la validación de siempre.
+
+| Dónde                                                        | Qué es nuevo                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /v1/caja/validar`                                      | Campos **opcionales** `items` (platos de caja) y `cobro` (`Cobro`). Con alguno de los dos crea la cuenta del QR. Respuesta: `cotizacion` (final), `cuenta` (`Cuenta` o `null`) y `avisos`. Errores nuevos (abajo). |
+| `GET /v1/caja/cuentas` (**nuevo**)                           | Cuentas del **día local** del restaurante, de la más reciente a la más antigua. Filtros `estado` y `origen`; paginado por cursor.                                                                                  |
+| `POST /v1/caja/cuentas/{id}/items` (**nuevo**)               | Agrega platos a una cuenta `ABIERTA` y la recotiza. `Idempotency-Key` obligatoria.                                                                                                                                 |
+| `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (**nuevo**) | Quita una línea entera de una cuenta `ABIERTA` (con su inversa) y la recotiza. `Idempotency-Key` obligatoria.                                                                                                      |
+| `GET /v1/caja/cierre/{fecha}`                                | Campo nuevo `cuentasAbiertas: { cantidad, saldoCentavos }`: cuentas `ABIERTA` de ese día y lo que falta cobrarles. Los demás totales no cambian.                                                                   |
+| `referenciaExterna` (todos los cobros)                       | **Cambio de regla:** se repite por **local**. La misma referencia en dos locales ya no choca; en el mismo local sigue → 409 `REFERENCIA_PAGO_REPETIDA`.                                                            |
+| `Cuenta.origen`                                              | Ahora también `QR` (las de este PR). `MESA` llega con PR 6.                                                                                                                                                        |
+
+#### Validar con `items` y `cobro`
+
+- **Sin `items` ni `cobro`:** igual que antes (no crea cuenta, `cuenta: null`). Se agrega `cotizacion` informativa (lo que costaría: el almuerzo, el recargo si es para llevar) y `avisos`. Con un QR que no es cliente del local, `cotizacion` es `null`, como antes.
+- **Con `items` o `cobro`** (aunque sea `{ "cobro": {} }`): descuenta como siempre y crea la cuenta con la cotización final.
+  - **Con plan** (`OK`/`OK_ADVERTENCIA`): la cuenta cuelga del consumo. El almuerzo va con `fuente: PLAN` (cubierto); se cobran el recargo y los `items`.
+  - **Sin plan** (`SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`): la cuenta cuelga del escaneo. El almuerzo va a caja a P (precio del local) más los `items`. Vale también para un QR de alguien que no es cliente del local (`cliente: null`; la cuenta va a su nombre).
+  - **Nada que cobrar** (plan OK, comer aquí, sin `items`): no hay cuenta (`cuenta: null`), como en un canje normal.
+  - **`DUPLICADO` y `LIMITE_SAAS` no cobran nada**: ni el almuerzo ni los `items`. `cuenta: null`; la `cotizacion` trae solo el almuerzo omitido y `avisos: [{ "codigo": "DUPLICADO", "lineaRef": "almuerzo" }]`. La regla de 60 s del duplicado no cambia.
+  - `QR_INVALIDO`, `QR_EXPIRADO` y `OTRO_LOCAL`: como siempre, sin cotización ni cuenta.
+- **`cobro`** es el mismo objeto `Cobro` de canjear ([arriba](#canjear-con-cobro)). Con `metodoPago`, el pago se registra en la misma transacción; `saldoEsperadoCentavos` es obligatorio con `metodoPago` y, si no coincide con el saldo real → 409 `SALDO_CAMBIO` (con `saldoCentavos` y `cotizacion`) **sin descontar el plan ni cobrar**. Sin `saldoEsperadoCentavos` no se comprueba.
+- **`items`**: hasta 10, `{ "plato": "<uuid>", "cantidad": 1..10 }`, sin platos repetidos (400). Platos del menú de hoy o de la carta fija; agotado → 409 `PLATO_AGOTADO`; inexistente, de otro local o inactivo → 422 `PLATO_NO_DISPONIBLE`; sin precio → 422 `PLATO_SIN_PRECIO`. `ofertaId` no se acepta aquí (400).
+- **Idempotencia:** la misma `Idempotency-Key` con el mismo cuerpo devuelve la misma cuenta y el mismo consumo (sin cobrar dos veces). Con **otro** cuerpo (otros `items`, otro `cobro` o sin ellos) → 409 `IDEMPOTENCY_KEY_REUTILIZADA`.
+- Sin plan y el local con P = 0 → 409 `ALMUERZO_SIN_PRECIO` (solo con `items` o `cobro`).
+
+Para llevar con plan, una Cola (BEBIDA 100), un Churrasco de carta (A_LA_CARTA 600) y un Huevo frito (EXTRA 75), sin cobrar aún:
+
+```json
+{
+  "codigoQr": "BCD1.…",
+  "paraLlevar": true,
+  "items": [
+    {
+      "plato": "f4c3f94e-d3e6-41d4-a412-51ff97ade690",
+      "cantidad": 1
+    },
+    {
+      "plato": "245721bb-193e-4cf7-89fb-8dcf38aa0e70",
+      "cantidad": 1
+    },
+    {
+      "plato": "fa4fe5c6-821d-4115-8040-2bfb27d31cca",
+      "cantidad": 1
+    }
+  ],
+  "cobro": {}
+}
+```
+
+Response `200` (capturada de la API, recortada):
+
+```json
+{
+  "resultado": "OK",
+  "mensaje": "Almuerzo descontado.",
+  "descontado": true,
+  "consumo": {
+    "id": "d25ea7e3-0675-475b-aa8a-2efc77bf655c",
+    "creadoEn": "2026-11-22T04:39:05.758Z",
+    "deshacerHasta": "2026-11-22T04:39:15.758Z"
+  },
+  "…": "plan, almuerzosRestantes, cliente… como siempre",
+  "cotizacion": {
+    "estimada": false,
+    "lineas": [
+      {
+        "ref": "almuerzo#1",
+        "tipo": "ALMUERZO",
+        "nombre": "Almuerzo",
+        "cantidad": 1,
+        "subtotalCentavos": 350,
+        "recargoCentavos": 25,
+        "cubiertoPorPlanCentavos": 350,
+        "porCobrarCentavos": 25,
+        "fuente": "PLAN"
+      },
+      {
+        "ref": "item:f4c3f94e-d3e6-41d4-a412-51ff97ade690",
+        "tipo": "BEBIDA",
+        "nombre": "Cola",
+        "cantidad": 1,
+        "subtotalCentavos": 100,
+        "recargoCentavos": 0,
+        "cubiertoPorPlanCentavos": 0,
+        "porCobrarCentavos": 100,
+        "fuente": "CAJA"
+      },
+      {
+        "ref": "item:245721bb-193e-4cf7-89fb-8dcf38aa0e70",
+        "tipo": "A_LA_CARTA",
+        "nombre": "Churrasco",
+        "cantidad": 1,
+        "subtotalCentavos": 600,
+        "recargoCentavos": 25,
+        "cubiertoPorPlanCentavos": 0,
+        "porCobrarCentavos": 625,
+        "fuente": "CAJA"
+      },
+      {
+        "ref": "item:fa4fe5c6-821d-4115-8040-2bfb27d31cca",
+        "tipo": "EXTRA",
+        "nombre": "Huevo frito",
+        "cantidad": 1,
+        "subtotalCentavos": 75,
+        "recargoCentavos": 0,
+        "cubiertoPorPlanCentavos": 0,
+        "porCobrarCentavos": 75,
+        "fuente": "CAJA"
+      }
+    ],
+    "subtotalCentavos": 1125,
+    "recargoCentavos": 50,
+    "totalCentavos": 1175,
+    "cubiertoPorPlanCentavos": 350,
+    "saldoPorCobrarCentavos": 825,
+    "…": "porPagador, avisos, monedaCodigo"
+  },
+  "cuenta": {
+    "id": "1375aa08-eec7-4c14-8704-3cf8297ea93e",
+    "origen": "QR",
+    "estado": "ABIERTA",
+    "momentoCobro": "DESPUES_DE_SERVIR",
+    "debeCobrarseAntesDeServir": false,
+    "pagador": {
+      "nombre": "Cliente mwrckk2sklyne",
+      "esAnfitrion": false
+    },
+    "cotizacion": "… la misma cotización (líneas guardadas)",
+    "pagadoCentavos": 0,
+    "saldoCentavos": 825,
+    "pagos": [],
+    "creadaEn": "2026-11-22T04:39:05.758Z",
+    "cobradaEn": null,
+    "anuladaEn": null
+  },
+  "avisos": []
+}
+```
+
+#### Agregar y quitar líneas
+
+- Solo en cuentas `ABIERTA`; `COBRADA` o `ANULADA` → 409 `CUENTA_CERRADA`. En un local `ANTES_DE_SERVIR`, una cuenta con pagos tampoco admite platos (409 `CUENTA_CERRADA`): se cobra lo pedido y se abre otra.
+- Cada cambio **recotiza la cuenta entera** con la misma regla de siempre y con los precios **guardados** (si el local cambió P o R, la cuenta no cambia). Las líneas nunca se editan: lo que cambia se revierte (línea con cantidad y montos en negativo, mismo `ref`) y entra como línea nueva.
+- **Agregar** un plato que ya está en la cuenta suma cantidad: su línea se revierte y entra otra con la cantidad total, al precio de la línea original. Un plato pasaría de 100 unidades → 422 `CANTIDAD_INVALIDA`.
+- **Quitar** recibe el `ref` de la línea (`item:<plato>`, `almuerzo`, `extra:0`…, de `cotizacion.lineas[].ref`; codifícalo en la URL: `#` es `%23`). Quita la línea entera. No existe o ya se quitó → 404 `LINEA_NO_ENCONTRADA`. El almuerzo cubierto por el plan (`fuente: PLAN`) → 409 `LINEA_DE_PLAN` (se quita deshaciendo el consumo o anulando la cuenta). Si lo ya pagado quedaría por encima de lo que queda por cobrar → 409 `SALDO_NEGATIVO` (no hay vuelto automático: anula la cuenta). Una cuenta sin pagos que queda sin líneas pasa a `ANULADA`.
+- Cuerpo de agregar: `{ "items": [{ "plato": "<uuid>", "cantidad": 1 }] }` (1..10, sin repetidos). Quitar: sin cuerpo.
+- **Idempotencia:** reintentar con la misma llave devuelve la misma cuenta sin tocar nada. La misma llave con otros platos, otra cantidad u otra línea → 409 `IDEMPOTENCY_KEY_REUTILIZADA`.
+- Agregar, quitar, cobrar y anular sobre la misma cuenta se aplican de a uno: si la caja cobró con un saldo viejo, recibe 409 `SALDO_CAMBIO`.
+
+La cuenta de arriba después de agregar otra Cola y quitar el Churrasco (`POST …/lineas/item%3A<churrasco>/quitar`), líneas recortadas:
+
+```json
+{
+  "id": "1375aa08-eec7-4c14-8704-3cf8297ea93e",
+  "estado": "ABIERTA",
+  "cotizacion": {
+    "lineas": [
+      {
+        "ref": "almuerzo#1",
+        "tipo": "ALMUERZO",
+        "cantidad": 1,
+        "porCobrarCentavos": 25
+      },
+      {
+        "ref": "item:f4c3f94e-d3e6-41d4-a412-51ff97ade690",
+        "tipo": "BEBIDA",
+        "cantidad": 1,
+        "porCobrarCentavos": 100
+      },
+      {
+        "ref": "item:245721bb-193e-4cf7-89fb-8dcf38aa0e70",
+        "tipo": "A_LA_CARTA",
+        "cantidad": 1,
+        "porCobrarCentavos": 625
+      },
+      {
+        "ref": "item:fa4fe5c6-821d-4115-8040-2bfb27d31cca",
+        "tipo": "EXTRA",
+        "cantidad": 1,
+        "porCobrarCentavos": 75
+      },
+      {
+        "ref": "item:f4c3f94e-d3e6-41d4-a412-51ff97ade690",
+        "tipo": "BEBIDA",
+        "cantidad": -1,
+        "porCobrarCentavos": -100
+      },
+      {
+        "ref": "item:f4c3f94e-d3e6-41d4-a412-51ff97ade690",
+        "tipo": "BEBIDA",
+        "cantidad": 2,
+        "porCobrarCentavos": 200
+      },
+      {
+        "ref": "item:245721bb-193e-4cf7-89fb-8dcf38aa0e70",
+        "tipo": "A_LA_CARTA",
+        "cantidad": -1,
+        "porCobrarCentavos": -625
+      }
+    ],
+    "saldoPorCobrarCentavos": 300,
+    "…": "resto de la Cotizacion"
+  },
+  "pagadoCentavos": 0,
+  "saldoCentavos": 300,
+  "…": "resto de la Cuenta"
+}
+```
+
+Quitar el almuerzo del plan (`…/lineas/almuerzo%231/quitar`):
+
+```json
+{
+  "type": "about:blank",
+  "title": "CONFLICT",
+  "status": 409,
+  "code": "LINEA_DE_PLAN",
+  "detail": "Es un almuerzo del plan: se quita deshaciendo el consumo (POST /v1/caja/consumos/{id}/deshacer).",
+  "instance": "/v1/caja/cuentas/1375aa08-eec7-4c14-8704-3cf8297ea93e/lineas/almuerzo%231/quitar",
+  "requestId": "d89f60b6-73d4-482f-9a60-e6c9f5799c1e"
+}
+```
+
+#### Lista del día y cierre
+
+`GET /v1/caja/cuentas?estado=ABIERTA&limit=1` (dueño o cajero):
+
+```json
+{
+  "fecha": "2026-11-21",
+  "items": ["… Cuenta (el mismo objeto de GET /v1/caja/cuentas/{id})"],
+  "nextCursor": null
+}
+```
+
+- `fecha` es el día local del restaurante (su zona horaria, no UTC). Solo ese día; no hay filtro de fecha (400 si se manda).
+- `estado`: `ABIERTA`, `COBRADA`, `ANULADA` o `TODAS` (por defecto). `origen`: `PEDIDO`, `QR` o `MESA` (opcional). `limit` 1..50 (20) y `cursor` como en el resto de la API (400 `CURSOR_INVALIDO`).
+
+`GET /v1/caja/cierre/{fecha}` suma (captura con una cuenta abierta de 300):
+
+```json
+{
+  "…": "los mismos campos de siempre",
+  "pagosPendientes": 0,
+  "cuentasAbiertas": {
+    "cantidad": 1,
+    "saldoCentavos": 300
+  },
+  "cierre": null
+}
+```
+
+Los pagos de cuentas ya estaban en `porMetodo[].posCentavos` (desde 5a) y cada pago entra una sola vez, en su método. `cuentasAbiertas` es informativo: no entra en `efectivoEsperadoCentavos` ni en `totalCentavos`.
+
 ### Entrega D · PR 5a: cuentas de cobro de pedidos en caja (solo campos y endpoints nuevos)
 
 Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (B, E.3, E.11, F.3). **Sin migraciones y sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores). Un frontend que no cambie nada sigue funcionando igual: canjear sin cuerpo es el canje de siempre.
@@ -38,7 +295,7 @@ Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (B, E.3, E.11, F
 | `montoCentavos`         | entero ≥ 1                               | Opcional; por defecto todo el saldo. Mayor que el saldo → 422 `MONTO_EXCEDE_SALDO`.             |
 | `pagoConfirmado`        | boolean                                  | `TRANSFERENCIA`/`DEUNA` quedan `PENDIENTE` salvo que sea `true`. `EFECTIVO` siempre confirmado. |
 | `comprobanteUrl`        | URL https (máx. 500)                     | Opcional.                                                                                       |
-| `referenciaExterna`     | texto 1..100                             | Opcional. Repetida (en cualquier local) → 409 `REFERENCIA_PAGO_REPETIDA`.                       |
+| `referenciaExterna`     | texto 1..100                             | Opcional. Repetida en el mismo local → 409 `REFERENCIA_PAGO_REPETIDA` (por local desde 5b).     |
 
 `POST /v1/caja/cuentas/{id}/cobrar` lleva los mismos campos, con `metodoPago` y `saldoEsperadoCentavos` **obligatorios**.
 
@@ -290,7 +547,7 @@ La misma cuenta después de cobrar los 25 restantes en efectivo y anularla (`POS
 - `saldoCentavos = cotizacion.saldoPorCobrarCentavos − pagadoCentavos`. `pagadoCentavos` suma los pagos **no rechazados**: un pago `PENDIENTE` ya cuenta (la caja no lo cobra dos veces); si el dueño lo rechaza, el saldo vuelve.
 - `cotizacion` son las líneas guardadas (`estimada: false`). **Nunca se editan**: un reverso es otra línea con el mismo `ref`, cantidad y montos en negativo. Al anular, `pagos` suma un pago con `montoCentavos` negativo por cada pago confirmado.
 - `debeCobrarseAntesDeServir`: el local cobra `ANTES_DE_SERVIR` y la cuenta tiene saldo: no entregues el pedido hasta cobrar.
-- `origen`: `PEDIDO` en esta entrega (`QR` y `MESA` llegan con 5b y PR 6).
+- `origen`: `PEDIDO` (5a), `QR` (5b) y `MESA` (PR 6).
 
 #### Cobrar, anular y deshacer
 
@@ -485,58 +742,62 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 
 **Códigos de negocio estables** (los de la fase 8 más `IDEMPOTENCY_KEY_INVALIDA`; salen de la declaración de cada endpoint y están verificados contra el código):
 
-| Código                        | HTTP | Dónde puede aparecer                                                                                                                             |
-| ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ALMUERZO_INVALIDO`           | 400  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                       |
-| `SELECCION_INVALIDA`          | 400  | `PUT /v1/mis/mesas/{id}/seleccion` (un plato del almuerzo repetido como plato suelto)                                                            |
-| `CURSOR_INVALIDO`             | 400  | `GET /v1/mis/consumos`; `GET /v1/mis/pedidos`; `GET /v1/opiniones`                                                                               |
-| `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`                                                                                                                             |
-| `IDEMPOTENCY_KEY_INVALIDA`    | 400  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/reclamo`; `POST /v1/mis/mesas` y 1 más                                         |
-| `OPINION_VACIA`               | 400  | `POST /v1/mis/consumos/{id}/opinion`                                                                                                             |
-| `PEDIDO_VACIO`                | 400  | `POST /v1/mis/pedidos`                                                                                                                           |
-| `SOLO_CUENTAS_DEL_DIA`        | 403  | `POST /v1/caja/cuentas/{id}/anular` (cajero; PR 5a)                                                                                              |
-| `SOLO_ANFITRION`              | 403  | `POST /v1/mis/mesas/{id}/cancelar`                                                                                                               |
-| `CLIENTE_NO_ENCONTRADO`       | 404  | `GET /v1/clientes/{id}/sellos`; `POST /v1/clientes/{id}/sellos/canjear`                                                                          |
-| `CUENTA_NO_ENCONTRADA`        | 404  | `GET /v1/caja/cuentas/{id}`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/cuentas/{id}/anular` (PR 5a)                                    |
-| `CONSUMO_NO_ENCONTRADO`       | 404  | `GET /v1/mis/consumos/{id}`; `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar` y 1 más                        |
-| `MESA_NO_ENCONTRADA`          | 404  | `GET /v1/mesas/invitacion/{id}`; `GET /v1/mis/mesas/{id}`; `PUT /v1/mis/mesas/{id}/seleccion` y 2 más                                            |
-| `PLATO_NO_ENCONTRADO`         | 404  | `PATCH /v1/menu/platos/{id}/agotado`                                                                                                             |
-| `OPINION_NO_ENCONTRADA`       | 404  | `POST /v1/opiniones/{id}/responder`                                                                                                              |
-| `PEDIDO_NO_ENCONTRADO`        | 404  | `GET /v1/caja/pedidos/{id}`; `GET /v1/mis/pedidos/{id}`; `POST /v1/caja/pedidos/{id}/canjear` y 2 más                                            |
-| `RESTAURANTE_NO_ENCONTRADO`   | 404  | `GET /v1/pase`; `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `GET /v1/restaurantes/{slug}/carta`                                                |
-| `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                                                 |
-| `ALMUERZO_SIN_PRECIO`         | 409  | `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a)                                                                                         |
-| `CUENTA_CERRADA`              | 409  | `POST /v1/caja/cuentas/{id}/cobrar` (PR 5a)                                                                                                      |
-| `CUENTA_COBRADA`              | 409  | `POST /v1/caja/consumos/{id}/deshacer` (almuerzo de una cuenta cobrada o con pagos; PR 5a)                                                       |
-| `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo`                       |
-| `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más |
-| `LOCAL_LLENO_SOLO_LLEVAR`     | 409  | `POST /v1/mis/pedidos` (con `paraLlevar` ausente o `false` y el local `LLENO`)                                                                   |
-| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`; `PUT /v1/mis/mesas/{id}/seleccion`                       |
-| `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`; `PUT /v1/mis/mesas/{id}/seleccion`                                  |
-| `MESA_LLENA`                  | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                                          |
-| `MESA_VENCIDA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                                          |
-| `OPINION_AUN_NO_DISPONIBLE`   | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                             |
-| `OPINION_VENCIDA`             | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                             |
-| `OPINION_YA_ENVIADA`          | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                             |
-| `OPINION_YA_RESPONDIDA`       | 409  | `POST /v1/opiniones/{id}/responder`                                                                                                              |
-| `RESTAURANTE_PAUSADO`         | 409  | `POST /v1/mis/pedidos`; `POST /v1/mis/mesas`; `POST /v1/ofertas/{id}/canjear`; `PUT /v1/mis/mesas/{id}/seleccion`                                |
-| `PEDIDO_ACTIVO`               | 409  | `POST /v1/mis/pedidos`                                                                                                                           |
-| `PEDIDO_CANCELADO`            | 409  | `POST /v1/caja/pedidos/{id}/canjear`                                                                                                             |
-| `PEDIDO_EXPIRADO`             | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/mis/pedidos/{id}/cancelar`                                                                       |
-| `PEDIDO_NO_CANCELABLE`        | 409  | `POST /v1/mis/pedidos/{id}/cancelar`                                                                                                             |
-| `PEDIDO_NO_CANJEADO`          | 409  | `POST /v1/caja/pedidos/{id}/servir`                                                                                                              |
-| `PLATO_AGOTADO`               | 409  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                       |
-| `RECLAMO_VENCIDO`             | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                                             |
-| `RECLAMO_YA_EXISTE`           | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                                             |
-| `REFERENCIA_PAGO_REPETIDA`    | 409  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a)                                                    |
-| `RESTAURANTE_NO_DISPONIBLE`   | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                      |
-| `SIN_PREMIOS`                 | 409  | `POST /v1/clientes/{id}/sellos/canjear`                                                                                                          |
-| `SALDO_CAMBIO`                | 409  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a; trae `saldoCentavos`)                              |
-| `METODO_PAGO_NO_DISPONIBLE`   | 422  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a)                                                    |
-| `MONTO_EXCEDE_SALDO`          | 422  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a)                                                    |
-| `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                       |
-| `PLATO_NO_ES_DE_CARTA`        | 422  | `PATCH /v1/menu/platos/{id}/agotado` (el plato es de ALMUERZO: se agota en el menú del día)                                                      |
-| `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                       |
+| Código                        | HTTP | Dónde puede aparecer                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ALMUERZO_INVALIDO`           | 400  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                                                                                                                                                                |
+| `SELECCION_INVALIDA`          | 400  | `PUT /v1/mis/mesas/{id}/seleccion` (un plato del almuerzo repetido como plato suelto)                                                                                                                                                                                                     |
+| `CURSOR_INVALIDO`             | 400  | `GET /v1/mis/consumos`; `GET /v1/mis/pedidos`; `GET /v1/opiniones`; `GET /v1/caja/cuentas`                                                                                                                                                                                                |
+| `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`                                                                                                                                                                                                                                                                      |
+| `IDEMPOTENCY_KEY_INVALIDA`    | 400  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/reclamo`; `POST /v1/mis/mesas` y 1 más                                                                                                                                                                                  |
+| `OPINION_VACIA`               | 400  | `POST /v1/mis/consumos/{id}/opinion`                                                                                                                                                                                                                                                      |
+| `PEDIDO_VACIO`                | 400  | `POST /v1/mis/pedidos`                                                                                                                                                                                                                                                                    |
+| `SOLO_CUENTAS_DEL_DIA`        | 403  | `POST /v1/caja/cuentas/{id}/anular` (cajero; PR 5a)                                                                                                                                                                                                                                       |
+| `SOLO_ANFITRION`              | 403  | `POST /v1/mis/mesas/{id}/cancelar`                                                                                                                                                                                                                                                        |
+| `CLIENTE_NO_ENCONTRADO`       | 404  | `GET /v1/clientes/{id}/sellos`; `POST /v1/clientes/{id}/sellos/canjear`                                                                                                                                                                                                                   |
+| `CUENTA_NO_ENCONTRADA`        | 404  | `GET /v1/caja/cuentas/{id}`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/cuentas/{id}/anular` (PR 5a); `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b)                                                                                 |
+| `LINEA_NO_ENCONTRADA`         | 404  | `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (la línea no existe o ya se quitó; PR 5b)                                                                                                                                                                                                |
+| `CONSUMO_NO_ENCONTRADO`       | 404  | `GET /v1/mis/consumos/{id}`; `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar` y 1 más                                                                                                                                                                 |
+| `MESA_NO_ENCONTRADA`          | 404  | `GET /v1/mesas/invitacion/{id}`; `GET /v1/mis/mesas/{id}`; `PUT /v1/mis/mesas/{id}/seleccion` y 2 más                                                                                                                                                                                     |
+| `PLATO_NO_ENCONTRADO`         | 404  | `PATCH /v1/menu/platos/{id}/agotado`                                                                                                                                                                                                                                                      |
+| `OPINION_NO_ENCONTRADA`       | 404  | `POST /v1/opiniones/{id}/responder`                                                                                                                                                                                                                                                       |
+| `PEDIDO_NO_ENCONTRADO`        | 404  | `GET /v1/caja/pedidos/{id}`; `GET /v1/mis/pedidos/{id}`; `POST /v1/caja/pedidos/{id}/canjear` y 2 más                                                                                                                                                                                     |
+| `RESTAURANTE_NO_ENCONTRADO`   | 404  | `GET /v1/pase`; `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `GET /v1/restaurantes/{slug}/carta`                                                                                                                                                                                         |
+| `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                                                                                                                                                                                          |
+| `ALMUERZO_SIN_PRECIO`         | 409  | `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b)                                                                                                                                                                                |
+| `CUENTA_CERRADA`              | 409  | `POST /v1/caja/cuentas/{id}/cobrar` (PR 5a); `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b)                                                                                                                                                   |
+| `CUENTA_COBRADA`              | 409  | `POST /v1/caja/consumos/{id}/deshacer` (almuerzo de una cuenta cobrada o con pagos; PR 5a)                                                                                                                                                                                                |
+| `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo`                                                                                                                                                                |
+| `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más; `POST /v1/caja/validar` con `items`/`cobro`, `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b) |
+| `LINEA_DE_PLAN`               | 409  | `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (el almuerzo cubierto por el plan; PR 5b)                                                                                                                                                                                                |
+| `LOCAL_LLENO_SOLO_LLEVAR`     | 409  | `POST /v1/mis/pedidos` (con `paraLlevar` ausente o `false` y el local `LLENO`)                                                                                                                                                                                                            |
+| `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/cuentas/{id}/items` (plato del menú sin menú publicado)                                                                                        |
+| `MESA_CERRADA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `POST /v1/mis/mesas/{id}/cancelar`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                                                                                                           |
+| `MESA_LLENA`                  | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                                                                                                                                                                                   |
+| `MESA_VENCIDA`                | 409  | `POST /v1/mesas/invitacion/{id}/unirse`                                                                                                                                                                                                                                                   |
+| `OPINION_AUN_NO_DISPONIBLE`   | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                                                                                                                                                                      |
+| `OPINION_VENCIDA`             | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                                                                                                                                                                      |
+| `OPINION_YA_ENVIADA`          | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`                                                                                                                                                                                                      |
+| `OPINION_YA_RESPONDIDA`       | 409  | `POST /v1/opiniones/{id}/responder`                                                                                                                                                                                                                                                       |
+| `RESTAURANTE_PAUSADO`         | 409  | `POST /v1/mis/pedidos`; `POST /v1/mis/mesas`; `POST /v1/ofertas/{id}/canjear`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                                                                                                         |
+| `PEDIDO_ACTIVO`               | 409  | `POST /v1/mis/pedidos`                                                                                                                                                                                                                                                                    |
+| `PEDIDO_CANCELADO`            | 409  | `POST /v1/caja/pedidos/{id}/canjear`                                                                                                                                                                                                                                                      |
+| `PEDIDO_EXPIRADO`             | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/mis/pedidos/{id}/cancelar`                                                                                                                                                                                                                |
+| `PEDIDO_NO_CANCELABLE`        | 409  | `POST /v1/mis/pedidos/{id}/cancelar`                                                                                                                                                                                                                                                      |
+| `PEDIDO_NO_CANJEADO`          | 409  | `POST /v1/caja/pedidos/{id}/servir`                                                                                                                                                                                                                                                       |
+| `PLATO_AGOTADO`               | 409  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/validar` con `items`/`cobro`; `POST /v1/caja/cuentas/{id}/items` (5b)                                                                                                                                          |
+| `RECLAMO_VENCIDO`             | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                                                                                                                                                                                      |
+| `RECLAMO_YA_EXISTE`           | 409  | `POST /v1/mis/consumos/{id}/reclamo`                                                                                                                                                                                                                                                      |
+| `REFERENCIA_PAGO_REPETIDA`    | 409  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b). Por local desde 5b                                                                                                                       |
+| `RESTAURANTE_NO_DISPONIBLE`   | 409  | `POST /v1/mesas/invitacion/{id}/unirse`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                                                                                                                                               |
+| `SIN_PREMIOS`                 | 409  | `POST /v1/clientes/{id}/sellos/canjear`                                                                                                                                                                                                                                                   |
+| `SALDO_CAMBIO`                | 409  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a; trae `saldoCentavos`); `POST /v1/caja/validar` con `items`/`cobro` (5b)                                                                                                                     |
+| `SALDO_NEGATIVO`              | 409  | `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (lo pagado quedaría por encima de lo que queda por cobrar; PR 5b)                                                                                                                                                                        |
+| `METODO_PAGO_NO_DISPONIBLE`   | 422  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b)                                                                                                                                           |
+| `MONTO_EXCEDE_SALDO`          | 422  | `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b)                                                                                                                                           |
+| `CANTIDAD_INVALIDA`           | 422  | `POST /v1/caja/cuentas/{id}/items` (un plato pasaría de 100 unidades; PR 5b)                                                                                                                                                                                                              |
+| `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/validar` con `items`/`cobro`; `POST /v1/caja/cuentas/{id}/items` (5b)                                                                                                                                          |
+| `PLATO_NO_ES_DE_CARTA`        | 422  | `PATCH /v1/menu/platos/{id}/agotado` (el plato es de ALMUERZO: se agota en el menú del día)                                                                                                                                                                                               |
+| `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/validar` con `items`/`cobro`; `POST /v1/caja/cuentas/{id}/items` (5b)                                                                                                                                          |
 
 Resultados del escáner de caja: **no son errores**. `POST /v1/caja/validar` responde 200 con `resultado` ∈ `OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`.
 
@@ -545,7 +806,7 @@ Resultados del escáner de caja: **no son errores**. `POST /v1/caja/validar` res
 - Cabecera `Idempotency-Key: <UUID>` **obligatoria** en los POST que crean o cobran algo (lista abajo). Falta o no es UUID → 400 `IDEMPOTENCY_KEY_INVALIDA`.
 - Genera **un UUID por intención del usuario** (un toque en "Pedir", un escaneo) y **reutilízalo en los reintentos** de esa misma operación (corte de red, doble toque). No generes uno nuevo al reintentar.
 - Repetir la misma petición con la misma clave devuelve el **mismo resultado** (mismo status y mismo recurso) sin duplicar el cobro o el recurso. Verificado con pedidos, venta de plan y validación de caja (en la repetición de `validar` algún campo derivado, como `diasParaVencer`, puede venir `null`).
-- La misma clave usada para **otro** recurso u otro cliente → 409: `IDEMPOTENCY_KEY_REUTILIZADA` en pedidos, mesas, canje de sellos y cuentas (en canjear con `cobro` y en `cobrar` también si el **cuerpo** es otro); `CONFLICT` genérico con `detail` en las ventas y la caja de las fases 6–7.
+- La misma clave usada para **otro** recurso u otro cliente → 409: `IDEMPOTENCY_KEY_REUTILIZADA` en pedidos, mesas, canje de sellos y cuentas (en canjear con `cobro`, en `cobrar`, en agregar/quitar líneas y en `validar` con `items` o `cobro` también si el **cuerpo** es otro); `CONFLICT` genérico con `detail` en las ventas y la caja de las fases 6–7.
 - Repetir una acción de negocio que ya ocurrió con **otra** clave no es un reintento y da su propio 409 (`PEDIDO_ACTIVO`, `OPINION_YA_ENVIADA`, `RECLAMO_YA_EXISTE`, `SIN_PREMIOS`…).
 - Los demás POST/PATCH/PUT no llevan la cabecera (crear platos, planes o clientes, publicar menú, activar local…): protégelos con deshabilitar el botón mientras se envían.
 
@@ -563,6 +824,8 @@ Endpoints que la exigen:
 - `POST /v1/caja/pedidos/{id}/canjear`
 - `POST /v1/caja/cuentas/{id}/cobrar`
 - `POST /v1/caja/cuentas/{id}/anular`
+- `POST /v1/caja/cuentas/{id}/items`
+- `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar`
 - `POST /v1/mis/mesas`
 - `POST /v1/mesas/invitacion/{id}/unirse`
 - `POST /v1/mis/consumos/{id}/opinion`
@@ -572,7 +835,7 @@ Endpoints que la exigen:
 ### 1.6 Paginación
 
 - **Cursor opaco.** Query `limit` (1–50, **20 por defecto**) y `cursor`. La respuesta trae `{ "items": [...], "nextCursor": "..." }`; `nextCursor: null` significa que no hay más. Pásalo tal cual como `cursor` en la siguiente llamada. Un cursor inválido → 400 `CURSOR_INVALIDO` (fase 8) o `BAD_REQUEST` "cursor inválido." (fases 5–6).
-- Paginados: `GET /v1/restaurantes`, `GET /v1/clientes`, `GET /v1/mis/consumos`, `GET /v1/mis/pedidos`, `GET /v1/opiniones`. Las demás listas devuelven un arreglo completo sin paginar.
+- Paginados: `GET /v1/restaurantes`, `GET /v1/clientes`, `GET /v1/mis/consumos`, `GET /v1/mis/pedidos`, `GET /v1/opiniones`, `GET /v1/caja/cuentas` (este además trae `fecha`). Las demás listas devuelven un arreglo completo sin paginar.
 
 ### 1.7 Límites de uso (rate limits)
 
@@ -2871,6 +3134,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | 403  | `FORBIDDEN`                | No tienes acceso a este restaurante.                       |
 | 409  | `MENU_NO_PUBLICADO`        | El restaurante aún no publicó el menú de hoy.              |
 
+> **Novedad (PR 5b):** campos opcionales `items` y `cobro`, y en la respuesta `cotizacion`, `cuenta` y `avisos`. Reglas, ejemplo y errores nuevos (`SALDO_CAMBIO`, `ALMUERZO_SIN_PRECIO`, `PLATO_AGOTADO`, `REFERENCIA_PAGO_REPETIDA`, `IDEMPOTENCY_KEY_REUTILIZADA`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`) en [Validar con `items` y `cobro`](#validar-con-items-y-cobro). Sin `items` ni `cobro`, la respuesta de arriba más `cotizacion` (informativa), `cuenta: null` y `avisos`. La misma llave para otro cliente sigue respondiendo el 409 `CONFLICT` genérico.
+
 > Sin menú publicado hoy, `validar` (QR o manual) responde 409 **antes** de tocar nada: no descuenta y no registra `intento_escaneo`. `platoNombre` es siempre `null` aquí (un canje directo no tiene preorden). Los pedidos preordenados se canjean por `POST /v1/caja/pedidos/{id}/canjear`.
 
 #### `POST /v1/caja/consumos/{id}/deshacer`
@@ -2894,6 +3159,16 @@ Response `200`:
   "revertido": true
 }
 ```
+
+#### `GET /v1/caja/cuentas`
+
+**Cuentas de cobro del día**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** Nuevo (entrega D, PR 5b)
+- **Query:** `estado` (`ABIERTA` | `COBRADA` | `ANULADA` | `TODAS`, por defecto `TODAS`), `origen` (`PEDIDO` | `QR` | `MESA`), `limit` (1..50, 20), `cursor`
+
+Response `200`: `{ "fecha": "AAAA-MM-DD", "items": [Cuenta], "nextCursor": string | null }`, de la más reciente a la más antigua. `fecha` es el día local del restaurante. Ver [Lista del día y cierre](#lista-del-día-y-cierre). Errores: 400 `CURSOR_INVALIDO`.
 
 #### `GET /v1/caja/cuentas/{id}`
 
@@ -2927,6 +3202,50 @@ Campos como `Cobro` ([Canjear con `cobro`](#canjear-con-cobro)), con `metodoPago
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | Misma llave con otro monto o método                                |
 | 422  | `METODO_PAGO_NO_DISPONIBLE`   | Método no habilitado en el local                                   |
 | 422  | `MONTO_EXCEDE_SALDO`          | `montoCentavos` mayor que el saldo                                 |
+
+#### `POST /v1/caja/cuentas/{id}/items`
+
+**Agregar platos a una cuenta abierta**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** Nuevo (entrega D, PR 5b)
+- **Idempotency-Key:** obligatoria (UUID)
+
+```json
+{ "items": [{ "plato": "f4c3f94e-d3e6-41d4-a412-51ff97ade690", "cantidad": 1 }] }
+```
+
+Response `200`: la `Cuenta` recotizada. Reglas en [Agregar y quitar líneas](#agregar-y-quitar-líneas).
+
+| HTTP | `code`                        | Cuándo                                                             |
+| ---- | ----------------------------- | ------------------------------------------------------------------ |
+| 404  | `CUENTA_NO_ENCONTRADA`        | También si es de otro local                                        |
+| 409  | `CUENTA_CERRADA`              | `COBRADA`/`ANULADA`, o `ANTES_DE_SERVIR` con pagos                 |
+| 409  | `PLATO_AGOTADO`               | —                                                                  |
+| 409  | `MENU_NO_PUBLICADO`           | Plato del menú del día y el menú de hoy no está publicado          |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | Misma llave con otros platos o cantidades                          |
+| 422  | `PLATO_NO_DISPONIBLE`         | No existe, es de otro local, está inactivo o no está en menú/carta |
+| 422  | `PLATO_SIN_PRECIO`            | —                                                                  |
+| 422  | `CANTIDAD_INVALIDA`           | El plato pasaría de 100 unidades en la cuenta                      |
+
+#### `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar`
+
+**Quitar una línea de una cuenta abierta**
+
+- **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
+- **Estado:** Nuevo (entrega D, PR 5b)
+- **Idempotency-Key:** obligatoria (UUID)
+
+`{ref}` es `cotizacion.lineas[].ref` codificado para URL (`item%3A<plato>`, `almuerzo`, `extra%3A0`…; letras, números y `:#_-`, hasta 120; otro → 400). Sin cuerpo. Response `200`: la `Cuenta` recotizada (`ANULADA` si queda sin líneas y sin pagos).
+
+| HTTP | `code`                        | Cuándo                                                   |
+| ---- | ----------------------------- | -------------------------------------------------------- |
+| 404  | `CUENTA_NO_ENCONTRADA`        | También si es de otro local                              |
+| 404  | `LINEA_NO_ENCONTRADA`         | No hay una línea viva con ese `ref`                      |
+| 409  | `CUENTA_CERRADA`              | `COBRADA` o `ANULADA`                                    |
+| 409  | `LINEA_DE_PLAN`               | Es el almuerzo cubierto por el plan                      |
+| 409  | `SALDO_NEGATIVO`              | Lo pagado quedaría por encima de lo que queda por cobrar |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | Misma llave con otra línea                               |
 
 #### `POST /v1/caja/cuentas/{id}/anular`
 
@@ -3287,9 +3606,15 @@ Response `200`:
   "almuerzosSueltos": 2,
   "almuerzosParaLlevar": 0,
   "pagosPendientes": 0,
+  "cuentasAbiertas": {
+    "cantidad": 0,
+    "saldoCentavos": 0
+  },
   "cierre": null
 }
 ```
+
+> **Novedad (PR 5b):** `cuentasAbiertas` cuenta las cuentas de cobro `ABIERTA` de ese día local y suma lo que falta cobrarles (`saldoCentavos`). Es informativo: no cambia `efectivoEsperadoCentavos`, `totalCentavos` ni `porMetodo`. Los pagos de cuentas ya entran en `porMetodo[].posCentavos`, una vez cada uno.
 
 #### `POST /v1/caja/cierre/{fecha}`
 

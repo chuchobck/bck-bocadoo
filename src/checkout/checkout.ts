@@ -12,13 +12,14 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, Length, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
 import { QrSecretService } from '../auth/qr-secret.service';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
-import { ApiProblems, notFound } from '../common/errors';
+import { ApiProblems, conflict, notFound } from '../common/errors';
 import { CodigoPaseResponse } from '../catalog/dto';
-import { deriveKey } from '../common/derive-key';
+import { deriveKey, huella } from '../common/derive-key';
 import { PERSONAL_ACTUAL } from '../common/sql';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
@@ -27,8 +28,25 @@ import { assertMenuPublicado } from '../diner/common';
 import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { loadSelections, seleccionDe } from '../tables/selection';
-import { aRespuesta } from '../cobro/adaptador';
-import { revertirConsumoEnCuenta } from '../cobro/aplicar';
+import { cotizar } from '../billing/cotizar';
+import { CotizarError, type Cotizacion, type MomentoCobro, type PlanPersona } from '../billing/tipos';
+import { SIN_PLAN, aRespuesta, entradaQr } from '../cobro/adaptador';
+import {
+  clavePagoEnElPaso,
+  cuentaPorClave,
+  descontarYRecotizar,
+  errorDePago,
+  estadoPlanDe,
+  normalizarCobro,
+  persistirCuenta,
+  registrarPago,
+  renderCuenta,
+  revertirConsumoEnCuenta,
+  saldoCambio,
+} from '../cobro/aplicar';
+import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion.dto';
+import { CobroDto, CuentaResponse, ItemCajaDto, ItemsCaja } from '../cobro/cuenta.dto';
+import { resolverPlatosSueltos } from '../cobro/platos';
 import { type OpcionesCotizarMesa, cotizarMesa } from '../cobro/mesa';
 import { planVigenteHoySql } from '../cobro/planes';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
@@ -72,6 +90,37 @@ export class ValidarDto {
   @IsString()
   @Matches(ID, { message: 'mesaLocalId inválido' })
   mesaLocalId?: string;
+  @ApiPropertyOptional({
+    type: [ItemCajaDto],
+    description:
+      'Carta, extras y bebidas en la misma cuenta (hasta 10 platos distintos). Heredan `paraLlevar`. Con `items` o `cobro` se abre la cuenta ' +
+      'del QR si hay platos o algo por cobrar.',
+  })
+  @IsOptional()
+  @ItemsCaja()
+  items?: ItemCajaDto[];
+  @ApiPropertyOptional({
+    type: CobroDto,
+    description:
+      'Opcional (como en canjear un pedido). Sin `items` ni `cobro` la validación es la de siempre (no crea cuenta). Con `metodoPago`, paga ' +
+      'la cuenta en la misma transacción. Si `saldoEsperadoCentavos` no es el saldo real → 409 `SALDO_CAMBIO` sin descontar ni cobrar.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CobroDto)
+  cobro?: CobroDto;
+}
+
+/** consumo_id interno a partir del public_id que devuelve `deduct`. */
+async function consumoInterno(q: Queryable, publicId: string): Promise<string> {
+  return String(
+    (
+      await q.query<{ consumo_id: string }>(
+        'SELECT consumo_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND public_id = $1',
+        [publicId],
+      )
+    ).rows[0]!.consumo_id,
+  );
 }
 
 export class ValidacionResponse {
@@ -91,7 +140,28 @@ export class ValidacionResponse {
     description: 'Plato del almuerzo preordenado. Siempre null aquí: un canje directo no tiene preorden (el menú tiene varios platos)',
   })
   platoNombre!: string | null;
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización final (`estimada: false`) del almuerzo (y de `items`) con lo que de verdad pasó con el plan. Con cuenta, la de la cuenta. ' +
+      'null si el código no identificó a nadie (QR inválido, vencido u otro local), si el comensal no es cliente y no se mandó `items` ni ' +
+      '`cobro`, o si el almuerzo no tiene precio y ningún plan lo cubrió.',
+  })
+  cotizacion!: CotizacionResponse | null;
+  @ApiProperty({
+    type: CuentaResponse,
+    nullable: true,
+    description:
+      'La cuenta del QR. null sin `items` ni `cobro`, si el plan cubrió todo sin platos (nada por cobrar) o con DUPLICADO / LIMITE_SAAS.',
+  })
+  cuenta!: CuentaResponse | null;
+  @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de esta validación (p. ej. DUPLICADO, LIMITE_SAAS)' })
+  avisos!: { codigo: string; lineaRef: string | null }[];
 }
+
+/** Lo que responde `deduct`: el resultado del descuento, sin cliente ni cobro. */
+type ResultadoDescuento = Omit<ValidacionResponse, 'cliente' | 'cotizacion' | 'cuenta' | 'avisos'>;
 
 interface QrCheck {
   resultado: 'VALIDO' | 'QR_EXPIRADO' | 'QR_INVALIDO';
@@ -156,81 +226,250 @@ export class CheckoutService {
   async validate(dto: ValidarDto, key: string): Promise<ValidacionResponse> {
     if (Boolean(dto.codigoQr) === Boolean(dto.clienteId)) throw new BadRequestException('Envía codigoQr o clienteId (uno de los dos).');
     const qr = dto.codigoQr ? await this.checkQr(dto.codigoQr) : null;
-    const canal = qr ? 'QR' : 'MANUAL';
-    const eventos = this.passEvents.pending();
+    const intento = async () => {
+      const eventos = this.passEvents.pending();
+      const res = await this.db.forRequest((q) => this.validateIn(q, dto, key, qr, eventos));
+      return { res, eventos };
+    };
+    let hecho: Awaited<ReturnType<typeof intento>>;
+    try {
+      try {
+        hecho = await intento();
+      } catch (err) {
+        // Dos validaciones simultáneas con la misma llave y cuenta: la segunda choca con la cuenta de la primera
+        // (índices únicos) y, al repetirse, la encuentra y responde lo mismo (patrón de src/checkout/pos.ts).
+        const e = err as { code?: string; constraint?: string };
+        if (e?.code !== '23505' || !['uq_cuenta_clave', 'uq_cuenta_por_consumo'].includes(e.constraint ?? '')) throw err;
+        hecho = await intento();
+      }
+    } catch (err) {
+      throw errorDePago(err);
+    }
+    hecho.eventos.flush(); // CANJE_REGISTRADO al comensal: solo con el COMMIT hecho
+    return hecho.res;
+  }
 
-    const res = await this.db.forRequest(async (q) => {
-      // Canje directo por QR o manual (sin preorden): exige el menú de hoy publicado. Los pedidos preordenados se
-      // canjean por `POST /v1/caja/pedidos/{id}/canjear`, que no depende de que el menú siga publicado.
-      await assertMenuPublicado(q);
-      const ctx = (
-        await q.query<{ public_id: string; personal_id: string }>(
-          `SELECT r.public_id, ${PERSONAL_ACTUAL} AS personal_id FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
+  /**
+   * Validar en caja (E.4). Sin `items` ni `cobro`, lo de siempre (más `cotizacion` informativa, `cuenta: null`).
+   * Con alguno de los dos, además de descontar el plan, cotiza con la regla única (B.3) y abre la cuenta del QR si hay
+   * platos o algo por cobrar: de origen el consumo (con plan) o el intento de escaneo (sin plan); con
+   * `cobro.metodoPago`, la paga en la misma transacción. DUPLICADO y LIMITE_SAAS no cobran nada (I-10).
+   */
+  private async validateIn(
+    q: Queryable,
+    dto: ValidarDto,
+    key: string,
+    qr: QrCheck | null,
+    eventos: PendingPassEvents,
+  ): Promise<ValidacionResponse> {
+    const canal = qr ? 'QR' : 'MANUAL';
+    const conCuenta = dto.items !== undefined || dto.cobro !== undefined;
+    // Canje directo por QR o manual (sin preorden): exige el menú de hoy publicado. Los pedidos preordenados se
+    // canjean por `POST /v1/caja/pedidos/{id}/canjear`, que no depende de que el menú siga publicado.
+    await assertMenuPublicado(q);
+    const ctx = (
+      await q.query<{ public_id: string; personal_id: string; precio: string; recargo: string; momento: MomentoCobro; moneda: string }>(
+        `SELECT r.public_id, ${PERSONAL_ACTUAL} AS personal_id, r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo,
+                r.momento_cobro AS momento, r.moneda_codigo AS moneda
+           FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
+      )
+    ).rows[0]!;
+    const sinCobro = { cotizacion: null, cuenta: null, avisos: [] };
+    const registrarIntento = async (resultado: Resultado, usuarioId?: string) =>
+      String(
+        (
+          await q.query<{ intento_id: string }>(
+            `INSERT INTO intento_escaneo (restaurante_id, personal_id, usuario_id, canal, resultado) VALUES (app_tenant_id(), $1, $2, $3, $4)
+             RETURNING intento_id`,
+            [ctx.personal_id, usuarioId ?? null, canal, resultado],
+          )
+        ).rows[0]!.intento_id,
+      );
+    const rechazo = (resultado: Resultado): ResultadoDescuento & Pick<ValidacionResponse, 'cliente'> => ({
+      resultado,
+      mensaje: RESULTADOS[resultado],
+      descontado: false,
+      cliente: null,
+      consumo: null,
+      plan: null,
+      almuerzosRestantes: null,
+      diasParaVencer: null,
+      platoNombre: null,
+    });
+    const fail = async (resultado: Resultado, usuarioId?: string): Promise<ValidacionResponse> => {
+      await registrarIntento(resultado, usuarioId);
+      return { ...rechazo(resultado), ...sinCobro };
+    };
+
+    // Quién es: cliente del local (con plan o no) o, por QR, un comensal que no es cliente (sin plan).
+    let clienteId = dto.clienteId;
+    let usuarioSinCliente: string | null = null;
+    if (qr) {
+      if (qr.resultado !== 'VALIDO') return fail(qr.resultado, qr.usuarioId);
+      if (qr.restaurantPublicId && qr.restaurantPublicId !== ctx.public_id) return fail('OTRO_LOCAL', qr.usuarioId);
+      const c = await q.query<{ cliente_id: string }>(
+        'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = app_tenant_id() AND usuario_id = $1 AND activo',
+        [qr.usuarioId],
+      );
+      if (c.rows[0]) clienteId = String(c.rows[0].cliente_id);
+      else if (!conCuenta) return fail('SIN_PLAN', qr.usuarioId);
+      else usuarioSinCliente = qr.usuarioId!;
+    }
+    const cliente = clienteId
+      ? (
+          await q.query<{ nombre: string; usuario_id: string | null }>(
+            'SELECT nombre, usuario_id FROM cliente_restaurante WHERE restaurante_id = app_tenant_id() AND cliente_id = $1 AND activo',
+            [clienteId],
+          )
+        ).rows[0]
+      : undefined;
+    if (clienteId && !cliente) throw new NotFoundException('Cliente no encontrado o inactivo.');
+    if (dto.mesaLocalId) {
+      const m = await q.query('SELECT 1 FROM mesa_local WHERE restaurante_id = app_tenant_id() AND mesa_local_id = $1 AND activo', [
+        dto.mesaLocalId,
+      ]);
+      if (!m.rowCount) throw new BadRequestException('mesaLocalId no existe o está inactiva.');
+    }
+
+    // Idempotencia (F.3): la cuenta guarda la huella del cuerpo. Misma llave con otro cuerpo → 409; con el mismo, la misma respuesta.
+    const items = (dto.items ?? []).map((i) => ({ plato: i.plato.toLowerCase(), cantidad: i.cantidad }));
+    const firma = huella({
+      validar: clienteId ? { cliente: clienteId } : { usuario: usuarioSinCliente },
+      paraLlevar: dto.paraLlevar ?? false,
+      mesaLocalId: dto.mesaLocalId ?? null,
+      items: conCuenta ? [...items].sort((a, b) => a.plato.localeCompare(b.plato)) : null,
+      cobro: normalizarCobro(dto.cobro ?? null),
+    });
+    const previa = await cuentaPorClave(q, key, '0');
+    if (previa && (previa.huella !== firma || (previa.consumo_id === null && previa.intento_id === null)))
+      throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó con otro cuerpo o en otra operación.');
+    // La misma clave no puede servir para otro cliente (la función de base solo mira restaurante + clave).
+    const prev = await q.query<{ cliente_id: string }>(
+      'SELECT cliente_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
+      [key],
+    );
+    if (prev.rows[0] && String(prev.rows[0].cliente_id) !== clienteId)
+      throw new ConflictException('Esa Idempotency-Key ya se usó para otro cliente.');
+    if (previa?.intento_id) {
+      // Reintento de una cuenta sin consumo: la respuesta sale del intento guardado (no se vuelve a escanear).
+      const i = (
+        await q.query<{ resultado: Resultado }>(
+          'SELECT resultado FROM intento_escaneo WHERE restaurante_id = app_tenant_id() AND intento_id = $1',
+          [previa.intento_id],
         )
       ).rows[0]!;
-      const fail = async (resultado: Resultado, usuarioId?: string): Promise<ValidacionResponse> => {
-        await q.query(
-          `INSERT INTO intento_escaneo (restaurante_id, personal_id, usuario_id, canal, resultado) VALUES (app_tenant_id(), $1, $2, $3, $4)`,
-          [ctx.personal_id, usuarioId ?? null, canal, resultado],
-        );
-        return {
-          resultado,
-          mensaje: RESULTADOS[resultado],
-          descontado: false,
-          cliente: null,
-          consumo: null,
-          plan: null,
-          almuerzosRestantes: null,
-          diasParaVencer: null,
-          platoNombre: null,
-        };
+      const cuenta = await renderCuenta(q, String(previa.cuenta_id));
+      return {
+        ...rechazo(i.resultado),
+        cliente: clienteId ? { id: clienteId, nombre: cliente!.nombre } : null,
+        cotizacion: cuenta.cotizacion,
+        cuenta,
+        avisos: [],
       };
+    }
 
-      let clienteId = dto.clienteId;
-      if (qr) {
-        if (qr.resultado !== 'VALIDO') return fail(qr.resultado, qr.usuarioId);
-        if (qr.restaurantPublicId && qr.restaurantPublicId !== ctx.public_id) return fail('OTRO_LOCAL', qr.usuarioId);
-        const c = await q.query<{ cliente_id: string }>(
-          'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = app_tenant_id() AND usuario_id = $1 AND activo',
-          [qr.usuarioId],
-        );
-        if (!c.rows[0]) return fail('SIN_PLAN', qr.usuarioId);
-        clienteId = String(c.rows[0].cliente_id);
-      }
-      const cliente = (
-        await q.query<{ nombre: string }>(
-          'SELECT nombre FROM cliente_restaurante WHERE restaurante_id = app_tenant_id() AND cliente_id = $1 AND activo',
-          [clienteId],
-        )
-      ).rows[0];
-      if (!cliente) throw new NotFoundException('Cliente no encontrado o inactivo.');
-      if (dto.mesaLocalId) {
-        const m = await q.query('SELECT 1 FROM mesa_local WHERE restaurante_id = app_tenant_id() AND mesa_local_id = $1 AND activo', [
-          dto.mesaLocalId,
-        ]);
-        if (!m.rowCount) throw new BadRequestException('mesaLocalId no existe o está inactiva.');
-      }
-      // La misma clave no puede servir para otro cliente (la función de base solo mira restaurante + clave).
-      const prev = await q.query<{ cliente_id: string }>(
-        'SELECT cliente_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
-        [key],
-      );
-      if (prev.rows[0] && String(prev.rows[0].cliente_id) !== clienteId)
-        throw new ConflictException('Esa Idempotency-Key ya se usó para otro cliente.');
+    const precios = { precioAlmuerzo: Number(ctx.precio), recargoLlevar: Number(ctx.recargo), momentoCobro: ctx.momento };
+    const resueltos = conCuenta && !previa ? await resolverPlatosSueltos(q, items) : [];
+    const entrada = (plan: PlanPersona, conItems = true) =>
+      entradaQr({ ...precios, paraLlevar: dto.paraLlevar ?? false, plan, items: conItems ? resueltos : [] });
+    const sinPrecio = () => conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
 
-      const r = await this.deduct(q, {
-        clienteId: clienteId!,
-        personalId: ctx.personal_id,
-        key,
-        canal,
-        paraLlevar: dto.paraLlevar ?? false,
-        mesaLocalId: dto.mesaLocalId,
-        eventos,
-      });
-      return { ...r, cliente: { id: clienteId!, nombre: cliente.nombre } };
+    let base: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>;
+    let cot: Cotizacion | null = null;
+    let consumos: string[] = [];
+    let intentoId: string | null = null;
+    if (clienteId) {
+      let r: ResultadoDescuento | null = null;
+      const descontar = async () => {
+        r = await this.deduct(q, {
+          clienteId: clienteId!,
+          personalId: ctx.personal_id,
+          key,
+          canal,
+          paraLlevar: dto.paraLlevar ?? false,
+          mesaLocalId: dto.mesaLocalId,
+          eventos,
+        });
+        const consumoId = r.descontado && r.consumo ? await consumoInterno(q, r.consumo.id) : null;
+        return { estado: estadoPlanDe(r.resultado), consumoId };
+      };
+      try {
+        ({ cotizacion: cot, consumos } = await descontarYRecotizar(entrada({ estado: 'OK', disponibles: 1 }), () => descontar()));
+      } catch (e) {
+        if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
+        if (conCuenta) throw sinPrecio();
+        // Sin cuenta, como siempre: el almuerzo sin precio (I-12) no impide validar; solo no hay cotización.
+      }
+      if (!r) await descontar();
+      base = { ...r!, cliente: { id: clienteId, nombre: cliente!.nombre } };
+      if (previa?.consumo_id) {
+        // Reintento con cuenta: el consumo es el mismo (la función de base lo reconoce por la llave) y la cuenta también.
+        const cuenta = await renderCuenta(q, String(previa.cuenta_id));
+        return { ...base, cotizacion: cuenta.cotizacion, cuenta, avisos: [] };
+      }
+      if (!consumos.length && conCuenta)
+        intentoId =
+          (
+            await q.query<{ intento_id: string }>(
+              `SELECT intento_id FROM intento_escaneo WHERE restaurante_id = app_tenant_id() AND cliente_id = $1 AND creado_en = CURRENT_TIMESTAMP
+              ORDER BY intento_id DESC LIMIT 1`,
+              [clienteId],
+            )
+          ).rows[0]?.intento_id ?? null;
+    } else {
+      // QR de un comensal que no es cliente del local (solo con items o cobro): el almuerzo va a caja.
+      intentoId = await registrarIntento('SIN_PLAN', usuarioSinCliente!);
+      base = rechazo('SIN_PLAN');
+      try {
+        cot = cotizar(entrada(SIN_PLAN), { estimada: false });
+      } catch (e) {
+        if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO') throw sinPrecio();
+        throw e;
+      }
+    }
+
+    // DUPLICADO y LIMITE_SAAS no cobran nada (I-10): ni el almuerzo (omitido) ni los platos; sin cuenta.
+    if (base.resultado === 'DUPLICADO' || base.resultado === 'LIMITE_SAAS') {
+      const omitida = cotizar(entrada({ estado: base.resultado, disponibles: 0 }, false), { estimada: false });
+      return { ...base, cotizacion: aRespuesta(omitida, ctx.moneda), cuenta: null, avisos: omitida.avisos };
+    }
+    if (!conCuenta || !cot)
+      return { ...base, cotizacion: cot ? aRespuesta(cot, ctx.moneda) : null, cuenta: null, avisos: cot?.avisos ?? [] };
+
+    const saldo = cot.saldoPorCobrarCentavos;
+    if (dto.cobro?.saldoEsperadoCentavos !== undefined && dto.cobro.saldoEsperadoCentavos !== saldo)
+      throw saldoCambio(saldo, { saldoEsperadoCentavos: dto.cobro.saldoEsperadoCentavos, cotizacion: aRespuesta(cot, ctx.moneda) });
+    // Sin platos y sin nada por cobrar no hay cuenta (G-17): el plan cubrió todo.
+    if (!resueltos.length && saldo === 0) return { ...base, cotizacion: aRespuesta(cot, ctx.moneda), cuenta: null, avisos: cot.avisos };
+    // La llave ya descontó este almuerzo en una validación sin cuenta: crear la cuenta ahora sería otro cuerpo.
+    if (prev.rows[0])
+      throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para validar sin cuenta: usa una llave nueva.');
+
+    const nombreSinCliente = usuarioSinCliente
+      ? (await q.query<{ nombre: string }>('SELECT nombre FROM usuario WHERE usuario_id = $1', [usuarioSinCliente])).rows[0]!.nombre
+      : null;
+    const cuentaId = await persistirCuenta(q, {
+      key,
+      pagadorRef: '0',
+      origen: consumos[0] ? { tipo: 'CONSUMO', consumoId: consumos[0] } : { tipo: 'INTENTO', intentoId: intentoId! },
+      cotizacion: cot,
+      consumos,
+      pagador: clienteId
+        ? { clienteId, usuarioId: cliente!.usuario_id === null ? null : String(cliente!.usuario_id), nombre: cliente!.nombre }
+        : { clienteId: null, usuarioId: usuarioSinCliente, nombre: nombreSinCliente! },
+      momentoCobro: ctx.momento,
+      paraLlevar: dto.paraLlevar ?? false,
+      huella: firma,
     });
-    eventos.flush(); // CANJE_REGISTRADO al comensal: solo con el COMMIT hecho
-    return res;
+    if (dto.cobro?.metodoPago && saldo > 0)
+      await registrarPago(
+        q,
+        cuentaId,
+        { ...dto.cobro, metodoPago: dto.cobro.metodoPago, saldoEsperadoCentavos: saldo },
+        clavePagoEnElPaso(key, '0'),
+      );
+    const cuenta = await renderCuenta(q, cuentaId);
+    return { ...base, cotizacion: cuenta.cotizacion, cuenta, avisos: cot.avisos };
   }
 
   /** Llama a la función atómica de la base (FIFO, duplicado, idempotencia, límite SaaS) y arma la respuesta. */
@@ -251,7 +490,7 @@ export class CheckoutService {
       /** Platos de la preorden, para el evento. */
       platoNombre?: string | null;
     },
-  ): Promise<Omit<ValidacionResponse, 'cliente'>> {
+  ): Promise<ResultadoDescuento> {
     const f = (
       await q.query<{
         resultado: Resultado;
@@ -593,10 +832,23 @@ export class CheckoutController {
       'Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: ' +
       Object.entries(RESULTADOS)
         .map(([k, v]) => `**${k}**: ${v}`)
-        .join(' · '),
+        .join(' · ') +
+      '. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del ' +
+      'intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. ' +
+      'Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.',
   })
   @ApiOkResponse({ type: ValidacionResponse })
-  @ApiProblems({ 409: ['MENU_NO_PUBLICADO'] })
+  @ApiProblems({
+    409: [
+      'MENU_NO_PUBLICADO',
+      'SALDO_CAMBIO',
+      'ALMUERZO_SIN_PRECIO',
+      'PLATO_AGOTADO',
+      'REFERENCIA_PAGO_REPETIDA',
+      'IDEMPOTENCY_KEY_REUTILIZADA',
+    ],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+  })
   validate(@Body() dto: ValidarDto, @IdempotencyKey() key: string) {
     return this.checkout.validate(dto, key);
   }

@@ -107,6 +107,15 @@ class CierreRegistradoResponse {
   movimientosDespuesDelCierre!: boolean;
 }
 
+class CuentasAbiertasResponse {
+  @ApiProperty({ example: 2, description: 'Cuentas de cobro ABIERTAS de ese día local' }) cantidad!: number;
+  @ApiProperty({
+    example: 850,
+    description: 'Σ saldo pendiente de esas cuentas, centavos (lo pagado, aunque esté PENDIENTE, ya se descontó)',
+  })
+  saldoCentavos!: number;
+}
+
 export class CierreCajaResponse {
   @ApiProperty({ example: '2026-11-13' }) fecha!: string;
   @ApiProperty({ example: 4400 }) efectivoEsperadoCentavos!: number;
@@ -117,6 +126,13 @@ export class CierreCajaResponse {
   @ApiProperty({ example: 6 }) almuerzosSueltos!: number;
   @ApiProperty({ example: 3 }) almuerzosParaLlevar!: number;
   @ApiProperty({ example: 1, description: 'Pagos por confirmar ese día' }) pagosPendientes!: number;
+  @ApiProperty({
+    type: CuentasAbiertasResponse,
+    description:
+      'Cuentas de cobro que siguen ABIERTAS (se fueron sin pagar o falta cobrar): se informan, no bloquean el cierre (I-15). No cambian los ' +
+      'totales: los pagos de cuentas ya están en `porMetodo` (en `posCentavos`), una sola vez.',
+  })
+  cuentasAbiertas!: CuentasAbiertasResponse;
   @ApiProperty({ type: CierreRegistradoResponse, nullable: true, description: 'null si la caja no se cerró' })
   cierre!: CierreRegistradoResponse | null;
 }

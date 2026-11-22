@@ -51,6 +51,7 @@ import {
   cuentaPorClave,
   descontarYRecotizar,
   errorDePago,
+  normalizarCobro,
   estadoPlanDe,
   persistirCuenta,
   registrarPago,
@@ -768,19 +769,6 @@ class PedidoCanjeResponse {
   cuenta!: CuentaResponse | null;
   @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de este canje (p. ej. DUPLICADO, LIMITE_SAAS)' })
   avisos!: { codigo: string; lineaRef: string | null }[];
-}
-
-/** Forma estable del `cobro` para la huella: los opcionales ausentes cuentan como sus valores por defecto. */
-function normalizarCobro(c: CobroDto | null) {
-  if (!c) return null;
-  return {
-    metodoPago: c.metodoPago ?? null,
-    saldoEsperadoCentavos: c.saldoEsperadoCentavos ?? null,
-    montoCentavos: c.montoCentavos ?? null,
-    pagoConfirmado: c.pagoConfirmado ?? false,
-    comprobanteUrl: c.comprobanteUrl ?? null,
-    referenciaExterna: c.referenciaExterna ?? null,
-  };
 }
 
 export class CanjearPedidoDto {
