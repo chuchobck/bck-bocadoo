@@ -11,6 +11,7 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:db": "vitest run --config vitest.db.config.ts",
+    "test:db:local": "bash scripts/test-db-local.sh",
     "typecheck": "tsc --noEmit",
     "openapi:export": "nest build && node dist/openapi-export.js",
     "openapi:lint": "spectral lint docs/openapi.json --fail-severity=warn",
