@@ -38,6 +38,8 @@ describe('OpenAPI', () => {
       }
     };
     walk(doc);
-    expect(names.filter((n) => /comisi|commission|tasa/i.test(n))).toEqual([]);
+    // Por palabras (camelCase, rutas): `cuentasAbiertas` no habla de una «tasa» aunque la contenga entre dos palabras.
+    const palabras = (n: string) => n.split(/(?=[A-Z])|[^A-Za-z]+/).filter(Boolean);
+    expect(names.filter((n) => palabras(n).some((w) => /^(comisi|commission|tasa)/i.test(w)))).toEqual([]);
   });
 });
