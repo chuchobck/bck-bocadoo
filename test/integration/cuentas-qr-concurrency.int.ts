@@ -13,6 +13,7 @@ const E = 75;
 /**
  * PR 5b con conexiones reales y simultáneas (clon descartable, ver scratch-db.ts): agregar y quitar líneas compiten
  * con cobrar por el mismo bloqueo de la cuenta; la misma llave de validar con items crea una sola cuenta.
+ * PR 6b: dos cajas validan el mismo QR a la vez sin items ni cobro (llaves distintas o la misma): una sola cuenta.
  */
 describe.skipIf(!scratch)('PR 5b: cuentas del QR con peticiones simultáneas', () => {
   const k = new DinerKit(scratch as unknown as Probe, 86);
@@ -153,5 +154,77 @@ describe.skipIf(!scratch)('PR 5b: cuentas del QR con peticiones simultáneas', (
           .rows[0]!.n,
     );
     expect(consumos).toBe(1);
+  });
+  /** Cuentas QR y consumos de una persona (por su usuario), leídos como bck_servicio. */
+  const deLaPersona = (usuarioPublicId: string) =>
+    k.h.db.service(async (q) => {
+      const r = await q.query<{ cuentas: number; consumos: number; intentos: string[] }>(
+        `SELECT (SELECT count(*)::int FROM cuenta_cobro c WHERE c.usuario_id = u.usuario_id) AS cuentas,
+                (SELECT count(*)::int FROM consumo_almuerzo k JOIN cliente_restaurante cr ON cr.cliente_id = k.cliente_id
+                  WHERE cr.usuario_id = u.usuario_id) AS consumos,
+                ARRAY(SELECT i.resultado::text FROM intento_escaneo i WHERE i.usuario_id = u.usuario_id ORDER BY 1) AS intentos
+           FROM usuario u WHERE u.public_id = $1`,
+        [usuarioPublicId],
+      );
+      return r.rows[0]!;
+    });
+
+  it('dos cajas validan a la vez el mismo QR sin plan (llaves distintas): una cuenta ABIERTA y un DUPLICADO', async () => {
+    const l = await local();
+    const cajero = await k.h.cashier(l.o.restaurante);
+    for (let i = 0; i < 4; i++) {
+      const d = await k.diner();
+      const qr = await codigo(l, d);
+      const res = await Promise.all([
+        k.as(l.o).post('/v1/caja/validar', { codigoQr: qr }, randomUUID()),
+        k.as(cajero).post('/v1/caja/validar', { codigoQr: qr }, randomUUID()),
+      ]);
+      expect(
+        res.map((r) => r.statusCode),
+        res.map((r) => r.body).join(),
+      ).toEqual([200, 200]);
+      const resultados = res.map((r) => r.json().resultado as string).sort();
+      expect(resultados).toEqual(['DUPLICADO', 'SIN_PLAN']);
+      const conCuenta = res.find((r) => r.json().resultado === 'SIN_PLAN')!.json();
+      expect(conCuenta.cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: P });
+      expect(res.find((r) => r.json().resultado === 'DUPLICADO')!.json()).toMatchObject({
+        cuenta: null,
+        cotizacion: { saldoPorCobrarCentavos: 0 },
+      });
+      expect(await deLaPersona(d.usuarioId)).toEqual({ cuentas: 1, consumos: 0, intentos: ['DUPLICADO', 'SIN_PLAN'] });
+    }
+  });
+
+  it('dos cajas validan a la vez el mismo QR con plan para llevar: un descuento, una cuenta de R y un DUPLICADO', async () => {
+    const l = await local();
+    const cajero = await k.h.cashier(l.o.restaurante);
+    for (let i = 0; i < 3; i++) {
+      const d = await k.dinerWithPlan(l.o);
+      const qr = await codigo(l, d);
+      const res = await Promise.all([
+        k.as(l.o).post('/v1/caja/validar', { codigoQr: qr, paraLlevar: true }, randomUUID()),
+        k.as(cajero).post('/v1/caja/validar', { codigoQr: qr, paraLlevar: true }, randomUUID()),
+      ]);
+      expect(res.map((r) => r.json().resultado as string).sort(), res.map((r) => r.body).join()).toEqual(['DUPLICADO', 'OK']);
+      expect(res.find((r) => r.json().resultado === 'OK')!.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: R });
+      expect(res.find((r) => r.json().resultado === 'DUPLICADO')!.json().cuenta).toBeNull();
+      expect(await deLaPersona(d.usuarioId)).toMatchObject({ cuentas: 1, consumos: 1 });
+    }
+  });
+
+  it('el mismo QR sin plan y la misma llave en 4 peticiones simultáneas: una cuenta, un intento, la misma respuesta', async () => {
+    const l = await local();
+    const d = await k.diner();
+    const body = { codigoQr: await codigo(l, d), paraLlevar: true };
+    const key = randomUUID();
+    const res = await Promise.all(Array.from({ length: 4 }, () => k.as(l.o).post('/v1/caja/validar', body, key)));
+    expect(
+      res.map((r) => r.statusCode),
+      res.map((r) => r.body).join(),
+    ).toEqual(Array(4).fill(200));
+    expect(res.map((r) => r.json().resultado)).toEqual(Array(4).fill('SIN_PLAN'));
+    expect(new Set(res.map((r) => r.json().cuenta.id)).size).toBe(1);
+    expect(res[0]!.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: P + R });
+    expect(await deLaPersona(d.usuarioId)).toEqual({ cuentas: 1, consumos: 0, intentos: ['SIN_PLAN'] });
   });
 });
