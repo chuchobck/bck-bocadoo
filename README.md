@@ -16,21 +16,21 @@ Roles: `bck_api` (RLS, pooler), `bck_servicio` (BYPASSRLS), `neondb_owner` (solo
 
 ## Pruebas
 
-    pnpm test        # unitarias y e2e, sin base de datos
-    pnpm test:db     # integración (RLS, multi-tenant) contra la base de .env: Neon o un Postgres 16 local
+    pnpm test             # unitarias y e2e, sin base de datos
+    pnpm test:db:local    # integración (RLS, multi-tenant) contra bocadoo-test-pg (Postgres 16 en Docker, puerto 55432)
 
-`pnpm test:db` necesita las tres URLs de `.env` y los roles `bck_api` (sujeto a RLS) y `bck_servicio` (BYPASSRLS) con el esquema y el seed aplicados.
+Las pruebas **nunca** corren contra Neon: `pnpm test:db` no lee `.env` y aborta si alguna URL no es local. Cómo levantar `bocadoo-test-pg` y qué barreras hay, en `docs/pruebas.md`.
 Con pnpm 11, si pide aprobar scripts de build: `pnpm approve-builds`.
 
 ## Migraciones
 
-dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` en `.env`, sin `-pooler`).
+dbmate, con la conexión **directa** de `neondb_owner` (`DATABASE_MIGRATE_URL` en `.env`, sin `-pooler`). Siempre imprime el host de destino; contra Neon exige `--remoto`, `db/migrations` sin cambios sin commitear y escribir el host para confirmar (detalle en `docs/pruebas.md`).
 
-    pnpm db:status       # qué está aplicado y qué falta
-    pnpm db:migrate      # aplica las pendientes
-    pnpm db:new nombre   # crea una migración nueva
-    pnpm db:rollback     # revierte la última
-    pnpm db:baseline     # una sola vez: registra la baseline aplicada a mano con psql
+    pnpm db:status --remoto     # qué está aplicado y qué falta en Neon
+    pnpm db:migrate --remoto    # aplica las pendientes en Neon (desde la rama, antes del merge)
+    pnpm db:new nombre          # crea una migración nueva (no se conecta)
+    pnpm db:rollback --remoto   # revierte la última
+    pnpm db:baseline --remoto   # una sola vez: registra la baseline aplicada a mano con psql
 
 ## Seguridad
 

@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (cuentas del QR en caja, lista del día y líneas, entrega D PR 5b). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (blindaje de las pruebas contra Neon; PR 5b mezclado en `main` y su migración aplicada en Neon). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,11 +17,22 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; **su migración aún no está en Neon**) hechos; siguen PR 6 (mesa: la selección pasa a cobro, `salir`) en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; siguen PR 6 (mesa: la selección pasa a cobro, `salir`) en adelante (H.1).
 
-## Cuentas del QR en caja, lista del día y líneas (entrega D, PR 5b; rama `feat/cuentas-caja-5b`)
+## Blindaje de las pruebas contra Neon (rama `chore/blindar-pruebas-db`)
 
-**Una migración** (`20261121160000_referencia_pago_por_restaurante`, **pendiente de aplicar en Neon**: la aplica el responsable antes del merge; probada solo en `bocadoo-test-pg`) **y sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores). Cierra INC-04 para el QR (validar con `cobro` deja cuenta y pago registrados). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+Sin migraciones ni cambios de contrato. Detalle y comandos en [`docs/pruebas.md`](pruebas.md).
+
+- [x] `vitest.db.config.ts` ya no lee `.env`; su `globalSetup` aborta si alguna `DATABASE_*`, `PROBE_*`, `PGHOST` o `PGHOSTADDR` no tiene host local (host parseado, nunca búsqueda de texto) y, ya conectado, si el servidor define `neon.tenant_id`.
+- [x] `src/jobs/cli.ts` carga `.env` solo al lanzarse como proceso (importado desde `jobs-concurrency.int.ts` lo cargaba en el worker).
+- [x] `scripts/db.mjs` imprime siempre el destino; fuera de local exige `--remoto`, `db/migrations` sin cambios y escribir el host. No exige `main`. `scripts/load-seed.mjs` con la misma barrera.
+- [x] `pnpm test:db:local` (`scripts/test-db-local.sh`) contra `bocadoo-test-pg`.
+- [x] Unitarias de la validación del host: `test/unit/db-guard.spec.ts`.
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (950). Integración contra `bocadoo-test-pg`: **47 de 47 suites, 386 de 386** en la última corrida completa. En la primera fallaron 2 intermitentes (`catalog` «Concurrido», minutos restantes 13,8 en vez de ~20; `cuentas-qr` «sin N+1», 5 cuentas en vez de 6) y, al repetir esas dos suites 3 veces, falló una vez otra de `cuentas-qr` (G-48); `cuentas-qr` también falla de forma intermitente en `main` con el mismo entorno (otra prueba: «cuentasAbiertas»).
+
+## Cuentas del QR en caja, lista del día y líneas (entrega D, PR 5b; mezclado en `main`)
+
+**Una migración** (`20261121160000_referencia_pago_por_restaurante`, **aplicada en Neon** antes del merge: 23 aplicadas, 0 pendientes; las pruebas, solo en `bocadoo-test-pg`) **y sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores). Cierra INC-04 para el QR (validar con `cobro` deja cuenta y pago registrados). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
 
 ### Checklist
 
