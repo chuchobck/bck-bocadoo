@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanPersona } from '../../src/billing/tipos';
-import { type PlatoSuelto, SIN_PLAN, entradaPedido } from '../../src/cobro/adaptador';
+import { type MiembroParaCobro, type PlatoSuelto, SIN_PLAN, entradaMesa, entradaPedido } from '../../src/cobro/adaptador';
 import { type ResultadoDescuento, descontarYRecotizar, estadoPlanDe } from '../../src/cobro/aplicar';
 import { deriveKey, huella } from '../../src/common/derive-key';
 
@@ -97,5 +97,71 @@ describe('descontarYRecotizar', () => {
         throw new Error('se cayó la base');
       }),
     ).rejects.toThrow('se cayó la base');
+  });
+
+  describe('mesa INVITO_YO: el plan del anfitrión paga en orden y la base manda (B.3 paso 5)', () => {
+    const miembro = (ref: string, extra: Partial<MiembroParaCobro> = {}): MiembroParaCobro => ({
+      ref,
+      esAnfitrion: ref === 'h',
+      paraLlevar: false,
+      plan: SIN_PLAN,
+      seleccion: null,
+      ...extra,
+    });
+    const mesa = (plan: PlanPersona) =>
+      entradaMesa({
+        modo: 'INVITO_YO',
+        base: 'seleccion',
+        precioAlmuerzo: P,
+        recargoLlevar: R,
+        momentoCobro: 'DESPUES_DE_SERVIR',
+        miembros: [miembro('h', { plan }), miembro('g1'), miembro('g2', { paraLlevar: true }), miembro('g3')],
+      });
+    const almuerzos = (c: { lineas: { personaRef: string; tipo: string; fuente: string; omitida: string | null }[] }) =>
+      c.lineas.filter((l) => l.tipo === 'ALMUERZO').map((l) => [l.personaRef, l.fuente, l.omitida]);
+
+    it('G-31: con 2 almuerzos y la base diciendo SIN_SALDO al tercero, los dos últimos van a caja con PLAN_NO_ALCANZA', async () => {
+      const r = await descontarYRecotizar(mesa(ok(5)), async (_u, i) =>
+        i < 2 ? { estado: 'OK', consumoId: String(i + 1) } : { estado: 'SIN_SALDO', consumoId: null },
+      );
+      expect(r.consumos).toEqual(['1', '2']);
+      expect(almuerzos(r.cotizacion)).toEqual([
+        ['h', 'PLAN', null],
+        ['g1', 'PLAN', null],
+        ['g2', 'CAJA', null],
+        ['g3', 'CAJA', null],
+      ]);
+      expect(r.cotizacion).toMatchObject({
+        subtotalCentavos: 4 * P,
+        recargoCentavos: R,
+        cubiertoPorPlanCentavos: 2 * P,
+        saldoPorCobrarCentavos: 2 * P + R,
+      });
+      expect(r.cotizacion.avisos.map((a) => a.codigo)).toContain('PLAN_NO_ALCANZA');
+    });
+
+    it('LIMITE_SAAS a mitad de la mesa: las unidades que quedan se omiten, no se cobran a precio suelto (I-10)', async () => {
+      let llamadas = 0;
+      const r = await descontarYRecotizar(mesa(ok(5)), async () =>
+        ++llamadas <= 2 ? { estado: 'OK', consumoId: String(llamadas) } : { estado: 'LIMITE_SAAS', consumoId: null },
+      );
+      // Tras el primer rechazo ya no se intenta otra unidad del mismo pagador.
+      expect(llamadas).toBe(3);
+      expect(almuerzos(r.cotizacion)).toEqual([
+        ['h', 'PLAN', null],
+        ['g1', 'PLAN', null],
+        ['g2', 'CAJA', 'LIMITE_SAAS'],
+        ['g3', 'CAJA', 'LIMITE_SAAS'],
+      ]);
+      expect(r.cotizacion).toMatchObject({ subtotalCentavos: 2 * P, recargoCentavos: 0, saldoPorCobrarCentavos: 0 });
+      expect(r.cotizacion.avisos.map((a) => a.codigo)).toEqual(['LIMITE_SAAS', 'LIMITE_SAAS']);
+    });
+
+    it('LIMITE_SAAS en la primera unidad: todo omitido, nada por cobrar', async () => {
+      const r = await descontarYRecotizar(mesa(ok(5)), async () => ({ estado: 'LIMITE_SAAS', consumoId: null }));
+      expect(r.consumos).toEqual([]);
+      expect(r.cotizacion.saldoPorCobrarCentavos).toBe(0);
+      expect(almuerzos(r.cotizacion).every(([, , o]) => o === 'LIMITE_SAAS')).toBe(true);
+    });
   });
 });

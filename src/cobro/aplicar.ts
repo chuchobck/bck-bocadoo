@@ -61,9 +61,9 @@ export function estadoPlanDe(resultado: string): EstadoPlan {
  * reclasifican con ese resultado (CAJA, u omitidas con DUPLICADO / LIMITE_SAAS). Devuelve la cotización final
  * (`estimada: false`) y los consumos creados, en el orden de sus líneas PLAN.
  *
- * Límite conocido (relevante desde el PR 6, mesas): si un pagador descuenta k > 0 unidades y la siguiente responde
- * DUPLICADO o LIMITE_SAAS, el resto se cobra como CAJA en vez de omitirse (la cotización pura no distingue el motivo
- * por unidad). En un pedido hay a lo sumo una unidad.
+ * Si un pagador descuenta k > 0 unidades y la siguiente falla, el plan queda «OK con k» y `trasAgotarse` lleva ese
+ * resultado: con DUPLICADO o LIMITE_SAAS el resto se omite (I-10; p. ej. el anfitrión de una mesa INVITO_YO que llega
+ * al límite SaaS a mitad de la mesa); con cualquier otro, va a CAJA con PLAN_NO_ALCANZA.
  */
 export async function descontarYRecotizar(
   entrada: EntradaCobro,
@@ -85,7 +85,8 @@ export async function descontarYRecotizar(
   const personas = entrada.personas.map((p) => {
     const st = porPagador.get(p.ref);
     if (!st) return p;
-    return { ...p, plan: st.ok > 0 ? { estado: 'OK' as const, disponibles: st.ok } : { estado: st.falla ?? 'SIN_PLAN', disponibles: 0 } };
+    if (st.ok === 0) return { ...p, plan: { estado: st.falla ?? 'SIN_PLAN', disponibles: 0 } };
+    return { ...p, plan: { estado: 'OK' as const, disponibles: st.ok, ...(st.falla && { trasAgotarse: st.falla }) } };
   });
   return { cotizacion: cotizar({ ...entrada, personas }, { estimada: false }), consumos };
 }

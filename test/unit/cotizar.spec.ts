@@ -777,6 +777,33 @@ describe('cotizar: líneas omitidas', () => {
     verificarInvariantes(c);
   });
 
+  it.each(['DUPLICADO', 'LIMITE_SAAS'] as const)(
+    'plan OK que se acaba y la base responde %s a la unidad siguiente (trasAgotarse): el resto queda omitido, sin PLAN_NO_ALCANZA',
+    (estado) => {
+      const c = cotizar(simple('QR', true, { estado: 'OK', disponibles: 1, trasAgotarse: estado }, [alm(3)]));
+      expect(resumen(c)).toEqual(['0:ALMUERZO·PLAN×1', `0:ALMUERZO·CAJA×2·${estado}`]);
+      expect(c.avisos).toEqual([{ codigo: estado, lineaRef: '0:0' }]);
+      expect(c.saldoPorCobrarCentavos).toBe(25); // solo el recargo de la unidad cubierta
+      verificarInvariantes(c);
+    },
+  );
+
+  it.each(['SIN_SALDO', 'VENCIDO', 'DIA_NO_VALIDO', 'OK'] as const)(
+    'plan OK que se acaba con trasAgotarse %s: el resto va a CAJA con PLAN_NO_ALCANZA (como sin trasAgotarse)',
+    (estado) => {
+      const c = cotizar(simple('QR', false, { estado: 'OK', disponibles: 1, trasAgotarse: estado }, [alm(2)]));
+      expect(resumen(c)).toEqual(['0:ALMUERZO·PLAN×1', '0:ALMUERZO·CAJA×1']);
+      expect(c.avisos).toEqual([{ codigo: 'PLAN_NO_ALCANZA', lineaRef: '0:0' }]);
+      verificarInvariantes(c);
+    },
+  );
+
+  it('trasAgotarse no cambia nada si el plan no es OK (manda su estado)', () => {
+    const c = cotizar(simple('QR', false, { estado: 'SIN_SALDO', disponibles: 0, trasAgotarse: 'LIMITE_SAAS' }, [alm(1)]));
+    expect(resumen(c)).toEqual(['0:ALMUERZO·CAJA×1']);
+    verificarInvariantes(c);
+  });
+
   it('un almuerzo agotado no se omite: solo se avisa', () => {
     const c = cotizar(mesa('CADA_UNO', [{ ref: 'A', plan: ok(), items: [alm(1, { disponible: false })] }]));
     expect(resumen(c)).toEqual(['A:ALMUERZO·PLAN×1']);

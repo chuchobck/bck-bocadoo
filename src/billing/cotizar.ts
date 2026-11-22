@@ -177,8 +177,10 @@ export function cotizar(entrada: EntradaCobro, opciones: OpcionesCotizar = {}): 
       lineas.push(linea('PLAN', 1, null, refUnidadPlan(item.ref, u)));
     }
     if (resto === 0) continue;
-    if (ESTADOS_OMITEN.has(estado)) {
-      const motivo = estado as MotivoOmision;
+    // Con plan OK que se acabó, manda lo que respondió la base a la unidad siguiente (si se sabe).
+    const estadoResto = estado === 'OK' ? (pagadorPersona.plan.trasAgotarse ?? 'OK') : estado;
+    if (ESTADOS_OMITEN.has(estadoResto)) {
+      const motivo = estadoResto as MotivoOmision;
       lineas.push(linea('CAJA', resto, motivo));
       avisos.push({ codigo: motivo, lineaRef: item.ref });
       continue;
