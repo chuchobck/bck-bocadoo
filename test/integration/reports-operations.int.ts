@@ -17,26 +17,28 @@ describe.skipIf(!probe)('Fase 9: reportes · horas pico, ranking de platos y alm
     const o = await k.activeOwner();
     const plan = await planTemplate(k, o, 'Semanal', 5, 1500);
     const hoy = await localToday(k, o);
-    const lunch = async (hhmm: string) => {
+    const lunch = async (hhmm: string, deshacer = false) => {
       const c = await clientWithPlan(k, o, plan);
       const id = await k.lunch(o, c.clienteId);
+      // Se deshace ANTES de mover la hora: la ventana de deshacer (10 s) se mide contra creado_en, y movido a una hora
+      // pasada del día el 409 saldría según la hora a la que corra la prueba.
+      if (deshacer) expect((await k.as(o).post(`/v1/caja/consumos/${id}/deshacer`, {}, randomUUID())).statusCode).toBe(200);
       await setLocalTime(k, 'consumo_almuerzo', id, hhmm);
       return id;
     };
     for (const t of ['12:05', '12:30', '12:55', '13:10', '13:40', '18:00', '23:30']) await lunch(t);
-    const devuelto = await lunch('12:20');
-    expect((await k.as(o).post(`/v1/caja/consumos/${devuelto}/deshacer`, {}, randomUUID())).statusCode).toBe(200);
+    await lunch('12:20', true);
 
-    const venta = async (hhmm: string) => {
+    const venta = async (hhmm: string, deshacer = false) => {
       const r = await k.as(o).post('/v1/caja/ventas', { items: [{ tipo: 'ALMUERZO', cantidad: 1 }], metodoPago: 'EFECTIVO' }, randomUUID());
-      await setLocalTime(k, 'venta_pos_cabecera', r.json().id, hhmm);
-      return r.json().id as string;
+      const id = r.json().id as string;
+      if (deshacer) expect((await k.as(o).post(`/v1/caja/ventas/${id}/deshacer`, {}, randomUUID())).statusCode).toBe(200);
+      await setLocalTime(k, 'venta_pos_cabecera', id, hhmm);
     };
     await venta('12:15');
     await venta('12:45');
     await venta('20:15');
-    const deshecha = await venta('12:40');
-    expect((await k.as(o).post(`/v1/caja/ventas/${deshecha}/deshacer`, {}, randomUUID())).statusCode).toBe(200);
+    await venta('12:40', true);
 
     const r = (await k.as(o).get(`/v1/reportes/horas-pico?desde=${hoy}&hasta=${hoy}`)).json();
     expect(r.porHora).toHaveLength(24);

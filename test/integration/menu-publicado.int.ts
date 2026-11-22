@@ -55,7 +55,7 @@ describe.skipIf(!probe)('Menú publicado: pase y canje en caja', () => {
     const o = await k.activeOwner();
     await k.menu(o);
     const d = await k.dinerWithPlan(o);
-    const qr = async () => (await codigo(d, o.restaurante)).json().codigo.codigo as string;
+    const qr = async () => (await codigo(d, o.restaurante)).json().codigo as string;
 
     const ok = await validar(o, { clienteId: d.clienteId });
     expect(ok.statusCode, ok.body).toBe(200);
@@ -75,6 +75,8 @@ describe.skipIf(!probe)('Menú publicado: pase y canje en caja', () => {
     expect(await intentos(o)).toBe(antes);
 
     await publicar(o);
+    // La primera validación fue hace segundos: otra del mismo comensal sería DUPLICADO (ventana de 60 s). Se envejece.
+    await k.backdateLunch(ok.json().consumo.id, 2);
     expect((await validar(o, { codigoQr: await qr() }, randomUUID())).json()).toMatchObject({ resultado: 'OK', descontado: true });
   });
 
@@ -144,17 +146,23 @@ describe.skipIf(!probe)('Menú publicado: pase y canje en caja', () => {
     expect(cruzado.json().code).not.toBe('OK');
     expect(await saldo(b, e.clienteId)).toBe(4);
 
-    // Directo en SQL como bck_api: el menú de otro tenant no se ve.
-    const visto = await k.rls(
-      {
-        tenantId: String(
-          (await probe!.sql<{ id: string }>('SELECT restaurante_id AS id FROM restaurante WHERE public_id = $1', [a.restaurante])).rows[0]!
-            .id,
-        ),
-      },
-      'SELECT restaurante_id FROM menu_diario_cabecera',
+    // Directo en SQL como bck_api: el menú es de lectura pública (vitrina, política `lectura_publica`), pero la
+    // escritura sigue aislada por tenant: desde A no se puede despublicar el menú de B.
+    const idDe = async (publicId: string) =>
+      String(
+        (await probe!.sql<{ id: string }>('SELECT restaurante_id AS id FROM restaurante WHERE public_id = $1', [publicId])).rows[0]!.id,
+      );
+    const [idA, idB] = [await idDe(a.restaurante), await idDe(b.restaurante)];
+    const tocadas = await k.h.db.scope(
+      { tenantId: idA },
+      async (q) => (await q.query('UPDATE menu_diario_cabecera SET publicado_en = NULL WHERE restaurante_id = $1', [idB])).rowCount,
     );
-    expect(new Set(visto.map((r) => String(r.restaurante_id))).size).toBeLessThanOrEqual(1);
+    expect(tocadas).toBe(0);
+    const aun = await probe!.sql<{ n: string }>(
+      'SELECT count(*) AS n FROM menu_diario_cabecera WHERE restaurante_id = $1 AND publicado_en IS NOT NULL',
+      [idB],
+    );
+    expect(Number(aun.rows[0]!.n)).toBe(1);
   });
 
   it('decide por la fecha local del restaurante, no por la del servidor', async () => {

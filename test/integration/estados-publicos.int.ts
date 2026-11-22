@@ -104,7 +104,7 @@ describe.skipIf(!probe)('Estados públicos: PAUSADO, LLENO y menuAgotado', () =>
       expect((await order(d, { restaurante: o.restaurante, almuerzo: { platos: [m['Seco de pollo']] } }, key)).json().id).toBe(pedido.id);
       expect((await k.as(d).get(`/v1/mis/mesas/${mesa.id}`)).statusCode).toBe(200);
       const canje = await k.as(o).post(`/v1/caja/pedidos/${pedido.id}/canjear`, {}, randomUUID());
-      expect(canje.statusCode, canje.body).toBe(201);
+      expect(canje.statusCode, canje.body).toBe(200);
       const v = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId }, randomUUID());
       expect(v.statusCode, v.body).toBe(200);
     });

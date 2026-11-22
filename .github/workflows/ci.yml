@@ -54,6 +54,9 @@ jobs:
       DATABASE_MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/bocadoo?sslmode=disable
       DATABASE_URL: postgresql://bck_api:apipw@localhost:5432/bocadoo?sslmode=disable
       DATABASE_SERVICE_URL: postgresql://bck_servicio:svcpw@localhost:5432/bocadoo?sslmode=disable
+      # Superusuario del servicio de CI (descartable): las suites probe hacen SET ROLE a bck_api/bck_servicio y las de
+      # concurrencia clonan la base con CREATE DATABASE ... TEMPLATE. Sin esta variable esas suites se saltan.
+      PROBE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bocadoo?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

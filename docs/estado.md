@@ -47,7 +47,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 - **Resuelto en este PR:** la cuenta de un QR sin plan ya tiene origen (`intento_id`) y el comensal ve los pagos de sus cuentas (`comensal_lee_pagos_cuenta`).
 - **Miembro que salió (PR 6):** las políticas de la entrega C no miran `salio_en`: por RLS puede volver a escribir su selección mientras la mesa siga abierta, sigue contando en el cupo de `fn_mesa_invitacion` y `fn_unirse_mesa` le responde `YA_ERES_MIEMBRO`. Anotado en H.1 (PR 6): se cierra junto con el endpoint `salir`.
 - **Solo el entero del plan:** `fn_plan_pagador_mesa` no dice por qué un pagador tiene 0 (`SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`). Los montos de la cotización no cambian (todos van a `CAJA`), pero los avisos de plan de otro pagador no se pueden mostrar al comensal.
-- **CI no corre las pruebas probe:** el job de integración no define `PROBE_DATABASE_URL`, así que estas suites (y las de la fase 8 en adelante) se saltan en CI; solo corren en local.
+- **CI corre las pruebas probe:** el job de integración define `PROBE_DATABASE_URL` (el superusuario `postgres` del servicio de CI), así que las 43 suites de integración corren en CI. Ojo: las pruebas asumen que la sesión de Postgres está en UTC (como el servicio de CI y Neon); con otra zona en la base fallan `jobs` (límites de partición) y, a veces, `offers-concurrency`.
 
 ## Cotizaciones informativas (entrega D, PR 3; rama `feat/cotizaciones-informativas`)
 
@@ -462,7 +462,7 @@ Los endpoints del personal llevan `Authorization: Bearer …` y `x-restaurant-id
 - ⬜ Columnas y tabla de comisión de la baseline (`catalogo_plan_saas.tasa_comision_*`, `libro_comision_bocadoo`): la API no las usa ni las expone (modelo SaaS), pero siguen en el esquema; quitarlas pide una migración y una decisión.
 - ⬜ `evento_lote` crece sin límite (una fila pequeña por lote): falta una retención (por ejemplo, borrar lotes de más de 30 días en un job).
 - ⬜ Un cliente numérico en `/v1/reportes/clientes-a-contactar` (`clienteId`) se suma a la lista de ids numéricos dentro del tenant de más abajo; se pasará a `public_id` junto con `/v1/clientes`.
-- ⬜ CI: definir `PROBE_DATABASE_URL` (el superusuario `postgres` del servicio) para que las suites de las fases 8 y 9 corran y no se salten. Las de concurrencia de la fase 9 clonan la base con `CREATE DATABASE … TEMPLATE`, que exige que nadie más esté conectado a ella.
+- ✅ CI: `PROBE_DATABASE_URL` definida en el job de integración (superusuario `postgres` del servicio). Las de concurrencia clonan la base con `CREATE DATABASE … TEMPLATE`, que exige que nadie más esté conectado a ella; en `pnpm test:db` las suites corren una a una.
 - ⬜ Pasar al patrón _probe_ las suites de las fases 1–7 que hoy dejan datos (por eso no se corren contra Neon).
 - ⬜ Revisar en Neon el aumento de filas del 2026-11-12 entre 02:30 y 03:04 UTC (≈66 restaurantes y ≈100 usuarios con prefijos de correo de las pruebas de integración); no vino de las corridas de la fase 8, que fueron contra la base local.
 - ⬜ Ids numéricos dentro del tenant en `/v1/clientes`, reclamos y plantillas de plan: evaluar pasarlos a `public_id`.
