@@ -6,6 +6,13 @@ las pruebas de integración. Lo que el código no deja claro está marcado con *
 [Dudas del código](#10-dudas-del-código). El contrato general de la API está en [`api-contrato.md`](./api-contrato.md); el
 aviso en tiempo real, en [`qr-flujo.md`](./qr-flujo.md).
 
+> **Desde el PR 6a (entrega D)** la caja **cobra lo que eligió cada comensal** al validar: descuenta los planes y abre
+> una cuenta por pagador con saldo (`origen: MESA`), que se cobra después en `POST /v1/caja/cuentas/{id}/cobrar`. Un
+> invitado puede **salir** de la mesa antes de la caja (`POST /v1/mis/mesas/{id}/salir`). Lo de esta guía que habla de
+> «1 almuerzo por miembro» y «por cobrar sin registro» es el comportamiento anterior, que sigue disponible con
+> `{ "aplicarSeleccion": false }`. Contrato en [`docs/api-contrato.md`](./api-contrato.md#novedades) y diseño en
+> [`docs/spec-cobros.md`](./spec-cobros.md) (D, E.5–E.7).
+
 ## 1. Resumen del flujo
 
 ```text
@@ -23,38 +30,43 @@ GET /v1/mis/mesas/{id} ◄──────► GET /v1/mis/mesas/{id}
                                                                   GET  /v1/caja/mesas/{id}   (vista previa)
                                                                   POST /v1/caja/mesas/{id}/validar
                                                                     → estado EN_MESA, se descuentan almuerzos
+                                                                      y se abren las cuentas (PR 6a)
+                                                                  POST /v1/caja/cuentas/{id}/cobrar
 (opcional, antes de la caja)
-POST /v1/mis/mesas/{id}/cancelar
-  → estado CANCELADA
+POST /v1/mis/mesas/{id}/cancelar  POST /v1/mis/mesas/{id}/salir
+  → estado CANCELADA                → el invitado deja la mesa
 ```
 
 1. **Crear.** El anfitrión elige restaurante, `horaLlegada` y `modo`. Queda en estado `ABIERTA` y él es el primer miembro.
 2. **Invitar.** La app arma el link con el `id` de la mesa (campo `invitacion`, igual a `id`) y lo comparte.
 3. **Unirse.** El invitado abre el link, la app pide la vista previa y, si `puedeUnirse` es `true`, llama a `unirse`.
 4. **Ver.** Anfitrión y miembros consultan la mesa con `GET /v1/mis/mesas/{id}`; **no hay aviso en tiempo real** (sección 7).
-5. **Salir o cancelar.** Solo el anfitrión puede cancelar, y solo antes de que la caja valide. **No existe un endpoint para que un invitado salga** (no claro: ver dudas).
-6. **Validar.** Cuando llegan, la caja valida **la mesa entera de una vez** (no escanea el QR de cada uno). Ahí se descuentan los almuerzos y la mesa pasa a `EN_MESA`.
+5. **Salir o cancelar.** Solo el anfitrión puede cancelar, y solo antes de que la caja valide. Un invitado puede **salir** (`POST /v1/mis/mesas/{id}/salir`, PR 6a) mientras la caja no valide: se borra su selección, no se le cobra y puede volver con el link.
+6. **Validar.** Cuando llegan, la caja valida **la mesa entera de una vez** (no escanea el QR de cada uno). Ahí se descuentan los almuerzos, se abren las cuentas de lo que falta pagar y la mesa pasa a `EN_MESA`.
+7. **Cobrar.** Cada cuenta `ABIERTA` se cobra en caja (pagos parciales y varios métodos) o se anula.
 
 ### Los dos modos y el saldo de cada comensal
 
 El modo se fija al crear y no se puede cambiar. **Hasta la validación en caja nadie pierde saldo**: crear, unirse y
 cancelar no tocan ningún plan.
 
-| Momento de la validación en caja | `CADA_UNO` (por defecto)                                            | `INVITO_YO`                                                                                                   |
-| -------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Quién paga cada almuerzo         | Cada miembro, con **su propio** plan en ese local                   | El **anfitrión** paga el almuerzo de todos (incluido el suyo), con **su** plan                                |
-| Cuánto se descuenta              | 1 almuerzo del plan de cada miembro que tenga uno                   | 1 almuerzo del plan del anfitrión **por cada miembro**, mientras le alcance                                   |
-| Quien no tiene plan o saldo      | Queda "por cobrar" (`porCobrar`); no se descuenta nada de nadie más | Los miembros que no alcanzan quedan "por cobrar"                                                              |
-| Regla de duplicado (< 60 s)      | **Sí aplica** por comensal                                          | **No aplica** (el anfitrión paga varios seguidos a propósito)                                                 |
-| Saldo del invitado               | Baja 1 si tiene plan                                                | **No cambia**                                                                                                 |
-| Saldo del anfitrión              | Baja 1 (el suyo)                                                    | Baja tantos como miembros cubra                                                                               |
-| Aviso SSE `CANJE_REGISTRADO`     | Uno a **cada** miembro al que se le descontó                        | Uno **por almuerzo**, todos al **anfitrión** (con `saldoRestante` decreciente); los invitados no reciben nada |
+| Momento de la validación en caja | `CADA_UNO` (por defecto)                                                                                              | `INVITO_YO`                                                                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Quién paga cada almuerzo         | Cada miembro, con **su propio** plan en ese local                                                                     | El **anfitrión** paga el almuerzo de todos (incluido el suyo), con **su** plan                                                        |
+| Cuánto se descuenta              | El almuerzo de cada miembro que lo pidió (sin selección = 1), de su plan                                              | El almuerzo de cada miembro que lo pidió, del plan del anfitrión, mientras le alcance (anfitrión primero, luego por orden de llegada) |
+| Qué va a una cuenta (PR 6a)      | Lo de cada uno no cubierto (almuerzo sin plan, recargo, carta, extras, bebidas): **una cuenta por miembro** con saldo | **Todo**, en **una sola cuenta del anfitrión**; lo que su plan no cubre va a precio suelto (`PLAN_NO_ALCANZA`)                        |
+| Quien no tiene plan o saldo      | Su almuerzo va a su cuenta a precio suelto; no se descuenta nada de nadie más                                         | Los almuerzos que no alcanzan van a la cuenta del anfitrión                                                                           |
+| Regla de duplicado (< 60 s)      | **Sí aplica** por comensal                                                                                            | **No aplica** (el anfitrión paga varios seguidos a propósito)                                                                         |
+| Saldo del invitado               | Baja 1 si tiene plan                                                                                                  | **No cambia**                                                                                                                         |
+| Saldo del anfitrión              | Baja 1 (el suyo)                                                                                                      | Baja tantos como miembros cubra                                                                                                       |
+| Aviso SSE `CANJE_REGISTRADO`     | Uno a **cada** miembro al que se le descontó                                                                          | Uno **por almuerzo**, todos al **anfitrión** (con `saldoRestante` decreciente); los invitados no reciben nada                         |
 
 Cada almuerzo sale del plan que vence primero (FIFO) y queda en el historial del pagador con `canal: "MESA"` (lo confirma
 la prueba `diner-tables.int.ts`: `GET /v1/mis/consumos` → `canal: "MESA"`).
 
-El "por cobrar" **no genera ningún registro en el backend**: la respuesta de la caja solo lo cuenta. El cobro suelto lo
-hace el cajero aparte (`docs/estado.md`: "se cobra como venta suelta").
+Desde el PR 6a, lo que falta pagar **queda registrado en cuentas** (`cuentas` en la respuesta de validar): la caja las
+cobra con `POST /v1/caja/cuentas/{id}/cobrar` o las anula. Con `aplicarSeleccion: false` sigue lo anterior: el "por
+cobrar" no genera registro y el cajero lo cobra como venta suelta.
 
 ## 2. Endpoints
 
@@ -137,25 +149,41 @@ si el UUID no existe.
 
 #### Objeto Mesa
 
-| Campo          | Tipo                      | Notas                                                                                                |
-| -------------- | ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `id`           | UUID                      | `public_id` de la mesa                                                                               |
-| `invitacion`   | UUID                      | **Igual a `id`**; lo que va en el link                                                               |
-| `restaurante`  | `{id, nombre, slug}`      |                                                                                                      |
-| `anfitrion`    | `{nombre}`                |                                                                                                      |
-| `soyAnfitrion` | boolean                   | Para mostrar/ocultar "Cancelar"                                                                      |
-| `horaLlegada`  | fecha ISO (UTC)           |                                                                                                      |
-| `modo`         | `CADA_UNO` \| `INVITO_YO` |                                                                                                      |
-| `estado`       | enum                      | `ABIERTA`, `EN_CAMINO`, `EN_MESA`, `FINALIZADA`, `CANCELADA`                                         |
-| `validadaEn`   | fecha ISO \| null         | Cuándo la validó la caja                                                                             |
-| `miembros`     | arreglo                   | El anfitrión primero, luego por orden de unión. Cada uno: `{nombre, esAnfitrion, paraLlevar, soyYo}` |
+| Campo          | Tipo                      | Notas                                                                                                                              |
+| -------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | UUID                      | `public_id` de la mesa                                                                                                             |
+| `invitacion`   | UUID                      | **Igual a `id`**; lo que va en el link                                                                                             |
+| `restaurante`  | `{id, nombre, slug}`      |                                                                                                                                    |
+| `anfitrion`    | `{nombre}`                |                                                                                                                                    |
+| `soyAnfitrion` | boolean                   | Para mostrar/ocultar "Cancelar"                                                                                                    |
+| `horaLlegada`  | fecha ISO (UTC)           |                                                                                                                                    |
+| `modo`         | `CADA_UNO` \| `INVITO_YO` |                                                                                                                                    |
+| `estado`       | enum                      | `ABIERTA`, `EN_CAMINO`, `EN_MESA`, `FINALIZADA`, `CANCELADA`                                                                       |
+| `validadaEn`   | fecha ISO \| null         | Cuándo la validó la caja                                                                                                           |
+| `miembros`     | arreglo                   | El anfitrión primero, luego por orden de unión. Cada uno: `{nombre, esAnfitrion, paraLlevar, soyYo, salio, seleccion, cotizacion}` |
+| `cotizacion`   | objeto \| null            | La de toda la mesa (sin los que salieron); solo para el anfitrión                                                                  |
 
 Los miembros **no traen id** ni saldo: la app solo puede identificarse a sí misma con `soyYo`. El `nombre` es una
 copia del nombre del usuario al momento de unirse.
 
+`salio` (PR 6a): el miembro salió de la mesa. Sigue en la lista para que se vea quién se fue, pero no ocupa lugar, no se
+le cobra y su `seleccion`/`cotizacion` vienen vacías/`null`. `cotizacion` de cada miembro: lo que la caja le cobrará al
+validar (estimada); el anfitrión ve la de todos, un invitado solo la suya. Del plan de otro pagador solo se usa cuántos
+almuerzos cubre hoy, nunca su saldo.
+
 #### Selección de cada comensal (rama `feat/carta-fija-seleccion-mesa`)
 
-Después de crear o unirse, cada miembro puede decir qué va a comer con `PUT /v1/mis/mesas/{id}/seleccion` (reemplaza su selección completa; `{}` la borra): almuerzo por sección del **menú publicado de hoy** más platos sueltos con cantidad (extras del menú o de la carta fija). Se valida con las reglas de los pedidos (`MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `ALMUERZO_INVALIDO`) y además `MESA_CERRADA` y `RESTAURANTE_PAUSADO`. La selección se ve en `miembros[].seleccion`: el anfitrión ve la de todos, un invitado solo la suya (las demás `null`) y la caja la de todos en `GET /v1/caja/mesas/{id}`. Es informativa: validar la mesa no la convierte en cobro.
+Después de crear o unirse, cada miembro puede decir qué va a comer con `PUT /v1/mis/mesas/{id}/seleccion` (reemplaza su selección completa; `{}` la borra): almuerzo por sección del **menú publicado de hoy** más platos sueltos con cantidad (extras del menú o de la carta fija). Se valida con las reglas de los pedidos (`MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `ALMUERZO_INVALIDO`) y además `MESA_CERRADA` y `RESTAURANTE_PAUSADO`. La selección se ve en `miembros[].seleccion`: el anfitrión ve la de todos, un invitado solo la suya (las demás `null`) y la caja la de todos en `GET /v1/caja/mesas/{id}`. **Desde el PR 6a es lo que se cobra** al validar. Quien salió no puede elegir (`409 SALISTE_DE_LA_MESA`).
+
+#### `POST /v1/mis/mesas/{id}/salir` — salir de la mesa (PR 6a)
+
+- **Rol:** un invitado de la mesa (el anfitrión → `409 ANFITRION_NO_PUEDE_SALIR`; puede cancelar). Sin cuerpo y sin
+  `Idempotency-Key` (repetirlo devuelve `200` igual).
+- **Pantalla:** _Ver mesa_ (botón "Salir de la mesa", visible si no `soyAnfitrion` y la mesa sigue abierta).
+- **Response `200`:** objeto **Mesa**, conmigo con `salio: true`.
+- Solo antes de que la caja valide: después → `409 MESA_CERRADA` (si se le cobró algo, su cuenta queda abierta en caja).
+- Puede volver a unirse con el link (mismas reglas que cualquier invitado: cupo, mesa abierta, no vencida); vuelve sin
+  selección.
 
 ### 2.2 Lado de caja
 
@@ -181,23 +209,28 @@ considera los días válidos del plan, el límite SaaS ni el duplicado (sección
 
 #### `POST /v1/caja/mesas/{id}/validar` — validar toda la mesa
 
-- **Rol:** `DUENO` o `CAJERO`. **Cabecera obligatoria:** `Idempotency-Key` (UUID). Sin cuerpo (no mandar `content-type`).
+- **Rol:** `DUENO` o `CAJERO`. **Cabecera obligatoria:** `Idempotency-Key` (UUID). Cuerpo opcional
+  `{ "aplicarSeleccion": true }` (default; `false` = 1 almuerzo por miembro como antes).
 - **Pantalla:** _Validar en caja_ (botón "Validar mesa").
 - **Response `200`:** la vista previa más:
 
-| Campo         | Tipo    | Notas                                                                             |
-| ------------- | ------- | --------------------------------------------------------------------------------- |
-| `yaValidada`  | boolean | `true` si la mesa ya estaba validada: no se descontó nada                         |
-| `resultados`  | arreglo | Uno por miembro, en orden de unión: `{miembro, resultado, descontado, consumoId}` |
-| `descontados` | número  | Cuántos almuerzos se descontaron                                                  |
-| `porCobrar`   | número  | Miembros **no** descontados (`resultados` con `descontado: false`)                |
+| Campo         | Tipo    | Notas                                                                                                            |
+| ------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `yaValidada`  | boolean | `true` si la mesa ya estaba validada: no se descontó nada                                                        |
+| `resultados`  | arreglo | Uno por miembro que sigue en la mesa, en orden de unión: `{miembro, resultado, descontado, consumoId, cuentaId}` |
+| `descontados` | número  | Cuántos almuerzos se descontaron                                                                                 |
+| `porCobrar`   | número  | Almuerzos que van a una cuenta a precio suelto (con `aplicarSeleccion: false`: miembros no descontados)          |
+| `cuentas`     | arreglo | Cuentas `ABIERTA` de la mesa (PR 6a): una por pagador con saldo; una sola del anfitrión en `INVITO_YO`           |
+| `avisos`      | arreglo | `PLAN_NO_ALCANZA`, `PLATO_AGOTADO`, `DUPLICADO`, `LIMITE_SAAS`                                                   |
 
 `resultado` es el mismo catálogo del escáner (`OK`, `OK_ADVERTENCIA`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`,
-`DIA_NO_VALIDO`, `DUPLICADO`, `LIMITE_SAAS`; textos en `RESULTADOS` de `checkout.ts`). `consumoId` sirve para
+`DIA_NO_VALIDO`, `DUPLICADO`, `LIMITE_SAAS`; textos en `RESULTADOS` de `checkout.ts`), o `SIN_ALMUERZO` si el miembro no
+pidió almuerzo (PR 6a). `consumoId` sirve para
 `POST /v1/caja/consumos/{id}/deshacer` (10 s). Quien no tiene ficha de cliente (o el anfitrión sin ficha en `INVITO_YO`) sale como `SIN_PLAN`.
 
 > **Repetir la petición** (misma llave u otra) sobre una mesa ya validada responde `200` con `yaValidada: true`,
-> `resultados: []` y **sin** los campos `descontados` ni `porCobrar`. No reenvía el detalle original (ver dudas).
+> `resultados: []`, `avisos: []` y **las mismas `cuentas`** (PR 6a), sin descontar ni crear nada. La misma llave con otro
+> `aplicarSeleccion` → `409 IDEMPOTENCY_KEY_REUTILIZADA`.
 
 La vista previa y la validación **no** se pueden hacer desde `/v1/mis/*`, y el comensal **no** tiene forma de validar su propia mesa.
 
@@ -335,6 +368,10 @@ El texto de "Qué mostrar" es una **sugerencia** de UX; el código solo define s
 | `POST …/cancelar`                     | 404    | `MESA_NO_ENCONTRADA`                | Igual que arriba                                                                             | Igual; refrescar la lista                                                                            |
 | `POST …/cancelar`                     | 403    | `SOLO_ANFITRION`                    | Un miembro que no es anfitrión intenta cancelar                                              | "Solo quien creó la mesa puede cancelarla" (mejor: no mostrar el botón si `soyAnfitrion` es `false`) |
 | `POST …/cancelar`                     | 409    | `MESA_CERRADA`                      | La mesa ya tiene `validadaEn` o no está `ABIERTA`/`EN_CAMINO` (p. ej. `EN_MESA`)             | "La caja ya validó la mesa; ya no se puede cancelar"; refrescar la mesa                              |
+| `POST …/salir`                        | 404    | `MESA_NO_ENCONTRADA`                | No existe o no soy miembro                                                                   | "No encontramos esta mesa"                                                                           |
+| `POST …/salir`                        | 409    | `ANFITRION_NO_PUEDE_SALIR`          | Soy el anfitrión                                                                             | Ofrecer "Cancelar mesa" (mejor: no mostrar "Salir" si `soyAnfitrion`)                                |
+| `POST …/salir`                        | 409    | `MESA_CERRADA`                      | La caja ya la validó o se canceló                                                            | "La caja ya validó la mesa"; refrescar                                                               |
+| `PUT …/seleccion`                     | 409    | `SALISTE_DE_LA_MESA`                | Salí de la mesa                                                                              | "Saliste de esta mesa"; ofrecer volver a unirse con el link                                          |
 | `GET /v1/mesas/invitacion/{id}`       | 404    | `MESA_NO_ENCONTRADA`                | El UUID no corresponde a ninguna mesa                                                        | "Este link no es válido"                                                                             |
 | `GET /v1/mesas/invitacion/{id}`       | 200    | (sin `code`; `motivo` en el cuerpo) | `puedeUnirse: false`                                                                         | Ver tabla de `motivo` abajo                                                                          |
 | `POST …/unirse`                       | 404    | `MESA_NO_ENCONTRADA`                | El UUID no corresponde a ninguna mesa                                                        | "Este link no es válido"                                                                             |
@@ -345,14 +382,14 @@ El texto de "Qué mostrar" es una **sugerencia** de UX; el código solo define s
 
 `motivo` de la vista previa (el mismo vocabulario que los `code` de `unirse`, salvo `YA_ERES_MIEMBRO`):
 
-| `motivo`                    | Qué mostrar                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------ |
-| `null`                      | Botón "Unirme"                                                                       |
-| `YA_ERES_MIEMBRO`           | No es un error: llevar a _Ver mesa_ (`GET /v1/mis/mesas/{id}`) y mostrar su `estado` |
-| `MESA_CERRADA`              | "Esta mesa ya no recibe invitados"                                                   |
-| `MESA_VENCIDA`              | "Esta invitación venció"                                                             |
-| `MESA_LLENA`                | "La mesa está llena"                                                                 |
-| `RESTAURANTE_NO_DISPONIBLE` | "El restaurante no está disponible ahora"                                            |
+| `motivo`                    | Qué mostrar                                                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `null`                      | Botón "Unirme"                                                                                                                           |
+| `YA_ERES_MIEMBRO`           | No es un error: llevar a _Ver mesa_ (`GET /v1/mis/mesas/{id}`) y mostrar su `estado`. Quien salió no lo recibe: ve `null` (puede volver) |
+| `MESA_CERRADA`              | "Esta mesa ya no recibe invitados"                                                                                                       |
+| `MESA_VENCIDA`              | "Esta invitación venció"                                                                                                                 |
+| `MESA_LLENA`                | "La mesa está llena"                                                                                                                     |
+| `RESTAURANTE_NO_DISPONIBLE` | "El restaurante no está disponible ahora"                                                                                                |
 
 ### 6.2 Lado de caja
 
@@ -393,12 +430,17 @@ Mostrar por cada miembro su `resultado` y destacar los `descontado: false` como 
 ### 7.1 Qué se descuenta y cuándo
 
 - **Solo en `POST /v1/caja/mesas/{id}/validar`.** Crear, unirse, cancelar y consultar no tocan ningún saldo.
-- Se descuenta **1 almuerzo por miembro** (`cantidad = 1`), del plan `ACTIVA` que vence primero y que vale hoy
-  (`dias_validos` incluye el día de hoy del local). `paraLlevar` de cada miembro queda en su consumo.
+- Se descuenta **el almuerzo que pidió cada miembro** (sin selección cuenta 1; si solo pidió platos sueltos, ninguno),
+  del plan `ACTIVA` que vence primero y que vale hoy (`dias_validos` incluye el día de hoy del local). `paraLlevar` de
+  cada miembro queda en su consumo. Con `aplicarSeleccion: false`, 1 almuerzo por miembro como antes.
+- Los miembros que salieron no se descuentan ni se cobran.
 - Todo ocurre en **una sola transacción**: la mesa pasa a `EN_MESA` y `validadaEn` se fija junto con los descuentos. Un fallo
   deja todo como estaba.
 - Se puede validar con cualquier cantidad de miembros, incluso si **nadie** tiene plan: la mesa igual pasa a `EN_MESA`
-  con `descontados: 0` y todos "por cobrar".
+  con `descontados: 0` y todo en cuentas. Si un almuerzo va a caja y el local no tiene precio de almuerzo →
+  `409 ALMUERZO_SIN_PRECIO` y no se descuenta nada.
+- Validar y salir a la vez es seguro: o el invitado sale antes (no se le cobra) o la caja valida antes (salir →
+  `409 MESA_CERRADA`). Lo prueba `mesa-cobro-concurrency.int.ts`.
 - **Una sola validación:** una mesa se valida una vez. Repetir (misma llave u otra, desde otra caja) no descuenta de nuevo (`yaValidada: true`). Dos cajas a la vez: se descuenta una sola vez (prueba `checkout.int.ts`).
 - Cada miembro usa una llave de idempotencia derivada de la `Idempotency-Key` de la petición, así que un reintento tras un
   corte no duplica descuentos.
@@ -418,8 +460,9 @@ Mostrar por cada miembro su `resultado` y destacar los `descontado: false` como 
 
 - **`INVITO_YO`: no aplica** (`p_omitir_duplicado`). El anfitrión paga todos los almuerzos seguidos.
 - **`CADA_UNO`: sí aplica por miembro.** Si un miembro fue validado hace menos de 60 s en ese local (por ejemplo la caja
-  escaneó su QR justo antes de validar la mesa), su resultado en la mesa es `DUPLICADO`, `descontado: false`, y **cuenta
-  como "por cobrar"** aunque sí tenga plan. Es un caso raro, pero la caja debe mirar `resultados` y no solo `porCobrar`.
+  escaneó su QR justo antes de validar la mesa), su resultado en la mesa es `DUPLICADO`, `descontado: false`. Desde el
+  PR 6a **ese almuerzo no se cobra** (queda omitido con el aviso `DUPLICADO`: ya comió); sus demás platos sí van a su
+  cuenta. Con `aplicarSeleccion: false` cuenta como "por cobrar", como antes.
 - El **reintento** de la misma mesa **no** produce `DUPLICADO` (devuelve `yaValidada`).
 - Una mesa `CADA_UNO` validada no bloquea al comensal en el QR normal después de 60 s.
 
@@ -630,14 +673,15 @@ Tras la validación, el mismo `POST …/cancelar` da `409` `MESA_CERRADA`; un mi
 | Unirse (vista previa y botón) | `GET /v1/mesas/invitacion/{id}` → `POST /v1/mesas/invitacion/{id}/unirse`                                                     |
 | Ver mesa / lista de mesas     | `GET /v1/mis/mesas/{id}`, `GET /v1/mis/mesas` (refresco manual, sin SSE)                                                      |
 | Cancelar (anfitrión)          | `POST /v1/mis/mesas/{id}/cancelar`                                                                                            |
-| Salir (invitado)              | **No existe endpoint**                                                                                                        |
+| Salir (invitado)              | `POST /v1/mis/mesas/{id}/salir` (PR 6a)                                                                                       |
 | Validar en caja               | `GET /v1/caja/mesas/{id}` → `POST /v1/caja/mesas/{id}/validar` (→ `POST /v1/caja/consumos/{id}/deshacer` si hubo error, 10 s) |
+| Cobrar la mesa (caja)         | `POST /v1/caja/cuentas/{id}/cobrar` por cada cuenta de `cuentas` (o `GET /v1/caja/cuentas?origen=MESA`)                       |
 
 ## 10. Dudas del código
 
-Ambigüedades, huecos e inconsistencias encontrados al leer el código. No se cambió nada.
+Ambigüedades, huecos e inconsistencias encontrados al leer el código (fase 8). Las que resolvió un PR posterior están marcadas.
 
-1. **Un invitado no puede salir de la mesa.** No hay endpoint de "salir" ni de quitar miembros; la política de la base de
+1. ~~**Un invitado no puede salir de la mesa.**~~ **Resuelto en el PR 6a** (`POST /v1/mis/mesas/{id}/salir`). No hay endpoint de "salir" ni de quitar miembros; la política de la base de
    datos tampoco permite borrar filas de `mesa_compartida_miembro` al comensal. La pantalla "salir" no tiene respaldo en el
    backend. Si alguien se une por error, queda hasta que el anfitrión cancele o la caja valide (y en `CADA_UNO` se le descuenta).
 2. **Invitados sin cuenta no están soportados**, aunque la base los modela (`usuario_id` nulo) y la caja los muestra
@@ -654,23 +698,23 @@ Ambigüedades, huecos e inconsistencias encontrados al leer el código. No se ca
 7. **Códigos genéricos en caja.** `GET/POST /v1/caja/mesas/*` responde `NOT_FOUND` y `CONFLICT` genéricos
    (`"Mesa no encontrada."`, `"La mesa está cancelada."`) en vez de códigos estables como `MESA_NO_ENCONTRADA` o
    `MESA_CERRADA` del lado del comensal. Con `CONFLICT` la app de caja solo puede distinguir por `detail`, que "puede cambiar".
-8. **Idempotencia de `validar` no reproduce la respuesta original.** Reintentar tras un corte de red devuelve `yaValidada: true`
+8. **Idempotencia de `validar` no reproduce la respuesta original.** _En parte resuelto en el PR 6a: el reintento devuelve las mismas `cuentas` (lo que quedó por cobrar); siguen faltando `descontados`/`porCobrar` y el detalle de `resultados`._ Reintentar tras un corte de red devuelve `yaValidada: true`
    con `resultados: []` y sin `descontados`/`porCobrar` (esos campos son obligatorios en el contrato de `MesaValidadaResponse`
    pero faltan en ese caso). Si la respuesta original se perdió, la caja no recupera qué miembros quedaron por cobrar; solo vería `descontado` por consumo en otros endpoints.
 9. **`unirse` pide `Idempotency-Key` pero la ignora** (el parámetro se llama `_key`); la idempotencia real es que el miembro es único
    por mesa. Tampoco `cancelar` la pide. Y `crear` con la misma llave pero otro `horaLlegada` o `modo` devuelve la mesa original sin avisar del cambio.
 10. **`cubiertos` y `almuerzosDisponibles` son optimistas.** No consideran `dias_validos` del plan (`DIA_NO_VALIDO`), el límite SaaS
     (`LIMITE_SAAS`) ni un posible `DUPLICADO` en `CADA_UNO`. La validación real puede dar menos descontados que `cubiertos`.
-11. **`DUPLICADO` en `CADA_UNO` cuenta como "por cobrar"** aunque el comensal tenga plan; y `porCobrar` mezcla "sin plan", "sin saldo",
+11. _(PR 6a: con `aplicarSeleccion`, el almuerzo `DUPLICADO` se omite y no se cobra; lo que sigue vale para `aplicarSeleccion: false`.)_ **`DUPLICADO` en `CADA_UNO` cuenta como "por cobrar"** aunque el comensal tenga plan; y `porCobrar` mezcla "sin plan", "sin saldo",
     "duplicado", "límite SaaS" y "día no válido". Hay que leer `resultados` miembro por miembro.
-12. **El "por cobrar" no crea ningún registro.** Solo se devuelve el número; no hay venta ni deuda asociada a la mesa. La doc
+12. ~~**El "por cobrar" no crea ningún registro.**~~ **Resuelto en el PR 6a**: queda en cuentas de mesa (salvo con `aplicarSeleccion: false`). Solo se devuelve el número; no hay venta ni deuda asociada a la mesa. La doc
     (`estado.md`) dice que se cobra "como venta suelta", pero el backend no vincula esa venta con la mesa.
 13. **Deshacer un canje de mesa no reabre la mesa** ni cambia `validadaEn`/`estado`. Si la caja deshace los canjes porque se validó la mesa equivocada, la mesa queda `EN_MESA` sin descuentos y ya no se puede volver a validar (devuelve `yaValidada: true`).
 14. **`INVITO_YO` y aviso al invitado.** El invitado en `INVITO_YO` no recibe ningún SSE y su saldo no cambia; solo el anfitrión
     recibe un `CANJE_REGISTRADO` por almuerzo (hasta N eventos seguidos en una sola validación). No hay forma de que el invitado se entere de que "lo invitaron" sin refrescar la mesa.
 15. **Capacidad real = 12 siempre.** La creación desde la app nunca fija `mesa_local_id`, así que la capacidad de la mesa física
     del local no se usa; no hay chequeo de aforo ni de horario del local. La pregunta de "local lleno" no tiene implementación.
-16. **`YA_ERES_MIEMBRO` tiene prioridad sobre el estado.** Un miembro que abre el link de una mesa cancelada o validada recibe
+16. **`YA_ERES_MIEMBRO` tiene prioridad sobre el estado** (solo para quien sigue en la mesa; desde el PR 6a quien salió no lo recibe). Un miembro que abre el link de una mesa cancelada o validada recibe
     `puedeUnirse: false` con `YA_ERES_MIEMBRO` y `unirse` responde `200`; el `motivo` real (cancelada/validada) se pierde. Hay que mirar `estado` de la mesa.
 17. **Cancelar una mesa no avisa a los invitados** y no les queda ninguna marca más allá de `estado: CANCELADA` al refrescar. Tampoco se
     notifica al local (no hay aviso a cocina implementado: la columna `avisada_cocina_en` existe pero ningún código la escribe).

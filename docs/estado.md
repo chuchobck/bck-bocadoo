@@ -17,7 +17,60 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; siguen PR 6 (mesa: la selección pasa a cobro, `salir`) en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) en la rama `feat/mesas-cobro-6a`, con su migración **pendiente de aplicar en Neon**; siguen 6b (cuenta automática del QR) y PR 7 en adelante (H.1).
+
+## La mesa se cobra con la selección (entrega D, PR 6a; rama `feat/mesas-cobro-6a`)
+
+**Una migración** (`20261122120000_mesa_salida_rls`, probada solo en `bocadoo-test-pg`; **falta aplicarla en Neon** con `pnpm db:migrate --remoto` antes del merge) y **un cambio incompatible de comportamiento** (I-4): `POST /v1/caja/mesas/{id}/validar` sin cuerpo cobra la selección. `pnpm openapi:breaking` no lo detecta (el cuerpo es opcional, 0 errores); conviene la etiqueta `cambio-incompatible` en la PR para dejarlo a la vista. Cierra INC-01 (validar mesa descontaba un almuerzo a cada miembro sin mirar lo que pidió). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades); flujo en [`docs/mesas-flujo.md`](mesas-flujo.md).
+
+### Checklist
+
+- [x] `validar` mesa: una sola cotización de la selección de los miembros activos → `descontarYRecotizar` (`src/cobro/aplicar.ts`) → una cuenta `ABIERTA` por pagador con saldo (`origen` mesa + miembro; en `INVITO_YO` una sola del anfitrión, recargos incluidos). Sin cuenta si el saldo es 0. Sin `cobro` en `validar`. Llave por miembro `deriveKey(K, miembro_id)` (consumo) y `deriveKey(K, 'cuenta:' + miembro_id)` (cuenta); el reintento devuelve las mismas cuentas.
+- [x] `aplicarSeleccion` (default `true`); `false` = 1 almuerzo por miembro, cotización informativa y `cuentas: []`.
+- [x] Candados: la mesa `FOR UPDATE` y luego `pg_advisory_xact_lock(miembro_id)` de cada miembro en orden; `fn_salir_mesa` y `PUT …/seleccion` toman el mismo candado del miembro después de la mesa (mismo orden, sin interbloqueos).
+- [x] `POST /v1/mis/mesas/{id}/salir` (E.7) y `miembros[].salio`; quien salió no cuenta en `personas`/`cubiertos` ni en la cotización.
+- [x] Migración: políticas de la selección con `salio_en IS NULL`; `fn_mesa_invitacion` cuenta solo activos; `fn_unirse_mesa` reactiva a quien salió (misma fila, selección vacía); `fn_salir_mesa` con el candado del miembro. Up/down/up en local.
+- [x] Cotización del comensal con `fn_plan_pagador_mesa` (E.6): ya no hay `null` por el plan ajeno.
+- [x] `cotizar` (puro): `PlanPersona.trasAgotarse` para que un `DUPLICADO`/`LIMITE_SAAS` de la base a mitad del plan omita el resto (B.3 paso 5, I-10) en vez de cobrarlo a P.
+- [x] 409 `CUENTA_DE_MESA` al agregar o quitar platos en una cuenta de mesa (antes era un 500 latente).
+
+### Migración: GRANT y RLS antes y después
+
+| Objeto                                             | Antes                                                              | Después                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `mesa_compartida_miembro_item` (tabla)             | `bocadoo_app=ard`, `bocadoo_servicio=arwdDxt`                      | Igual                                                                           |
+| Política `comensal_lee` (SELECT)                   | Mi miembro (sin mirar `salio_en`) o soy anfitrión                  | Mi miembro **con `salio_en IS NULL`** o soy anfitrión                           |
+| Política `comensal_escribe` (INSERT)               | Mi miembro y mesa abierta sin validar                              | Mi miembro **activo** y mesa abierta sin validar                                |
+| Política `comensal_borra` (DELETE)                 | Mi miembro y mesa abierta sin validar                              | Mi miembro **activo** y mesa abierta sin validar                                |
+| Política `personal_lee`, tablas `mesa_compartida*` | —                                                                  | Sin cambios                                                                     |
+| `fn_mesa_invitacion(uuid)`                         | `SECURITY DEFINER`, `EXECUTE` a `bocadoo_app` y `bocadoo_servicio` | Igual; cuenta solo miembros activos y `YA_ERES_MIEMBRO` solo si sigo en la mesa |
+| `fn_unirse_mesa(uuid, boolean)`                    | `SECURITY DEFINER`, `EXECUTE` a `bocadoo_app` y `bocadoo_servicio` | Igual; reactiva la fila de quien salió                                          |
+| `fn_salir_mesa(uuid)`                              | `SECURITY DEFINER`, `EXECUTE` solo a `bocadoo_app`                 | Igual; toma `pg_advisory_xact_lock(miembro_id)` antes de borrar la selección    |
+| `fn_plan_pagador_mesa(bigint, bigint)`             | `SECURITY DEFINER`, `EXECUTE` solo a `bocadoo_app`                 | Sin cambios (no la toca esta migración)                                         |
+
+Verificado con `pg_class.relacl`, `pg_proc.proacl` y `pg_policy` antes y después de `up` y tras `down`/`up`. Las tres funciones conservan `search_path = public, pg_temp`.
+
+### Verificación
+
+- [x] `test/integration/mesa-cobro.int.ts` (25, probe): G-28, 30, 31, 32, 34, 35, 36, 38, 39, **46 literal** (la cuenta `INVITO_YO` del caso 31, 500 EFECTIVO + 225 TRANSFERENCIA, reintento y saldo viejo) y 47; cuerpo vacío/`{}`/`true` iguales, campo de más → 400; deshacer en una cuenta de mesa; `CUENTA_DE_MESA`; anular; lista por `origen=MESA`; salir (200, repetir, anfitrión, validada, cancelada, no miembro); reingreso (cupo sin los que salieron, mesa llena, validada); cotización del comensal en `CADA_UNO` e `INVITO_YO` igual a la de la caja; RLS como `bck_api` (quien salió no lee, no inserta ni borra selección; `fn_plan_pagador_mesa` le da `NULL`; el anfitrión sigue leyendo) y `bck_servicio` (ve todo, no ejecuta `fn_salir_mesa`); cuentas de mesa: el pagador ve la suya, el invitado de `INVITO_YO`, un ajeno y otro local no; roles (comensal 403, otro local 404, cajero 200).
+- [x] `test/integration/mesa-cobro-concurrency.int.ts` (4, clon descartable): validar contra salir (se vieron los dos órdenes en cada corrida), dos cajas validando a la vez, la misma llave 4 veces a la vez, elegir contra salir.
+- [x] Pruebas viejas ajustadas al nuevo default: `checkout.int.ts` (mesas con `aplicarSeleccion: false` y el 409 `ALMUERZO_SIN_PRECIO` del default sin precio), `cotizaciones.int.ts` (visibilidad sin `null`; E.5 con `false`), `diner-tables.int.ts` (`salio`).
+- [x] Unitarios: `cotizar.spec.ts` y `cobro-aplicar.spec.ts` (`trasAgotarse`, G-31 con la base respondiendo `SIN_SALDO`, `LIMITE_SAAS` a mitad y al inicio).
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (965), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (0 errores). Integración contra `bocadoo-test-pg` (nunca Neon): **49 de 49 suites, 415 de 415 pruebas**.
+
+### Decisiones y límites
+
+- **Sin `cobro` en `validar` mesa** (B.5 literal): las cuentas nacen `ABIERTA` y se cobran por `POST /v1/caja/cuentas/{id}/cobrar`.
+- **Saldo 0 = sin cuenta** (como el QR): `cuentaId: null` y deshacer sigue igual.
+- **Reingreso permitido** con las reglas de un invitado nuevo.
+- **Ofertas en la selección** (G-29, G-33) pasan al PR 7.
+- **Quien salió sigue viendo la mesa** (salir responde la mesa, E.7) pero no selecciones ni cotizaciones.
+- **Salir después de validar → 409 `MESA_CERRADA`** (D): su cuenta queda `ABIERTA` para cobrarla o anularla.
+- **`SIN_ALMUERZO`**: nuevo valor de `resultados[].resultado` para quien solo pidió platos sueltos (no hubo escaneo de almuerzo).
+- **`porCobrar`** con selección = almuerzos que van a cuenta a precio suelto.
+- **Agregar/quitar en cuentas de mesa → 409 `CUENTA_DE_MESA`**: recotizar una cuenta de varios comensales queda para después.
+- **Límite conocido:** el 409 `IDEMPOTENCY_KEY_REUTILIZADA` de un reintento con otro cuerpo solo se detecta si la primera validación dejó alguna cuenta (la huella va en la cuenta); sin cuentas, responde `yaValidada`.
+- **Preexistente, sin cambio:** `personaRef`/`pagadorRef` de las cotizaciones de mesa son `miembro_id` internos (spec B, `ref` = `miembro_id`), visibles al anfitrión, a la caja y ahora al invitado en su propia cotización. Si se quiere ocultar, es un cambio de contrato aparte.
 
 ## Blindaje de las pruebas contra Neon (rama `chore/blindar-pruebas-db`)
 
