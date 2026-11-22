@@ -8,6 +8,109 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 6c: el canje del pedido abre la cuenta, el límite SaaS no frena el almuerzo suelto y P > 0
+
+Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (E.3, E.4, I-10, I-12). **Una migración** (`20261122180000_limite_saas_despues_del_plan`, solo reordena `fn_descontar_almuerzo`) y **cambios de comportamiento** sin cambio de esquema (`pnpm openapi:breaking`: 0 errores). Lo único nuevo en el OpenAPI es el 422 de `PATCH /v1/restaurante`.
+
+| Dónde                                                                       | Qué cambia                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /v1/caja/pedidos/{id}/canjear` **sin `cobro`**                        | **Si queda algo por cobrar, abre la cuenta `ABIERTA` del pedido** (`origen: PEDIDO`, sin pago) y la devuelve en `cuenta`, como el QR desde el 6b. Antes respondía `cuenta: null`. Con saldo 0 (plan OK, comer aquí, sin extras) sigue sin cuenta. **Nunca responde `SALDO_CAMBIO` sin `cobro`**: la cuenta se abre con el saldo real. Con `cobro` no cambia nada.                                                                                            |
+| `POST /v1/caja/pedidos/{id}/canjear`, `porCobrarCentavos`                   | **Cambio de valor:** con cotización final vale siempre `cotizacion.saldoPorCobrarCentavos`, también sin cuenta. Solo difiere de antes cuando el almuerzo queda omitido (`DUPLICADO`, `LIMITE_SAAS`, I-10): antes pedía el almuerzo a P (por ejemplo 375 = P + R); ahora 0 (o solo los extras). Sin cotización (local con P = 0 y sin plan) sigue la fórmula de siempre.                                                                                      |
+| `POST /v1/caja/validar`, `POST /v1/caja/pedidos/{id}/canjear`, validar mesa | **Local suspendido o en su tope SaaS:** quien **no tiene un plan que descontar hoy** (sin plan, sin saldo, vencido, día no válido) ya no recibe `LIMITE_SAAS`: recibe su resultado real (`SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`) y su almuerzo se cobra a P en su cuenta. Con un plan válido hoy sigue `LIMITE_SAAS` sin descontar ni cobrar el almuerzo. `rechazadosPorLimite` (`GET /v1/suscripcion/uso`) ya no cuenta a quien no tenía plan. |
+| `PATCH /v1/restaurante`                                                     | **Error nuevo:** en un local `ACTIVO`, `precioSueltoCentavos: 0` → **422 `PRECIO_ALMUERZO_REQUERIDO`** y no se guarda nada del PATCH. `null`, `""` o negativos siguen siendo 400 en cualquier estado (y `precioAlmuerzoCentavos` sigue exigiendo 100..5000). En `BORRADOR` o `PAUSADO` el 0 se acepta, pero `activar` sigue pidiendo precio > 0.                                                                                                             |
+
+#### Antes y después, canjear sin `cobro`
+
+| Caso                                                | Antes (hasta el PR 6b)                                                            | Ahora (PR 6c)                                                                                                              |
+| --------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Pedido con plan OK, comer aquí, sin extras          | `OK`, `porCobrarCentavos: 0`, `cuenta: null`                                      | **igual**                                                                                                                  |
+| Pedido con plan OK, para llevar y/o con extras      | `OK`, `porCobrarCentavos` = R + extras, `cuenta: null`                            | `OK`, mismo `porCobrarCentavos`, `cuenta` `ABIERTA` con ese saldo                                                          |
+| Pedido de alguien sin plan (o no cliente del local) | `SIN_PLAN` (o el que toque), `porCobrarCentavos` = P + R + extras, `cuenta: null` | mismo resultado y `porCobrarCentavos`, `cuenta` `ABIERTA` con ese saldo, a nombre del comensal                             |
+| El plan se gastó entre pedir y canjear              | `SIN_SALDO`, `cuenta: null`                                                       | `SIN_SALDO`, `cuenta` `ABIERTA` con el saldo nuevo (sin `SALDO_CAMBIO`; con `cobro`, el 409 de siempre)                    |
+| `LIMITE_SAAS` / `DUPLICADO` con plan                | almuerzo omitido, `porCobrarCentavos` = P + R + extras, `cuenta: null`            | almuerzo omitido, `porCobrarCentavos` = extras (0 si no hay), `cuenta` `ABIERTA` solo si hay extras                        |
+| Ficha sin plan en un local suspendido               | `LIMITE_SAAS`, almuerzo sin cobrar                                                | `SIN_PLAN`, `cuenta` `ABIERTA` con P + R + extras                                                                          |
+| Local con P = 0 y sin plan                          | sin cotización ni cuenta                                                          | **igual** (no puede pasar en un local `ACTIVO` desde este PR)                                                              |
+| Reintento con la misma `Idempotency-Key`            | `yaCanjeado: true`, `cuenta: null`                                                | `yaCanjeado: true` con **la misma** `cuenta`; con otro cuerpo (p. ej. agregar `cobro`) → 409 `IDEMPOTENCY_KEY_REUTILIZADA` |
+
+- **Cómo se cobra:** con la `cuenta.id` devuelta, `POST /v1/caja/cuentas/{id}/cobrar` con `{ "metodoPago": "EFECTIVO", "saldoEsperadoCentavos": <cuenta.saldoCentavos> }` y una `Idempotency-Key` nueva. O cobrar en el mismo paso mandando `cobro.metodoPago` en el canje, como desde el 5a. En `ANTES_DE_SERVIR` la cuenta viene con `debeCobrarseAntesDeServir: true`.
+- **Dos cajas a la vez con el mismo pedido:** una canjea y abre la cuenta; la otra recibe `yaCanjeado: true` con la misma cuenta. Nunca hay dos cuentas del mismo pedido.
+- **La cuenta queda en el día:** sale en `GET /v1/caja/cuentas?estado=ABIERTA` y en `cuentasAbiertas` del cierre. Se anula con `POST /v1/caja/cuentas/{id}/anular`; deshacer el consumo en 10 s revierte la línea del almuerzo (y anula la cuenta si queda en 0).
+
+Pedido para llevar con almuerzo y una Cola de un comensal que no es cliente del local, canjeado sin cuerpo. Response `200` (capturada de la API, recortada):
+
+```json
+{
+  "pedido": { "id": "64d63a3a-897d-4efd-a314-c257b0300160", "estado": "CANJEADA", "totalCentavos": 475, "…": "…" },
+  "platoNombre": "Sopa de quinua + Seco de pollo",
+  "yaCanjeado": false,
+  "almuerzo": { "resultado": "SIN_PLAN", "mensaje": "No tiene un plan en este restaurante.", "descontado": false, "consumoId": null },
+  "porCobrarCentavos": 475,
+  "cotizacion": {
+    "estimada": false,
+    "lineas": [
+      {
+        "ref": "almuerzo",
+        "tipo": "ALMUERZO",
+        "fuente": "CAJA",
+        "precioUnitarioCentavos": 350,
+        "recargoCentavos": 25,
+        "porCobrarCentavos": 375,
+        "…": "…"
+      },
+      {
+        "ref": "extra:0",
+        "tipo": "BEBIDA",
+        "nombre": "Cola",
+        "fuente": "CAJA",
+        "precioUnitarioCentavos": 100,
+        "porCobrarCentavos": 100,
+        "…": "…"
+      }
+    ],
+    "subtotalCentavos": 450,
+    "recargoCentavos": 25,
+    "totalCentavos": 475,
+    "cubiertoPorPlanCentavos": 0,
+    "saldoPorCobrarCentavos": 475,
+    "avisos": [],
+    "monedaCodigo": "USD",
+    "…": "…"
+  },
+  "cuenta": {
+    "id": "888db2f5-d8af-4f1d-848f-a386dbd04458",
+    "origen": "PEDIDO",
+    "estado": "ABIERTA",
+    "momentoCobro": "ANTES_DE_SERVIR",
+    "debeCobrarseAntesDeServir": true,
+    "pagador": { "nombre": "Comensal Prueba", "esAnfitrion": false },
+    "cotizacion": { "…": "la misma de arriba" },
+    "pagadoCentavos": 0,
+    "saldoCentavos": 475,
+    "pagos": [],
+    "creadaEn": "2026-11-22T19:33:20.968Z",
+    "cobradaEn": null,
+    "anuladaEn": null
+  },
+  "avisos": []
+}
+```
+
+Con plan, para llevar y una Cola en un local suspendido (`LIMITE_SAAS`): `almuerzo.resultado: "LIMITE_SAAS"`, `porCobrarCentavos: 100`, `cuenta` `ABIERTA` con `saldoCentavos: 100` y `avisos: [{ "codigo": "LIMITE_SAAS", "lineaRef": "almuerzo" }]`.
+
+`PATCH /v1/restaurante` con `{ "precioSueltoCentavos": 0 }` en un local `ACTIVO` → `422`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "UNPROCESSABLE ENTITY",
+  "status": 422,
+  "code": "PRECIO_ALMUERZO_REQUERIDO",
+  "detail": "Un local activo necesita precio del almuerzo mayor que 0. Para dejarlo sin precio, primero pausa el local.",
+  "instance": "/v1/restaurante",
+  "requestId": "c68f89b2-43c5-47e9-8b10-a0e03c2705e9"
+}
+```
+
 ### Entrega D · PR 6b: el QR abre la cuenta solo cuando queda algo por cobrar
 
 Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (E.4, H.2 y G 17–23). **Sin migración** y **un cambio incompatible de comportamiento** en `POST /v1/caja/validar`: el esquema no cambia (`pnpm openapi:breaking`: 0 errores), cambia cuándo `cuenta` deja de ser `null` y, para quien no tiene plan, cuándo responde `DUPLICADO`.
@@ -461,10 +564,10 @@ Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (B, E.3, E.11, F
 
 #### Canjear con `cobro`
 
-- **Sin cuerpo** (o `{}`): igual que antes. No crea cuenta; `cuenta: null`. `porCobrarCentavos` sigue con su fórmula, ahora con el precio del almuerzo **guardado al pedir** (no el de hoy).
+- **Sin cuerpo** (o `{}`): hasta el PR 6b no creaba cuenta (`cuenta: null`). **Desde el PR 6c** abre la cuenta `ABIERTA` si queda saldo > 0, sin pago y sin `SALDO_CAMBIO` (ver [PR 6c](#entrega-d--pr-6c-el-canje-del-pedido-abre-la-cuenta-el-límite-saas-no-frena-el-almuerzo-suelto-y-p--0)). El almuerzo se cobra al precio **guardado al pedir** (no el de hoy).
 - **Con `cobro`** (aunque sea `{ "cobro": {} }`): crea la cuenta del pedido con la cotización final (lo que de verdad pasó con el plan). Con `metodoPago`, registra además el pago en la misma transacción.
 - **Saldo esperado:** si el saldo final no es `cobro.saldoEsperadoCentavos` (o, si no se manda, el `totalCentavos` del pedido) → **409 `SALDO_CAMBIO`** con `saldoCentavos` (el real), `saldoEsperadoCentavos` y `cotizacion`. **No se descuenta el plan ni se cobra nada.** La caja muestra el saldo nuevo y reenvía con `saldoEsperadoCentavos` igual a ese saldo (y la misma u otra `Idempotency-Key`). Pasa, por ejemplo, si el comensal gastó su plan entre pedir y canjear.
-- `porCobrarCentavos` con `cobro` vale `cotizacion.saldoPorCobrarCentavos`.
+- `porCobrarCentavos` con `cobro` vale `cotizacion.saldoPorCobrarCentavos` (desde el PR 6c, también sin `cobro`).
 
 `Cobro` (en canjear):
 
@@ -981,6 +1084,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `PLATO_NO_DISPONIBLE`         | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/validar` con `items`/`cobro`; `POST /v1/caja/cuentas/{id}/items` (5b)                                                                                                                                                                                                                  |
 | `PLATO_NO_ES_DE_CARTA`        | 422  | `PATCH /v1/menu/platos/{id}/agotado` (el plato es de ALMUERZO: se agota en el menú del día)                                                                                                                                                                                                                                                                       |
 | `PLATO_SIN_PRECIO`            | 422  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/validar` con `items`/`cobro`; `POST /v1/caja/cuentas/{id}/items` (5b)                                                                                                                                                                                                                  |
+| `PRECIO_ALMUERZO_REQUERIDO`   | 422  | `PATCH /v1/restaurante` (precio 0 en un local `ACTIVO`; PR 6c)                                                                                                                                                                                                                                                                                                    |
 
 Resultados del escáner de caja: **no son errores**. `POST /v1/caja/validar` responde 200 con `resultado` ∈ `OK`, `OK_ADVERTENCIA`, `DUPLICADO`, `SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`, `OTRO_LOCAL`, `QR_EXPIRADO`, `QR_INVALIDO`, `LIMITE_SAAS`.
 
@@ -1386,7 +1490,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
 - **Estado:** Estable
 
-No cambia estado, slug, moneda ni país.
+No cambia estado, slug, moneda ni país. En un local `ACTIVO` el precio del almuerzo no puede quedar en 0 (422 `PRECIO_ALMUERZO_REQUERIDO`, PR 6c): para dejarlo sin precio, primero `POST /v1/restaurante/pausar`.
 
 Request:
 
@@ -1434,9 +1538,10 @@ Response `200`:
 
 Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
-| HTTP | `code`      | Ejemplo de `detail`            |
-| ---- | ----------- | ------------------------------ |
-| 403  | `FORBIDDEN` | Tu rol no permite esta acción. |
+| HTTP | `code`                      | Ejemplo de `detail`                                                                                        |
+| ---- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 403  | `FORBIDDEN`                 | Tu rol no permite esta acción.                                                                             |
+| 422  | `PRECIO_ALMUERZO_REQUERIDO` | Un local activo necesita precio del almuerzo mayor que 0. Para dejarlo sin precio, primero pausa el local. |
 
 #### `POST /v1/restaurante/activar`
 
@@ -4600,11 +4705,13 @@ Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que ven
 
 > `platoNombre`: platos del almuerzo preordenado unidos con `+`; `null` si el pedido solo lleva extras. Es campo nuevo y opcional.
 
-Request: sin cuerpo (no envíes `content-type`), o `{ "cobro": Cobro }` para crear la cuenta del pedido y, con `metodoPago`, pagarla en el mismo paso.
+Request: sin cuerpo (no envíes `content-type`), o `{ "cobro": Cobro }` para crear la cuenta del pedido y, con `metodoPago`, pagarla en el mismo paso. Sin `cobro`, la cuenta `ABIERTA` se abre sola si queda saldo > 0 (PR 6c).
 
 > **Novedad (PR 3):** `pedido` suma `cotizacion`. `porCobrarCentavos` no cambia. Ver [Novedades](#novedades).
 >
-> **Novedad (PR 5a):** cuerpo opcional `cobro`; la respuesta suma `cotizacion` (final, `estimada: false`), `cuenta` (`null` sin `cobro`) y `avisos`. El almuerzo se cobra al precio guardado al pedir. Ver [Canjear con `cobro`](#canjear-con-cobro).
+> **Novedad (PR 5a):** cuerpo opcional `cobro`; la respuesta suma `cotizacion` (final, `estimada: false`), `cuenta` y `avisos`. El almuerzo se cobra al precio guardado al pedir. Ver [Canjear con `cobro`](#canjear-con-cobro).
+>
+> **Novedad (PR 6c, cambio de comportamiento):** sin `cobro`, con saldo > 0 abre la cuenta `ABIERTA` (antes `cuenta: null`); `porCobrarCentavos` = `cotizacion.saldoPorCobrarCentavos` también sin cuenta (0 si el almuerzo quedó omitido). Ver [Novedades](#novedades).
 
 Response `200`:
 
@@ -4675,7 +4782,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | HTTP | `code`                        | Ejemplo de `detail`                                                                                                                  |
 | ---- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 404  | `PEDIDO_NO_ENCONTRADO`        | —                                                                                                                                    |
-| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya se usó en otro pedido o, con `cobro`, con otro cuerpo                                                                    |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya se usó en otro pedido o con otro cuerpo (p. ej. agregar `cobro` en el reintento)                                         |
 | 409  | `PEDIDO_CANCELADO`            | —                                                                                                                                    |
 | 409  | `PEDIDO_EXPIRADO`             | —                                                                                                                                    |
 | 409  | `SALDO_CAMBIO`                | Con `cobro`: el saldo final no es el esperado (trae `saldoCentavos`, `saldoEsperadoCentavos`, `cotizacion`); no se descontó ni cobró |
