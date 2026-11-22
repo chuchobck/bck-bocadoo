@@ -176,7 +176,7 @@ export class CuentasController {
   @ApiOkResponse({ type: CuentaResponse })
   @ApiProblems({
     404: ['CUENTA_NO_ENCONTRADA'],
-    409: ['CUENTA_CERRADA', 'PLATO_AGOTADO', 'MENU_NO_PUBLICADO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    409: ['CUENTA_CERRADA', 'CUENTA_DE_MESA', 'PLATO_AGOTADO', 'MENU_NO_PUBLICADO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'CANTIDAD_INVALIDA'],
   })
   items(@Param('id', UuidPipe) id: string, @Body() dto: AgregarItemsDto, @IdempotencyKey() key: string) {
@@ -202,7 +202,7 @@ export class CuentasController {
   @ApiOkResponse({ type: CuentaResponse })
   @ApiProblems({
     404: ['CUENTA_NO_ENCONTRADA', 'LINEA_NO_ENCONTRADA'],
-    409: ['CUENTA_CERRADA', 'LINEA_DE_PLAN', 'SALDO_NEGATIVO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    409: ['CUENTA_CERRADA', 'CUENTA_DE_MESA', 'LINEA_DE_PLAN', 'SALDO_NEGATIVO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
   })
   quitar(@Param('id', UuidPipe) id: string, @Param('ref') ref: string, @IdempotencyKey() key: string) {
     if (!REF_LINEA.test(ref)) throw new BadRequestException('ref inválido.');

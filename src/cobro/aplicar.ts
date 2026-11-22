@@ -632,8 +632,12 @@ export async function modificarCuenta(q: Queryable, cuentaId: string, key: strin
   if (uso === true) return;
   if (uso === false) throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para otro cambio de esta cuenta.');
   if (c.estado !== 'ABIERTA') throw conflict('CUENTA_CERRADA', `La cuenta está ${c.estado.toLowerCase()}.`);
-  // Las cuentas de mesa llegan con el PR 6; hoy ningún flujo las crea.
-  if (c.mesa_compartida_id !== null) throw new Error('modificarCuenta: cuentas de mesa no soportadas todavía (PR 6)');
+  // Las cuentas de mesa (PR 6) se cobran o se anulan; recotizarlas con varios comensales queda para un PR siguiente.
+  if (c.mesa_compartida_id !== null)
+    throw conflict(
+      'CUENTA_DE_MESA',
+      'Una cuenta de mesa no admite agregar ni quitar platos todavía: lo que se pida después va por una venta.',
+    );
   const pagado = Number(
     (await q.query<{ pagado_centavos: string }>('SELECT pagado_centavos FROM v_cuenta_saldo WHERE cuenta_id = $1', [cuentaId])).rows[0]!
       .pagado_centavos,

@@ -426,15 +426,21 @@ describe('Fase 7: caja', () => {
       const preview = (await as(o).get(`/v1/caja/mesas/${mesa}`)).json();
       expect(preview).toMatchObject({ modo: 'CADA_UNO', personas: 4, cubiertos: 2, validadaEn: null });
       expect(preview.miembros.map((m: { tieneCuenta: boolean }) => m.tieneCuenta)).toEqual([true, true, false, false]);
+      // Con el cobro por selección (default desde el PR 6) un almuerzo a caja sin precio es 409 (I-12): nada se descuenta.
+      const sinPrecio = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, randomUUID());
+      expect([sinPrecio.statusCode, sinPrecio.json().code]).toEqual([409, 'ALMUERZO_SIN_PRECIO']);
+      expect(await saldo(o, ana.clienteId)).toBe(5);
+      // Lo de antes, con aplicarSeleccion: false (1 almuerzo por miembro, sin cuentas).
+      const legacy = { aplicarSeleccion: false };
       const key = randomUUID();
-      const res = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, key);
+      const res = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, legacy, key);
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 2, estado: 'EN_MESA' });
+      expect(res.json()).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 2, estado: 'EN_MESA', cuentas: [] });
       expect(res.json().resultados.map((r: { resultado: string }) => r.resultado)).toEqual(['OK', 'OK', 'SIN_PLAN', 'SIN_PLAN']);
       expect(await saldo(o, ana.clienteId)).toBe(4);
       expect(await saldo(o, beto.clienteId)).toBe(4);
       for (const k of [key, randomUUID()]) {
-        expect((await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, k)).json().yaValidada).toBe(true);
+        expect((await as(o).post(`/v1/caja/mesas/${mesa}/validar`, legacy, k)).json().yaValidada).toBe(true);
       }
       expect(await saldo(o, ana.clienteId)).toBe(4);
       const other = await h.owner('Mesa Ajena');
@@ -453,7 +459,7 @@ describe('Fase 7: caja', () => {
         { nombre: 'Invitado 2' },
       ]);
       expect((await as(o).get(`/v1/caja/mesas/${mesa}`)).json()).toMatchObject({ modo: 'INVITO_YO', personas: 3, cubiertos: 2 });
-      const res = (await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, randomUUID())).json();
+      const res = (await as(o).post(`/v1/caja/mesas/${mesa}/validar`, { aplicarSeleccion: false }, randomUUID())).json();
       expect(res.resultados.map((r: { resultado: string }) => r.resultado)).toEqual(['OK', 'OK_ADVERTENCIA', 'SIN_SALDO']);
       expect(res).toMatchObject({ descontados: 2, porCobrar: 1 });
       expect(await saldo(o, host.clienteId)).toBe(0);
