@@ -26,6 +26,19 @@ import { DbService, Queryable } from '../db/db.service';
 import { PassEventBus } from '../pass-events/bus';
 import { occupancy } from '../catalog/catalog.service';
 import {
+  type CategoriaPlato,
+  type CotizacionRespuesta,
+  SIN_PLAN,
+  aRespuesta,
+  cotizarInformativa,
+  entradaPedido,
+  entradaPedidoCreado,
+} from '../cobro/adaptador';
+import { CotizacionResponse } from '../cobro/cotizacion.dto';
+import { cargarPlanes, claveCliente, planVigenteHoySql } from '../cobro/planes';
+import { cotizar } from '../billing/cotizar';
+import { CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
+import {
   CURSOR_TS,
   HOY_LOCAL,
   PageQuery,
@@ -115,6 +128,13 @@ export class PedidoResponse {
   @ApiProperty() recargoLlevarCentavos!: number;
   @ApiProperty({ description: 'Lo que se pagaría en caja según lo conocido al pedir' }) totalCentavos!: number;
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
+  @ApiProperty({
+    type: CotizacionResponse,
+    description:
+      'Cotización estimada (informativa) con la regla de cobro objetivo (docs/spec-cobros.md). Para un pedido ya creado el precio del almuerzo sale de `subtotal − extras` y el plan se lee de hoy. ' +
+      'Puede diferir de `totalCentavos`: por ahora solo si un extra del menú es un plato `A_LA_CARTA` pedido para llevar (la cotización suma el recargo por unidad; `totalCentavos` aún no). Cambia en el PR 7.',
+  })
+  cotizacion!: CotizacionResponse;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
   @ApiPropertyOptional({ type: Date, nullable: true }) canjeadoEn!: Date | null;
@@ -128,6 +148,7 @@ class PedidosResponse {
 
 export interface OrderRow {
   orden_id: string;
+  restaurante_id: string;
   public_id: string;
   numero_dia: number;
   fecha_local: string;
@@ -157,9 +178,18 @@ interface LineRow {
   seccion: string | null;
   cantidad: number;
   precio_unitario_centavos: string;
+  categoria: CategoriaPlato;
+  plato_seccion: string | null;
 }
 
-export const ORDER_SELECT = `SELECT o.orden_id, o.public_id, o.numero_dia, o.fecha_local::text AS fecha_local, ${ESTADO_EFECTIVO} AS estado, o.tipo,
+interface PreciosRow {
+  restaurante_id: string;
+  precio: string;
+  recargo: string;
+  momento_cobro: MomentoCobro;
+}
+
+export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o.numero_dia, o.fecha_local::text AS fecha_local, ${ESTADO_EFECTIVO} AS estado, o.tipo,
        o.subtotal_centavos, o.recargo_llevar_centavos, o.total_centavos, o.moneda_codigo, o.creada_en, o.vence_en,
        o.canjeada_en, o.servida_en, o.cancelada_en, o.cliente_id, u.nombre AS usuario_nombre,
        r.public_id AS restaurante_public_id, r.nombre AS restaurante_nombre, r.slug AS restaurante_slug,
@@ -175,10 +205,25 @@ export const ORDER_SELECT = `SELECT o.orden_id, o.public_id, o.numero_dia, o.fec
 export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<PedidoResponse[]> {
   if (!rows.length) return [];
   const lines = await q.query<LineRow>(
-    `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos
+    `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion
        FROM orden_detalle d JOIN plato p ON p.plato_id = d.plato_id
       WHERE d.orden_id = ANY($1::bigint[]) ORDER BY d.orden_detalle_id`,
     [rows.map((r) => r.orden_id)],
+  );
+  // Precios y plan de HOY para la cotización informativa (el precio del almuerzo del pedido sale de subtotal − extras).
+  const restaurantes = [...new Set(rows.map((r) => String(r.restaurante_id)))];
+  const precios = new Map(
+    (
+      await q.query<PreciosRow>(
+        `SELECT restaurante_id, precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, momento_cobro
+           FROM restaurante WHERE restaurante_id = ANY($1::bigint[])`,
+        [restaurantes],
+      )
+    ).rows.map((p) => [String(p.restaurante_id), p]),
+  );
+  const planes = await cargarPlanes(
+    q,
+    rows.map((r) => ({ restauranteId: String(r.restaurante_id), clienteId: r.cliente_id === null ? null : String(r.cliente_id) })),
   );
   return rows.map((o) => {
     const mine = lines.rows.filter((l) => String(l.orden_id) === String(o.orden_id));
@@ -193,6 +238,29 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
         subtotalCentavos: l.cantidad * Number(l.precio_unitario_centavos),
       }));
     const lunchPrice = Number(o.subtotal_centavos) - extras.reduce((s, e) => s + e.subtotalCentavos, 0);
+    const pr = precios.get(String(o.restaurante_id))!;
+    const plan: PlanPersona =
+      (o.cliente_id !== null && planes.get(claveCliente(String(o.restaurante_id), String(o.cliente_id)))) || SIN_PLAN;
+    const cotizacion = cotizarInformativa(
+      entradaPedidoCreado({
+        recargoLlevar: Number(pr.recargo),
+        momentoCobro: pr.momento_cobro,
+        paraLlevar: o.tipo === 'LLEVAR',
+        conAlmuerzo: lunch.length > 0,
+        subtotal: Number(o.subtotal_centavos),
+        plan,
+        extras: mine
+          .filter((l) => l.seccion === null)
+          .map((l) => ({
+            platoId: l.plato_public_id,
+            nombre: l.nombre_plato,
+            categoria: l.categoria,
+            seccion: l.plato_seccion,
+            cantidad: l.cantidad,
+            precioUnitario: Number(l.precio_unitario_centavos),
+          })),
+      }),
+    )!;
     return {
       id: o.public_id,
       qr: o.public_id,
@@ -212,6 +280,7 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
       recargoLlevarCentavos: Number(o.recargo_llevar_centavos),
       totalCentavos: Number(o.total_centavos),
       monedaCodigo: o.moneda_codigo,
+      cotizacion: aRespuesta(cotizacion, o.moneda_codigo),
       creadoEn: o.creada_en,
       venceEn: o.vence_en,
       canjeadoEn: o.canjeada_en,
@@ -225,6 +294,8 @@ interface MenuPick {
   plato_id: string;
   public_id: string;
   nombre: string;
+  categoria: CategoriaPlato;
+  plato_seccion: string | null;
   seccion: string;
   precio: string | null;
   agotado: boolean;
@@ -267,15 +338,21 @@ export class DinerOrdersService {
     return (await renderOrders(q, r.rows))[0]!;
   }
 
-  private async createIn(q: Queryable, dto: CrearPedidoDto, restaurante: string, key: string) {
+  /** Todo lo que se valida antes de pedir (compartido con `cotizar`): local, menú de hoy, aforo y platos. No escribe nada. */
+  private async resolve(q: Queryable, dto: CrearPedidoDto, restaurante: string) {
     if (!dto.almuerzo && !dto.extras?.length) throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras o ambos.');
-    // El reintento pudo terminar entre la primera lectura y esta transacción: antes de "un pedido a la vez", la clave.
-    const replay = await this.byKeyIn(q, key, restaurante);
-    if (replay) return replay;
     const rest = (
-      await q.query<{ restaurante_id: string; estado: string; precio: string; recargo: string; moneda: string; hoy: string }>(
+      await q.query<{
+        restaurante_id: string;
+        estado: string;
+        precio: string;
+        recargo: string;
+        moneda: string;
+        hoy: string;
+        momento: MomentoCobro;
+      }>(
         `SELECT r.restaurante_id, r.estado, r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo, r.moneda_codigo AS moneda,
-                ${HOY_LOCAL('r')}::text AS hoy
+                ${HOY_LOCAL('r')}::text AS hoy, r.momento_cobro AS momento
            FROM restaurante r WHERE r.public_id = $1 AND r.estado IN ('ACTIVO', 'PAUSADO')`,
         [restaurante],
       )
@@ -294,24 +371,28 @@ export class DinerOrdersService {
       if (o && occupancy(o.personas, o.puestos, o.lleno_manual, o.concurrido_manual).nivel === 'LLENO')
         throw conflict('LOCAL_LLENO_SOLO_LLEVAR', 'El local está lleno: por ahora solo se aceptan pedidos para llevar.');
     }
-    // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
-    // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
-    const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
-      .rows[0]!.n;
+    return { rest, menu };
+  }
+
+  /** Un pedido en camino a la vez por local. */
+  private async assertSinPedidoActivo(q: Queryable, restauranteId: string) {
     const active = await q.query(
       `SELECT 1 FROM orden_cabecera WHERE usuario_id = app_user_id() AND restaurante_id = $1 AND estado = 'EN_CAMINO' AND vence_en > CURRENT_TIMESTAMP`,
-      [rest.restaurante_id],
+      [restauranteId],
     );
     if (active.rowCount) throw conflict('PEDIDO_ACTIVO', 'Ya tienes un pedido en camino a este restaurante.');
+  }
 
+  /** Platos del pedido contra el menú de hoy (agotados, sección única, precio). */
+  private async platos(q: Queryable, dto: CrearPedidoDto, menuId: string) {
     const wanted = [...new Set([...(dto.almuerzo?.platos ?? []), ...(dto.extras ?? []).map((e) => e.plato)].map((p) => p.toLowerCase()))];
     const picks = new Map(
       (
         await q.query<MenuPick>(
-          `SELECT p.plato_id, p.public_id, p.nombre, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
+          `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
              FROM menu_diario_detalle d JOIN plato p ON p.plato_id = d.plato_id AND p.restaurante_id = d.restaurante_id
             WHERE d.menu_diario_id = $1 AND p.activo AND p.public_id = ANY($2::uuid[])`,
-          [menu.menu_diario_id, wanted],
+          [menuId, wanted],
         )
       ).rows.map((p) => [p.public_id, p]),
     );
@@ -330,6 +411,71 @@ export class DinerOrdersService {
       if (p.precio === null) throw unprocessable('PLATO_SIN_PRECIO', `"${p.nombre}" solo se sirve dentro del almuerzo.`);
       return { p, cantidad: e.cantidad, precio: Number(p.precio) };
     });
+    return { lunch, extras };
+  }
+
+  /**
+   * POST /v1/mis/pedidos/cotizar: lo mismo que pedir, sin pedir. No escribe nada (ni el número del día ni el pedido):
+   * corre en una transacción de solo lectura. Responde la cotización estimada con el plan de hoy del comensal.
+   */
+  cotizar(user: AuthUser, dto: CrearPedidoDto): Promise<CotizacionRespuesta> {
+    const restaurante = dto.restaurante.toLowerCase();
+    return this.db.scope({ userId: user.userId, readOnly: true }, async (q) => {
+      const { rest, menu } = await this.resolve(q, dto, restaurante);
+      await this.assertSinPedidoActivo(q, rest.restaurante_id);
+      const { lunch, extras } = await this.platos(q, dto, menu.menu_diario_id);
+      const cliente = (
+        await q.query<{ cliente_id: string }>(
+          'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = $1 AND usuario_id = app_user_id() AND activo',
+          [rest.restaurante_id],
+        )
+      ).rows[0];
+      const planes = await cargarPlanes(q, [
+        { restauranteId: String(rest.restaurante_id), clienteId: cliente ? String(cliente.cliente_id) : null },
+      ]);
+      const plan = (cliente && planes.get(claveCliente(String(rest.restaurante_id), String(cliente.cliente_id)))) || SIN_PLAN;
+      try {
+        return aRespuesta(
+          cotizar(
+            entradaPedido({
+              precioAlmuerzo: Number(rest.precio),
+              recargoLlevar: Number(rest.recargo),
+              momentoCobro: rest.momento,
+              paraLlevar: dto.paraLlevar ?? false,
+              conAlmuerzo: lunch.length > 0,
+              plan,
+              extras: extras.map((e) => ({
+                platoId: e.p.public_id,
+                nombre: e.p.nombre,
+                categoria: e.p.categoria,
+                seccion: e.p.plato_seccion,
+                cantidad: e.cantidad,
+                precioUnitario: e.precio,
+              })),
+            }),
+          ),
+          rest.moneda,
+        );
+      } catch (e) {
+        if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')
+          throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubre.');
+        throw e;
+      }
+    });
+  }
+
+  private async createIn(q: Queryable, dto: CrearPedidoDto, restaurante: string, key: string) {
+    if (!dto.almuerzo && !dto.extras?.length) throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras o ambos.');
+    // El reintento pudo terminar entre la primera lectura y esta transacción: antes de "un pedido a la vez", la clave.
+    const replay = await this.byKeyIn(q, key, restaurante);
+    if (replay) return replay;
+    const { rest, menu } = await this.resolve(q, dto, restaurante);
+    // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
+    // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
+    const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
+      .rows[0]!.n;
+    await this.assertSinPedidoActivo(q, rest.restaurante_id);
+    const { lunch, extras } = await this.platos(q, dto, menu.menu_diario_id);
 
     // ¿Lo cubre un plan? Solo es una estimación para el total: el descuento real ocurre al canjear en caja.
     const cliente = (
@@ -464,6 +610,26 @@ export class DinerOrdersController {
     return this.svc.create(user, dto, key);
   }
 
+  @Post('cotizar')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Cotizar un pedido sin hacerlo',
+    description:
+      'Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos`, pero sin `Idempotency-Key` y sin efectos: no crea el pedido, ' +
+      'no toma número del día y no toca el plan. Responde la `Cotizacion` estimada (`estimada: true`) con el plan de hoy del comensal. ' +
+      'Para mostrar el total antes de pedir. Hoy cotiza el menú del día; carta y ofertas llegan en el PR 7.',
+  })
+  @ApiOkResponse({ type: CotizacionResponse })
+  @ApiProblems({
+    400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO'],
+    404: ['RESTAURANTE_NO_ENCONTRADO'],
+    409: ['RESTAURANTE_PAUSADO', 'LOCAL_LLENO_SOLO_LLEVAR', 'MENU_NO_PUBLICADO', 'PEDIDO_ACTIVO', 'PLATO_AGOTADO', 'ALMUERZO_SIN_PRECIO'],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
+  })
+  cotizar(@CurrentUser() user: AuthUser, @Body() dto: CrearPedidoDto) {
+    return this.svc.cotizar(user, dto);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Mis pedidos, del más reciente al más antiguo' })
   @ApiOkResponse({ type: PedidosResponse })
@@ -536,8 +702,7 @@ interface StaffRow extends OrderRow {
 
 const STAFF_SELECT = `SELECT x.*, c.nombre AS cliente_nombre,
        (SELECT COALESCE(sum(s.almuerzos_restantes), 0)::int FROM suscripcion_plan s
-         WHERE s.restaurante_id = x.restaurante_id_ AND s.cliente_id = c.cliente_id AND s.estado = 'ACTIVA'
-           AND s.vence_el >= x.fecha_local::date) AS disponibles
+         WHERE s.restaurante_id = x.restaurante_id_ AND s.cliente_id = c.cliente_id AND ${planVigenteHoySql('s', 'x.fecha_local::date')}) AS disponibles
   FROM (${ORDER_SELECT.replace('SELECT o.orden_id,', 'SELECT o.restaurante_id AS restaurante_id_, o.orden_id,')} WHERE o.restaurante_id = app_tenant_id()) x
   LEFT JOIN cliente_restaurante c ON c.restaurante_id = x.restaurante_id_ AND c.cliente_id = x.cliente_id`;
 

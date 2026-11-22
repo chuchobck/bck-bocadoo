@@ -7,6 +7,9 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, restaurantePausado, restauranteRef } from '../diner/common';
+import { aRespuesta, type CotizacionRespuesta } from '../cobro/adaptador';
+import { CotizacionResponse } from '../cobro/cotizacion.dto';
+import { cotizarMesa } from '../cobro/mesa';
 import { SeleccionDto, SeleccionMiembroResponse, TableSelectionService, loadSelections, seleccionDe } from './selection';
 
 const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
@@ -43,6 +46,14 @@ class MiembroMesa {
       'Lo que eligió este miembro. El anfitrión ve la de todos; un invitado solo la suya (las demás vienen `null`: no se muestran). Vacía = aún no eligió.',
   })
   seleccion!: SeleccionMiembroResponse | null;
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización estimada de lo que pide este miembro (sin selección cuenta 1 almuerzo), con su plan de hoy y su paraLlevar. Misma visibilidad que `seleccion`: el anfitrión ve la de todos; un invitado solo la suya (las demás `null`). ' +
+      'También `null` si el plan de quien paga no es legible para quien consulta (la API del comensal solo lee su propio plan): ver docs/api-contrato.md.',
+  })
+  cotizacion!: CotizacionRespuesta | null;
 }
 class MesaResponse {
   @ApiProperty({ description: 'public_id de la mesa' }) id!: string;
@@ -60,6 +71,13 @@ class MesaResponse {
   @ApiProperty({ enum: ['ABIERTA', 'EN_CAMINO', 'EN_MESA', 'FINALIZADA', 'CANCELADA'] }) estado!: string;
   @ApiPropertyOptional({ type: Date, nullable: true, description: 'Cuándo la validó la caja' }) validadaEn!: Date | null;
   @ApiProperty({ type: [MiembroMesa] }) miembros!: MiembroMesa[];
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización estimada de toda la mesa. Solo el anfitrión (`null` para un invitado). También `null` si el plan de algún pagador no es legible para el comensal.',
+  })
+  cotizacion!: CotizacionRespuesta | null;
 }
 class InvitacionResponse {
   @ApiProperty() id!: string;
@@ -95,6 +113,7 @@ const MOTIVOS: Record<string, { status: HttpStatus; detail: string }> = {
 
 interface MesaRow {
   mesa_compartida_id: string;
+  restaurante_id: string;
   public_id: string;
   modo: string;
   estado: string;
@@ -107,7 +126,7 @@ interface MesaRow {
   restaurante_slug: string;
 }
 
-const MESA_SELECT = `SELECT m.mesa_compartida_id, m.public_id, m.modo, m.estado, m.hora_llegada, m.validada_en,
+const MESA_SELECT = `SELECT m.mesa_compartida_id, m.restaurante_id, m.public_id, m.modo, m.estado, m.hora_llegada, m.validada_en,
        m.anfitrion_usuario_id = app_user_id() AS soy_anfitrion, u.nombre AS anfitrion_nombre,
        r.public_id AS restaurante_public_id, r.nombre AS restaurante_nombre, r.slug AS restaurante_slug
   FROM mesa_compartida m
@@ -264,6 +283,27 @@ export class TablesService {
       [m.mesa_compartida_id],
     );
     const selecciones = await loadSelections(q, m.mesa_compartida_id);
+    // Cotización informativa (E.6). El comensal solo lee su propio plan: lo de los demás miembros no se puede cotizar.
+    const cliente = (
+      await q.query<{ cliente_id: string }>(
+        'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = $1 AND usuario_id = app_user_id() AND activo',
+        [m.restaurante_id],
+      )
+    ).rows[0];
+    const cot = await cotizarMesa(q, {
+      mesaId: m.mesa_compartida_id,
+      restauranteId: m.restaurante_id,
+      modo: m.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
+      base: 'seleccion',
+      miembros: members.rows.map((x) => ({
+        miembroId: String(x.miembro_id),
+        esAnfitrion: x.es_anfitrion,
+        paraLlevar: x.para_llevar,
+        clienteId: x.soy_yo && cliente ? String(cliente.cliente_id) : null,
+        planLegible: x.soy_yo,
+      })),
+    });
+    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
     return {
       id: m.public_id,
       invitacion: m.public_id,
@@ -280,7 +320,9 @@ export class TablesService {
         paraLlevar: x.para_llevar,
         soyYo: x.soy_yo,
         seleccion: m.soy_anfitrion || x.soy_yo ? seleccionDe(selecciones, x.miembro_id) : null,
+        cotizacion: m.soy_anfitrion || x.soy_yo ? aResp(cot.porMiembro.get(String(x.miembro_id))) : null,
       })),
+      cotizacion: m.soy_anfitrion ? aResp(cot.mesa) : null,
     };
   }
 }

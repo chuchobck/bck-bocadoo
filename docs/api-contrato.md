@@ -6,6 +6,133 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 - Este archivo explica lo que el OpenAPI no dice: convenciones, errores, flujos y estado de cada endpoint.
 - Estado del plan y fases: [`docs/estado.md`](./estado.md). Modelo de amenazas: [`docs/seguridad.md`](./seguridad.md).
 
+## Novedades
+
+### Entrega D · PR 3: cotizaciones informativas (solo campos nuevos y un endpoint sin efectos)
+
+Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (secciones B, E.2, E.3, E.5 y E.6). **Sin migraciones y sin cambios incompatibles**: ningún campo existente cambia de tipo ni de significado (`pnpm openapi:breaking` limpio). Todo lo nuevo es **informativo**: nada de esto cobra ni descuenta.
+
+| Dónde                                                                                                                                        | Qué es nuevo                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `POST /v1/mis/pedidos/cotizar` (**endpoint nuevo**)                                                                                          | `200` con la `Cotizacion`. Sin `Idempotency-Key`, no escribe nada.                         |
+| `POST /v1/mis/pedidos`, `GET /v1/mis/pedidos`, `GET /v1/mis/pedidos/{id}`, `POST /v1/mis/pedidos/{id}/cancelar`                              | `cotizacion` (objeto `Cotizacion`)                                                         |
+| `GET /v1/caja/pedidos`, `GET /v1/caja/pedidos/{id}`, `POST /v1/caja/pedidos/{id}/canjear` (en `pedido`), `POST /v1/caja/pedidos/{id}/servir` | `cotizacion` (objeto `Cotizacion`)                                                         |
+| `GET /v1/mis/mesas`, `GET /v1/mis/mesas/{id}` (y las respuestas de crear, unirse, cancelar y `PUT …/seleccion`, que devuelven la misma mesa) | `miembros[].cotizacion` y `cotizacion` de la mesa (ambos pueden ser `null`, ver «Mesas»)   |
+| `GET /v1/caja/mesas/{id}`                                                                                                                    | `miembros[].cotizacion` y `cotizacion` de la mesa                                          |
+| `POST /v1/caja/mesas/{id}/validar`                                                                                                           | `cotizacion` y `miembros[].cotizacion` informativas (E.5): cada miembro con 1 almuerzo     |
+| `GET /v1/caja/mesas/{id}`, `POST /v1/caja/mesas/{id}/validar`, `GET /v1/caja/pedidos` y `/{id}`                                              | **Cambio de valor** (mismo tipo): `cubiertos` y `almuerzosDisponibles` (INC-12, ver abajo) |
+
+#### El objeto `Cotizacion`
+
+Siempre `estimada: true` en esta entrega: es una estimación con el precio y el plan **de hoy**; el cobro real lo fija la caja (PR 4 y siguientes). Montos en centavos enteros.
+
+```json
+{
+  "estimada": true,
+  "lineas": [
+    {
+      "ref": "almuerzo#1",
+      "personaRef": "0",
+      "pagadorRef": "0",
+      "tipo": "ALMUERZO",
+      "nombre": "Almuerzo",
+      "platoId": null,
+      "ofertaId": null,
+      "cantidad": 1,
+      "paraLlevar": true,
+      "precioUnitarioCentavos": 350,
+      "subtotalCentavos": 350,
+      "recargoUnitarioCentavos": 25,
+      "recargoCentavos": 25,
+      "fuente": "PLAN",
+      "pagador": "PROPIO",
+      "cubiertoPorPlanCentavos": 350,
+      "porCobrarCentavos": 25,
+      "omitida": null
+    },
+    {
+      "ref": "extra:0",
+      "personaRef": "0",
+      "pagadorRef": "0",
+      "tipo": "EXTRA",
+      "nombre": "Huevo frito",
+      "platoId": "df24243e-cc29-406a-94fd-fde6bf11d38e",
+      "ofertaId": null,
+      "cantidad": 2,
+      "paraLlevar": true,
+      "precioUnitarioCentavos": 75,
+      "subtotalCentavos": 150,
+      "recargoUnitarioCentavos": 0,
+      "recargoCentavos": 0,
+      "fuente": "CAJA",
+      "pagador": "PROPIO",
+      "cubiertoPorPlanCentavos": 0,
+      "porCobrarCentavos": 150,
+      "omitida": null
+    }
+  ],
+  "porPagador": [{ "pagadorRef": "0", "subtotal": 500, "recargo": 25, "total": 525, "cubierto": 350, "saldo": 175 }],
+  "subtotalCentavos": 500,
+  "recargoCentavos": 25,
+  "totalCentavos": 525,
+  "cubiertoPorPlanCentavos": 350,
+  "saldoPorCobrarCentavos": 175,
+  "monedaCodigo": "USD",
+  "avisos": []
+}
+```
+
+- `totalCentavos = subtotalCentavos + recargoCentavos` y `saldoPorCobrarCentavos = totalCentavos − cubiertoPorPlanCentavos` (lo que se pagaría en caja).
+- `fuente`: de dónde sale el precio de la línea (`PLAN` = lo cubre un almuerzo del plan, `CAJA` = precio normal; `OFERTA` llega en el PR 7). `pagador`: `PROPIO` o `ANFITRION` (mesa `INVITO_YO`).
+- Cada almuerzo que cubre el plan es **su propia línea** de cantidad 1 con `ref` terminado en `#k` (`almuerzo#1`).
+- El plan de hoy se lee con la misma condición que la caja: plan `ACTIVA`, `vence_el >= hoy` y hoy en `dias_validos`. Un plan sin saldo, vencido o en un día no válido no cubre: el almuerzo se cobra a precio suelto.
+- `avisos[]`: `{ codigo, lineaRef }` (`PLAN_NO_ALCANZA`, `PLATO_AGOTADO`). `DUPLICADO` y `LIMITE_SAAS` no se estiman en esta entrega (dependen de lo que pase en caja).
+- `unidadesPlan` (lo que descontará la caja) es interno y **no** se expone.
+
+#### `POST /v1/mis/pedidos/cotizar`
+
+Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras del menú de hoy, `paraLlevar`), pero **sin `Idempotency-Key` y sin efectos**: no crea el pedido, no toma número del día y no toca el plan. Para mostrar el total antes de pedir. Carta y ofertas llegan en el PR 7.
+
+```json
+{
+  "restaurante": "a108d856-5d0e-4e0c-a36a-e8e5b855d1f4",
+  "paraLlevar": true,
+  "almuerzo": { "platos": ["41c0703f-3521-48eb-98ec-6d6d8efd5979"] },
+  "extras": [{ "plato": "df24243e-cc29-406a-94fd-fde6bf11d38e", "cantidad": 2 }]
+}
+```
+
+→ `200` con la `Cotizacion` de arriba (comensal con un plan que vale hoy). Errores: los de crear pedido (`PEDIDO_VACIO`, `ALMUERZO_INVALIDO`, `RESTAURANTE_NO_ENCONTRADO`, `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`) y 409 `ALMUERZO_SIN_PRECIO` (local con almuerzo en 0 y sin plan; no puede pasar en un local `ACTIVO`). Sin token, 401.
+
+#### Pedidos: `cotizacion` y su relación con `totalCentavos`
+
+- **`totalCentavos`, `recargoLlevarCentavos` y `almuerzo.precioCentavos` siguen con la regla de hoy** (sin cambios).
+- Para un pedido ya creado todavía no existe el snapshot del precio del almuerzo: se toma `subtotal − extras`. Un almuerzo guardado en 0 (lo cubrió el plan al pedir) se muestra como `PLAN` con precio 0, así que `subtotalCentavos`, `totalCentavos` y `cubiertoPorPlanCentavos` de ese pedido son menores que los de `POST /v1/mis/pedidos/cotizar` por el precio del almuerzo; `saldoPorCobrarCentavos` es el mismo.
+- La cotización de un pedido se recalcula en cada lectura con el plan de **hoy** del comensal (si el pedido se guardó con el almuerzo cobrado y después el comensal compra un plan, la cotización lo cubrirá; `totalCentavos` no cambia).
+- **Diferencia conocida, cambia en el PR 7:** si un extra del menú es un plato `A_LA_CARTA` (o un plato `ALMUERZO` con precio pedido como extra cuya sección es `SOPA` o `FUERTE`; un `JUGO` cuenta como bebida y un `POSTRE` o `ADICIONAL` como extra, y no pagan recargo) y el pedido es `paraLlevar`, la cotización suma el recargo **por unidad** (decisión D2) y `totalCentavos` aún no. Ejemplo: almuerzo + 1 plato a la carta de 600 para llevar, sin plan → `totalCentavos` 975 (`recargoLlevarCentavos` 25) y `cotizacion.saldoPorCobrarCentavos` 1000 (`recargoCentavos` 50). Hasta el PR 7 el frontend debe mostrar `totalCentavos` como lo que se paga; la `cotizacion` es informativa.
+
+#### Qué debe hacer frontend con esto
+
+- **`miembros[].cotizacion` puede ser `null` en `GET /v1/mis/mesas*` (a).** No es un error ni «sin datos»: el comensal solo puede leer su propio plan, así que no se puede calcular una cotización cuyo pagador es otra persona. `CADA_UNO`: el anfitrión ve la suya y los invitados `null` (la `cotizacion` de la mesa también `null` si hay más miembros); `INVITO_YO`: el anfitrión ve todo, un invitado todo `null`. La caja (`GET /v1/caja/mesas/{id}`) siempre ve todo. Se completará en el PR 4 con una función de base que dé solo los almuerzos disponibles del pagador. Mostrar «—» o esconder el monto cuando sea `null`.
+- **Cotización de un pedido ya creado (b).** Mientras no exista el snapshot del precio (PR 4), el único valor confiable es **`cotizacion.saldoPorCobrarCentavos`**. `subtotalCentavos`, `totalCentavos` y `cubiertoPorPlanCentavos` de un pedido creado pueden ser menores que los de `POST /v1/mis/pedidos/cotizar` (un almuerzo cubierto por plan se guardó en 0) y no deben mostrarse como desglose.
+- **Diferencia con `totalCentavos` (c).** Un plato a la carta (o `SOPA`/`FUERTE` suelto) para llevar suma recargo por unidad en la cotización y no en `totalCentavos`; **cambia en el PR 7**. Hasta entonces, lo que se paga es `totalCentavos`.
+
+#### Mesas: `cotizacion` y visibilidad
+
+- Cada `miembros[].cotizacion` cotiza lo que eligió el miembro (`seleccion`); **sin selección cuenta como 1 almuerzo**. Usa su `paraLlevar`. En `INVITO_YO` paga el anfitrión (su plan cubre primero al anfitrión y luego a los invitados por orden de llegada; `PLAN_NO_ALCANZA` si no alcanza); en `CADA_UNO`, cada quien con su plan.
+- **Misma visibilidad que `seleccion`**: el anfitrión y la caja ven la de todos; un invitado solo la suya (las demás vienen `null`). La `cotizacion` de la **mesa** es solo para el anfitrión y la caja (`null` para un invitado).
+- **Limitación de la API del comensal (RLS):** un comensal solo puede leer **su propio plan**. Por eso, en `GET /v1/mis/mesas*`, una cotización cuyo plan de pagador no es suyo viene `null`: en `CADA_UNO` el anfitrión ve la suya pero las de los invitados salen `null` (y la de la mesa también si hay otros miembros); en `INVITO_YO` el anfitrión sí ve todas y la de la mesa, pero un invitado ve todo `null` (paga el plan del anfitrión). La caja (`GET /v1/caja/mesas/{id}`) ve todas. No se inventa un plan: resolverlo requiere una función de base con permisos propios (migración), fuera de este PR.
+- Un plato de la selección agotado hoy queda `omitida: "PLATO_AGOTADO"` (no se cobra) con su aviso; un almuerzo con un plato agotado solo avisa.
+- Tras validar la mesa (el plan ya se descontó), la caja reconstruye la cotización sumando lo que se descontó en esa mesa; la vista del comensal usa el plan actual.
+
+#### `POST /v1/caja/mesas/{id}/validar`: cotización informativa
+
+Agrega `cotizacion` y `miembros[].cotizacion` con **cada miembro con 1 almuerzo y su `paraLlevar`** (E.5, sin extras ni la selección), calculados con el plan de **antes** de descontar. No cambia los descuentos, `descontados`, `porCobrar` ni `resultados`. En el reintento (`yaValidada: true`) se reconstruye con lo descontado en la mesa.
+
+#### INC-12: `cubiertos` y `almuerzosDisponibles` cuentan `dias_validos` (cambio de valor, mismo tipo)
+
+`cubiertos` y `miembros[].almuerzosDisponibles` (`GET /v1/caja/mesas/{id}` y `POST …/validar`) y `cliente.almuerzosDisponibles` (`GET /v1/caja/pedidos` y `/{id}`) ahora suman solo los planes que valen hoy: `ACTIVA`, `vence_el >= hoy` **y hoy dentro de `dias_validos`**. Antes un plan en un día no válido contaba saldo y la caja veía «cubierto» para después recibir `DIA_NO_VALIDO`. El tipo no cambia (entero); el número es más exacto: un cliente con plan en un día no válido pasa de `N` a `0`. `GET /v1/mis/consumos` y el saldo del plan **no** cambian.
+
 ## 1. Convenciones
 
 ### 1.1 URL base y prefijo
@@ -2466,6 +2593,8 @@ Response `200`:
 
 Quiénes vienen, quién paga y cuántos almuerzos cubren los planes.
 
+> **Novedad (PR 3):** `miembros[].cotizacion` y `cotizacion` de la mesa; `cubiertos` y `almuerzosDisponibles` ahora cuentan `dias_validos` (INC-12). Ver [Novedades](#novedades).
+
 Response `200`:
 
 ```json
@@ -2505,6 +2634,8 @@ Response `200`:
 CADA_UNO: cada quien con su plan. INVITO_YO: paga el anfitrión. Sin plan → por cobrar.
 
 Request: sin cuerpo (no envíes `content-type`).
+
+> **Novedad (PR 3):** suma `cotizacion` y `miembros[].cotizacion` informativas (cada miembro con 1 almuerzo y su `paraLlevar`). Los descuentos, `descontados` y `porCobrar` no cambian. Ver [Novedades](#novedades).
 
 Response `200`:
 
@@ -3183,6 +3314,8 @@ Request:
 }
 ```
 
+> **Novedad (PR 3):** la respuesta suma `cotizacion` (ver [Novedades](#novedades)). `totalCentavos` y `recargoLlevarCentavos` no cambian. Para saber el total antes de pedir: `POST /v1/mis/pedidos/cotizar`.
+
 Response `201`:
 
 ```json
@@ -3254,6 +3387,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 - **Estado:** En revisión (fase 8)
 - **Query:** `limit`, `cursor`
 
+> **Novedad (PR 3):** cada pedido suma `cotizacion` (ver [Novedades](#novedades)).
+
 Response `200`:
 
 ```json
@@ -3317,6 +3452,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 - **Rol:** Usuario con sesión (`Authorization`), sin `x-restaurant-id`
 - **Estado:** En revisión (fase 8)
+
+> **Novedad (PR 3):** suma `cotizacion` (ver [Novedades](#novedades)).
 
 Response `200`:
 
@@ -3435,6 +3572,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 Por defecto las activas, en orden de número ("Pedido #N").
 
+> **Novedad (PR 3):** cada pedido suma `cotizacion`; `cliente.almuerzosDisponibles` ahora cuenta `dias_validos` (INC-12). Ver [Novedades](#novedades).
+
 Response `200`:
 
 ```json
@@ -3496,6 +3635,8 @@ Response `200`:
 
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
 - **Estado:** En revisión (fase 8)
+
+> **Novedad (PR 3):** suma `cotizacion`; `cliente.almuerzosDisponibles` ahora cuenta `dias_validos` (INC-12). Ver [Novedades](#novedades).
 
 Response `200`:
 
@@ -3569,6 +3710,8 @@ Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que ven
 > `platoNombre`: platos del almuerzo preordenado unidos con `+`; `null` si el pedido solo lleva extras. Es campo nuevo y opcional.
 
 Request: sin cuerpo (no envíes `content-type`).
+
+> **Novedad (PR 3):** `pedido` suma `cotizacion`. `porCobrarCentavos` no cambia. Ver [Novedades](#novedades).
 
 Response `200`:
 
@@ -3783,6 +3926,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 - **Rol:** Usuario con sesión (`Authorization`), sin `x-restaurant-id`
 - **Estado:** En revisión (fase 8)
 
+> **Novedad (PR 3):** `miembros[].cotizacion` y `cotizacion` de la mesa, con la visibilidad de `seleccion` (ver [Novedades](#novedades)).
+
 Response `200`:
 
 ```json
@@ -3821,6 +3966,8 @@ Response `200`:
 
 - **Rol:** Usuario con sesión (`Authorization`), sin `x-restaurant-id`
 - **Estado:** En revisión (fase 8)
+
+> **Novedad (PR 3):** `miembros[].cotizacion` y `cotizacion` de la mesa (solo anfitrión). Pueden ser `null` si el plan del pagador no es legible para el comensal (ver [Novedades](#novedades)).
 
 Response `200`:
 

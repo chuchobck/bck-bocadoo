@@ -56,9 +56,18 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
     expect(j.statusCode, j.body).toBe(200);
     expect(j.json().soyAnfitrion).toBe(false);
     expect(j.json().miembros).toEqual([
-      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, seleccion: null },
-      { nombre: 'Comensal Prueba', esAnfitrion: false, paraLlevar: true, soyYo: true, seleccion: { almuerzo: null, extras: [] } },
+      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, seleccion: null, cotizacion: null },
+      {
+        nombre: 'Comensal Prueba',
+        esAnfitrion: false,
+        paraLlevar: true,
+        soyYo: true,
+        seleccion: { almuerzo: null, extras: [] },
+        // Sin selección cuenta 1 almuerzo (I-4); sin plan, y para llevar: 350 + 25.
+        cotizacion: expect.objectContaining({ estimada: true, totalCentavos: 375, saldoPorCobrarCentavos: 375, monedaCodigo: 'USD' }),
+      },
     ]);
+    expect(j.json().cotizacion).toBeNull(); // la de la mesa es solo del anfitrión
     expect((await join(guest, mesa.id)).json().miembros).toHaveLength(2);
     expect((await k.as(guest).get(`/v1/mesas/invitacion/${mesa.id}`)).json()).toMatchObject({
       puedeUnirse: false,

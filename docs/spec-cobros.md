@@ -159,7 +159,10 @@ almuerzo es P, B.3 paso 2; así `cubierto = P × unidades PLAN` se cumple siempr
    - Un almuerzo con `ofertaId` se convierte en una línea `OFERTA` con `categoriaBase = ALMUERZO` (D4: precio de la
      oferta, no consume plan).
    - Un plato pedido suelto toma `tipo = plato.categoria`. Un plato de categoría `ALMUERZO` con precio pedido como
-     suelto se trata como `A_LA_CARTA` (es un plato servido aparte).
+     suelto se mapea por su sección (`plato.seccion`): `JUGO` → `BEBIDA`, `POSTRE` y `ADICIONAL` → `EXTRA`, `SOPA` y
+     `FUERTE` → `A_LA_CARTA` (sin sección: `A_LA_CARTA`, el caso conservador). Así lo que hoy no paga recargo (un
+     jugo, un postre o un adicional aparte) sigue sin pagarlo, alineado con I-1; solo el plato fuerte o la sopa servidos aparte, que
+     ocupan envase propio, pagan recargo como `A_LA_CARTA`.
    - Las líneas se ordenan por `(persona.orden, posición en el pedido)`.
 2. **Precio unitario** (lo pone siempre el servidor):
    - `ALMUERZO` → P.
@@ -551,7 +554,9 @@ Campos nuevos en la respuesta: `cotizacion`, `cuentas`, `resultados[].cuentaId`,
 `GET /v1/mis/mesas/{id}` y `GET /v1/caja/mesas/{id}`: nuevo `miembros[].cotizacion` (estimada, con la misma visibilidad
 que `seleccion`: el invitado solo ve la suya) y `cotizacion` de la mesa (solo anfitrión y caja). Es el
 `totalEstimadoCentavos` que pedía `docs/estado.md:46`. `cubiertos` y `almuerzosDisponibles` pasan a contar `dias_validos`
-(INC-12): mismo tipo, número más exacto.
+(INC-12): mismo tipo, número más exacto. Hasta el PR 4 (función `SECURITY DEFINER` de H.1) el comensal solo puede leer su
+propio plan, así que en `GET /v1/mis/mesas*` los valores que dependen del plan de otro pagador (`miembros[].cotizacion`
+ajenas y la `cotizacion` de la mesa) salen `null`; la caja los ve todos.
 
 ### E.7 `POST /v1/mis/mesas/{id}/salir` (nuevo)
 
@@ -813,7 +818,11 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
    `…_cuentas_cobro` (F.1, `transaccion_pago.cuenta_cobro_id`, CHECK de origen, triggers, RLS, grants),
    `…_orden_snapshot_ofertas` (F.2 de `orden_*` y `canje_oferta_flash`), `…_mesa_salida_ofertas` (F.2 de `mesa_*`,
    `fn_salir_mesa`). Todas nullable o con default: el código de hoy sigue funcionando. Up/down/up en Postgres local;
-   aplicar en Neon con revisión. Pruebas de RLS.
+   aplicar en Neon con revisión. Pruebas de RLS. Además, una función `SECURITY DEFINER` (p. ej. `fn_plan_pagador_mesa`)
+   que, a quien sea miembro de la mesa, devuelve **solo los almuerzos disponibles** del plan del pagador (`CADA_UNO`:
+   cada miembro; `INVITO_YO`: el anfitrión), calculados con la condición de `fn_descontar_almuerzo`, y nada más del
+   plan ni del cliente (sin nombre, teléfono, precios ni vencimientos). Completa `miembros[].cotizacion` en las vistas
+   de mesa del comensal (hoy `null`, E.6).
 5. **feat(checkout): accounts and payments** — `src/billing/aplicar.ts`, endpoints de E.11, `cobro`/`items` en
    `POST /v1/caja/validar` y `cobro` en `POST /v1/caja/pedidos/{id}/canjear` (con snapshot de P), `CUENTA_COBRADA` en
    deshacer, `cuentasAbiertas` en el cierre. Integración: casos 17–23, 37, 43–46, 48.
