@@ -1,7 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { mapPgError } from '../db/pg-errors';
-import { problemCode } from './errors';
+import { BusinessError, problemCode } from './errors';
 
 /** Respuesta de error según RFC 9457 (application/problem+json). */
 @Catch()
@@ -28,10 +28,13 @@ export class ProblemFilter implements ExceptionFilter {
 
     if (status >= 500) this.logger.error({ err: raw, requestId: req.id }, 'Excepción no controlada');
 
+    // Los campos propios del problema van primero: nunca pisan los estándar.
+    const extensiones = exception instanceof BusinessError && status < 500 ? (exception.extensiones ?? {}) : {};
     void res
       .status(status)
       .header('content-type', 'application/problem+json; charset=utf-8')
       .send({
+        ...extensiones,
         type: 'about:blank',
         title: HttpStatus[status]?.replaceAll('_', ' ') ?? 'Error',
         status,
