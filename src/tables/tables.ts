@@ -7,7 +7,8 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, restaurantePausado, restauranteRef } from '../diner/common';
-import { aRespuesta, type CotizacionRespuesta } from '../cobro/adaptador';
+import type { PlanPersona } from '../billing/tipos';
+import { SIN_PLAN, aRespuesta, type CotizacionRespuesta } from '../cobro/adaptador';
 import { CotizacionResponse } from '../cobro/cotizacion.dto';
 import { cotizarMesa } from '../cobro/mesa';
 import { SeleccionDto, SeleccionMiembroResponse, TableSelectionService, loadSelections, seleccionDe } from './selection';
@@ -40,6 +41,11 @@ class MiembroMesa {
   @ApiProperty() paraLlevar!: boolean;
   @ApiProperty({ description: 'Es el comensal que consulta' }) soyYo!: boolean;
   @ApiProperty({
+    description:
+      'Salió de la mesa (`POST /v1/mis/mesas/{id}/salir`): no ocupa lugar, no se le cobra y su selección y su cotización vienen vacías/null. Puede volver a unirse con el link.',
+  })
+  salio!: boolean;
+  @ApiProperty({
     type: SeleccionMiembroResponse,
     nullable: true,
     description:
@@ -50,8 +56,9 @@ class MiembroMesa {
     type: CotizacionResponse,
     nullable: true,
     description:
-      'Cotización estimada de lo que pide este miembro (sin selección cuenta 1 almuerzo), con su plan de hoy y su paraLlevar. Misma visibilidad que `seleccion`: el anfitrión ve la de todos; un invitado solo la suya (las demás `null`). ' +
-      'También `null` si el plan de quien paga no es legible para quien consulta (la API del comensal solo lee su propio plan): ver docs/api-contrato.md.',
+      'Cotización estimada de lo que pide este miembro (sin selección cuenta 1 almuerzo), con el plan de quien paga y su paraLlevar: es lo que la caja cobrará al validar. ' +
+      'Misma visibilidad que `seleccion`: el anfitrión ve la de todos; un invitado solo la suya (las demás `null`). `null` también si el miembro salió de la mesa. ' +
+      'Del plan de otra persona solo se usa cuántos almuerzos cubre hoy, acotado al número de miembros (nunca su saldo exacto).',
   })
   cotizacion!: CotizacionRespuesta | null;
 }
@@ -75,7 +82,7 @@ class MesaResponse {
     type: CotizacionResponse,
     nullable: true,
     description:
-      'Cotización estimada de toda la mesa. Solo el anfitrión (`null` para un invitado). También `null` si el plan de algún pagador no es legible para el comensal.',
+      'Cotización estimada de toda la mesa (sin los que salieron). Solo el anfitrión (`null` para un invitado y para quien salió).',
   })
   cotizacion!: CotizacionRespuesta | null;
 }
@@ -109,6 +116,17 @@ const MOTIVOS: Record<string, { status: HttpStatus; detail: string }> = {
   MESA_VENCIDA: { status: HttpStatus.CONFLICT, detail: 'La invitación venció.' },
   MESA_LLENA: { status: HttpStatus.CONFLICT, detail: 'La mesa está llena.' },
   RESTAURANTE_NO_DISPONIBLE: { status: HttpStatus.CONFLICT, detail: 'El restaurante no está disponible.' },
+};
+
+/** Resultados de fn_salir_mesa que no son 200 → error HTTP con código estable (E.7). */
+const SALIDA: Record<string, { status: HttpStatus; code: string; detail: string }> = {
+  NO_ENCONTRADA: { status: HttpStatus.NOT_FOUND, code: 'MESA_NO_ENCONTRADA', detail: 'Mesa no encontrada.' },
+  MESA_CERRADA: { status: HttpStatus.CONFLICT, code: 'MESA_CERRADA', detail: 'La mesa ya fue validada en caja o cancelada.' },
+  ANFITRION_NO_PUEDE_SALIR: {
+    status: HttpStatus.CONFLICT,
+    code: 'ANFITRION_NO_PUEDE_SALIR',
+    detail: 'El anfitrión no puede salir de su mesa: puede cancelarla.',
+  },
 };
 
 interface MesaRow {
@@ -266,6 +284,20 @@ export class TablesService {
     });
   }
 
+  /**
+   * Salir de la mesa (E.7, D «Miembro que se va»): cualquier miembro menos el anfitrión, mientras la caja no la valide.
+   * Borra su selección y marca `salio_en` (fn_salir_mesa, con la mesa bloqueada). Repetir no cambia nada. Desde ahí no
+   * ocupa lugar ni se le cobra; puede volver a unirse con el link.
+   */
+  leave(user: AuthUser, id: string): Promise<MesaResponse> {
+    return this.db.scope({ userId: user.userId }, async (q) => {
+      const r = (await q.query<{ r: string }>('SELECT fn_salir_mesa($1) AS r', [id])).rows[0]!.r;
+      const e = SALIDA[r];
+      if (e) throw new BusinessError(e.status, e.code, e.detail);
+      return this.view(q, id);
+    });
+  }
+
   private async load(q: Queryable, id: string): Promise<MesaRow> {
     const r = await q.query<MesaRow>(`${MESA_SELECT} AND m.public_id = $1`, [id]);
     if (!r.rows[0]) throw notFound('MESA_NO_ENCONTRADA', 'Mesa no encontrada.');
@@ -277,30 +309,41 @@ export class TablesService {
   }
 
   private async render(q: Queryable, m: MesaRow): Promise<MesaResponse> {
-    const members = await q.query<{ miembro_id: string; nombre: string; es_anfitrion: boolean; para_llevar: boolean; soy_yo: boolean }>(
-      `SELECT miembro_id, nombre, es_anfitrion, para_llevar, usuario_id IS NOT DISTINCT FROM app_user_id() AS soy_yo
+    const members = await q.query<{
+      miembro_id: string;
+      nombre: string;
+      es_anfitrion: boolean;
+      para_llevar: boolean;
+      soy_yo: boolean;
+      salio: boolean;
+    }>(
+      `SELECT miembro_id, nombre, es_anfitrion, para_llevar, usuario_id IS NOT DISTINCT FROM app_user_id() AS soy_yo, salio_en IS NOT NULL AS salio
          FROM mesa_compartida_miembro WHERE mesa_compartida_id = $1 ORDER BY es_anfitrion DESC, unido_en, miembro_id`,
       [m.mesa_compartida_id],
     );
+    const activos = members.rows.filter((x) => !x.salio);
     const selecciones = await loadSelections(q, m.mesa_compartida_id);
-    // Cotización informativa (E.6). El comensal solo lee su propio plan: lo de los demás miembros no se puede cotizar.
+    // Cotización informativa (E.6). El comensal lee su propio plan; del plan de otro pagador solo obtiene, con
+    // fn_plan_pagador_mesa, cuántos almuerzos cubre hoy (acotado al número de miembros: nunca el saldo exacto).
     const cliente = (
       await q.query<{ cliente_id: string }>(
         'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = $1 AND usuario_id = app_user_id() AND activo',
         [m.restaurante_id],
       )
     ).rows[0];
+    const ajenos = await this.planesAjenos(q, m, activos);
     const cot = await cotizarMesa(q, {
       mesaId: m.mesa_compartida_id,
       restauranteId: m.restaurante_id,
       modo: m.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
       base: 'seleccion',
-      miembros: members.rows.map((x) => ({
+      miembros: activos.map((x) => ({
         miembroId: String(x.miembro_id),
         esAnfitrion: x.es_anfitrion,
         paraLlevar: x.para_llevar,
         clienteId: x.soy_yo && cliente ? String(cliente.cliente_id) : null,
-        planLegible: x.soy_yo,
+        planLegible: x.soy_yo || ajenos.has(String(x.miembro_id)),
+        plan: ajenos.get(String(x.miembro_id)),
       })),
     });
     const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
@@ -314,16 +357,60 @@ export class TablesService {
       modo: m.modo,
       estado: m.estado,
       validadaEn: m.validada_en,
-      miembros: members.rows.map((x) => ({
-        nombre: x.nombre,
-        esAnfitrion: x.es_anfitrion,
-        paraLlevar: x.para_llevar,
-        soyYo: x.soy_yo,
-        seleccion: m.soy_anfitrion || x.soy_yo ? seleccionDe(selecciones, x.miembro_id) : null,
-        cotizacion: m.soy_anfitrion || x.soy_yo ? aResp(cot.porMiembro.get(String(x.miembro_id))) : null,
-      })),
+      miembros: members.rows.map((x) => {
+        const visible = (m.soy_anfitrion || x.soy_yo) && !x.salio;
+        return {
+          nombre: x.nombre,
+          esAnfitrion: x.es_anfitrion,
+          paraLlevar: x.para_llevar,
+          soyYo: x.soy_yo,
+          salio: x.salio,
+          seleccion: m.soy_anfitrion || x.soy_yo ? seleccionDe(selecciones, x.miembro_id) : null,
+          cotizacion: visible ? aResp(cot.porMiembro.get(String(x.miembro_id))) : null,
+        };
+      }),
       cotizacion: m.soy_anfitrion ? aResp(cot.mesa) : null,
     };
+  }
+
+  /**
+   * Plan de los pagadores que no son quien consulta, como los da fn_plan_pagador_mesa (solo un entero acotado). Lo que
+   * cada uno necesita para ver lo suyo y nada más (E.6):
+   * - INVITO_YO: el invitado necesita el plan del anfitrión (paga todo); el anfitrión lee el suyo.
+   * - CADA_UNO: el anfitrión necesita el de cada invitado; un invitado solo ve lo suyo, que paga con su propio plan.
+   * Sin almuerzos (0) no se sabe por qué (sin plan, sin saldo, vencido, día no válido): el monto es el mismo, a caja.
+   * Quien salió de la mesa no obtiene nada (la función devuelve NULL).
+   */
+  private async planesAjenos(
+    q: Queryable,
+    m: MesaRow,
+    activos: { miembro_id: string; es_anfitrion: boolean; soy_yo: boolean }[],
+  ): Promise<Map<string, PlanPersona>> {
+    const yo = activos.find((x) => x.soy_yo);
+    const host = activos.find((x) => x.es_anfitrion);
+    const out = new Map<string, PlanPersona>();
+    if (!yo || !host) return out;
+    // [miembro por el que se pregunta, pagador al que se le asigna el plan]
+    const preguntas: [string, string][] =
+      m.modo === 'INVITO_YO'
+        ? yo.es_anfitrion
+          ? []
+          : [[String(yo.miembro_id), String(host.miembro_id)]]
+        : yo.es_anfitrion
+          ? activos.filter((x) => !x.soy_yo).map((x) => [String(x.miembro_id), String(x.miembro_id)])
+          : [];
+    if (!preguntas.length) return out;
+    const r = await q.query<{ miembro_id: string; n: number | null }>(
+      'SELECT x.miembro_id, fn_plan_pagador_mesa($1, x.miembro_id) AS n FROM unnest($2::bigint[]) AS x(miembro_id)',
+      [m.mesa_compartida_id, preguntas.map(([miembro]) => miembro)],
+    );
+    const porMiembro = new Map(r.rows.map((x) => [String(x.miembro_id), x.n]));
+    for (const [miembro, pagador] of preguntas) {
+      const n = porMiembro.get(miembro);
+      if (n === null || n === undefined) continue;
+      out.set(pagador, n > 0 ? { estado: 'OK', disponibles: n } : SIN_PLAN);
+    }
+    return out;
   }
 }
 
@@ -378,12 +465,26 @@ export class TablesController {
   @ApiProblems({
     400: ['ALMUERZO_INVALIDO', 'SELECCION_INVALIDA'],
     404: ['MESA_NO_ENCONTRADA'],
-    409: ['MESA_CERRADA', 'RESTAURANTE_PAUSADO', 'RESTAURANTE_NO_DISPONIBLE', 'MENU_NO_PUBLICADO', 'PLATO_AGOTADO'],
+    409: ['MESA_CERRADA', 'SALISTE_DE_LA_MESA', 'RESTAURANTE_PAUSADO', 'RESTAURANTE_NO_DISPONIBLE', 'MENU_NO_PUBLICADO', 'PLATO_AGOTADO'],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
   })
   async setSelection(@CurrentUser() user: AuthUser, @Param('id', UuidPipe) id: string, @Body() dto: SeleccionDto) {
     await this.selection.set(user, id, dto);
     return this.svc.one(user, id);
+  }
+
+  @Post(':id/salir')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Salir de la mesa (un invitado, antes de que la caja la valide)',
+    description:
+      'Borra mi selección y me marca como salido (`miembros[].salio`): ya no ocupo lugar y la caja no me cobra nada al validar. Sin cuerpo y sin ' +
+      '`Idempotency-Key`: repetirlo no cambia nada. El anfitrión no puede salir (puede cancelar la mesa). Puedo volver a unirme con el link.',
+  })
+  @ApiOkResponse({ type: MesaResponse })
+  @ApiProblems({ 404: ['MESA_NO_ENCONTRADA'], 409: ['MESA_CERRADA', 'ANFITRION_NO_PUEDE_SALIR'] })
+  leave(@CurrentUser() user: AuthUser, @Param('id', UuidPipe) id: string) {
+    return this.svc.leave(user, id);
   }
 
   @Post(':id/cancelar')

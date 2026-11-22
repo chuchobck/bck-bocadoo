@@ -7,6 +7,7 @@ import { platoAgotadoSql } from '../menu/carta';
 import {
   type CategoriaPlato,
   type CotizacionesMesa,
+  type MesaParaCobro,
   type MiembroParaCobro,
   type PlatoSuelto,
   SIN_PLAN,
@@ -22,6 +23,11 @@ export interface MiembroMesaBase {
   clienteId: string | null;
   /** Quien consulta puede leer el plan de este miembro (el comensal solo el suyo; el personal el de todos). */
   planLegible: boolean;
+  /**
+   * Plan ya conocido de este miembro como pagador (p. ej. lo que devolvió fn_plan_pagador_mesa al comensal): gana sobre
+   * lo que se lee con `cargarPlanes`. Solo se usa si `planLegible`.
+   */
+  plan?: PlanPersona;
 }
 
 type SeleccionCotizable = NonNullable<MiembroParaCobro['seleccion']>;
@@ -93,7 +99,7 @@ export interface OpcionesCotizarMesa {
   mesaId: string;
   restauranteId: string;
   modo: 'CADA_UNO' | 'INVITO_YO';
-  /** En el orden de la mesa: anfitrión primero, luego (unido_en, miembro_id). */
+  /** En el orden de la mesa: anfitrión primero, luego (unido_en, miembro_id). Solo los que no salieron (D, E.7). */
   miembros: MiembroMesaBase[];
   /** 'seleccion' (E.6) o 'un-almuerzo' (E.5, validar sin aplicarSeleccion). */
   base: 'seleccion' | 'un-almuerzo';
@@ -101,7 +107,11 @@ export interface OpcionesCotizarMesa {
   reponerConsumos?: boolean;
 }
 
-export async function cotizarMesa(q: Queryable, o: OpcionesCotizarMesa): Promise<CotizacionesMesa & { monedaCodigo: string }> {
+/**
+ * Lee de la base lo que hace falta para cotizar la mesa (precios del local, planes de los pagadores legibles y la
+ * selección de cada miembro) y arma la entrada del adaptador. Es la misma para la vista previa y para validar.
+ */
+export async function cargarMesaParaCobro(q: Queryable, o: OpcionesCotizarMesa): Promise<{ mesa: MesaParaCobro; monedaCodigo: string }> {
   const rest = (
     await q.query<{ precio: string; recargo: string; moneda: string; momento: MomentoCobro }>(
       `SELECT precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, moneda_codigo AS moneda, momento_cobro AS momento
@@ -111,13 +121,14 @@ export async function cotizarMesa(q: Queryable, o: OpcionesCotizarMesa): Promise
   ).rows[0]!;
   const planes = await cargarPlanes(
     q,
-    o.miembros.filter((m) => m.planLegible).map((m) => ({ restauranteId: o.restauranteId, clienteId: m.clienteId })),
+    o.miembros.filter((m) => m.planLegible && !m.plan).map((m) => ({ restauranteId: o.restauranteId, clienteId: m.clienteId })),
   );
   const gastados = o.reponerConsumos ? await consumidosEnMesa(q, o.mesaId) : new Map<string, number>();
   const selecciones = o.base === 'seleccion' ? await cargarSelecciones(q, o.mesaId) : new Map<string, SeleccionCotizable>();
 
   const planDe = (m: MiembroMesaBase): PlanPersona | null => {
     if (!m.planLegible) return null;
+    if (m.plan) return m.plan;
     const plan = (m.clienteId && planes.get(claveCliente(o.restauranteId, m.clienteId))) || SIN_PLAN;
     const n = m.clienteId ? (gastados.get(m.clienteId) ?? 0) : 0;
     return n > 0 ? { estado: 'OK', disponibles: plan.disponibles + n } : plan;
@@ -129,13 +140,19 @@ export async function cotizarMesa(q: Queryable, o: OpcionesCotizarMesa): Promise
     plan: planDe(m),
     seleccion: selecciones.get(m.miembroId) ?? null,
   }));
-  const c = cotizacionesDeMesa({
+  const mesa: MesaParaCobro = {
     modo: o.modo,
     base: o.base,
     precioAlmuerzo: Number(rest.precio),
     recargoLlevar: Number(rest.recargo),
     momentoCobro: rest.momento,
     miembros,
-  });
-  return { ...c, monedaCodigo: rest.moneda };
+  };
+  return { mesa, monedaCodigo: rest.moneda };
+}
+
+/** Cotización informativa (E.5, E.6) repartida por miembro, con la moneda del local. */
+export async function cotizarMesa(q: Queryable, o: OpcionesCotizarMesa): Promise<CotizacionesMesa & { monedaCodigo: string }> {
+  const { mesa, monedaCodigo } = await cargarMesaParaCobro(q, o);
+  return { ...cotizacionesDeMesa(mesa), monedaCodigo };
 }

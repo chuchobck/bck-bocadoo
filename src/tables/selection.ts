@@ -107,6 +107,8 @@ export async function loadSelections(q: Queryable, mesaId: string): Promise<Map<
 export const seleccionDe = (m: Map<string, Seleccion>, miembroId: string): Seleccion =>
   m.get(String(miembroId)) ?? { almuerzo: null, extras: [] };
 
+const saliste = () => conflict('SALISTE_DE_LA_MESA', 'Saliste de esta mesa: vuelve a unirte con el link para elegir.');
+
 interface PlatoRow {
   plato_id: string;
   public_id: string;
@@ -139,8 +141,9 @@ export class TableSelectionService {
           validada_en: Date | null;
           restaurante_estado: string;
           hoy: string;
+          salio: boolean;
         }>(
-          `SELECT m.mesa_compartida_id, m.restaurante_id, x.miembro_id, m.estado AS mesa_estado, m.validada_en,
+          `SELECT m.mesa_compartida_id, m.restaurante_id, x.miembro_id, m.estado AS mesa_estado, m.validada_en, x.salio_en IS NOT NULL AS salio,
                   r.estado AS restaurante_estado, ${HOY_LOCAL('r')}::text AS hoy
              FROM mesa_compartida m
              JOIN restaurante r ON r.restaurante_id = m.restaurante_id
@@ -150,6 +153,7 @@ export class TableSelectionService {
         )
       ).rows[0];
       if (!m) throw notFound('MESA_NO_ENCONTRADA', 'Mesa no encontrada.');
+      if (m.salio) throw saliste();
       if (m.validada_en || !['ABIERTA', 'EN_CAMINO'].includes(m.mesa_estado))
         throw conflict('MESA_CERRADA', 'La mesa ya no admite cambios en la selección.');
       if (m.restaurante_estado === 'PAUSADO') throw restaurantePausado();
@@ -207,8 +211,18 @@ export class TableSelectionService {
         rows.push({ plato_id: p.plato_id, seccion: null, cantidad: e.cantidad });
       }
 
-      // Reemplaza la selección completa. El candado evita que dos envíos simultáneos del mismo miembro se pisen.
+      // Reemplaza la selección completa. El candado evita que dos envíos simultáneos del mismo miembro se pisen, y es el
+      // mismo de fn_salir_mesa y de validar la mesa: si el miembro salió (o la caja validó) mientras tanto, se ve aquí.
       await q.query('SELECT pg_advisory_xact_lock($1::bigint)', [m.miembro_id]);
+      const ahora = (
+        await q.query<{ salio: boolean; abierta: boolean }>(
+          `SELECT x.salio_en IS NOT NULL AS salio, (m.estado IN ('ABIERTA', 'EN_CAMINO') AND m.validada_en IS NULL) AS abierta
+             FROM mesa_compartida_miembro x JOIN mesa_compartida m ON m.mesa_compartida_id = x.mesa_compartida_id WHERE x.miembro_id = $1`,
+          [m.miembro_id],
+        )
+      ).rows[0]!;
+      if (ahora.salio) throw saliste();
+      if (!ahora.abierta) throw conflict('MESA_CERRADA', 'La mesa ya no admite cambios en la selección.');
       await q.query('DELETE FROM mesa_compartida_miembro_item WHERE miembro_id = $1', [m.miembro_id]);
       for (const row of rows) {
         await q.query(
