@@ -10,13 +10,16 @@ export class BusinessError extends HttpException {
     status: HttpStatus,
     readonly code: string,
     detail: string,
+    /** Campos extra del problem+json (RFC 9457, «extension members»), p. ej. el saldo nuevo de `SALDO_CAMBIO`. */
+    readonly extensiones?: Record<string, unknown>,
   ) {
     super({ code, message: detail }, status);
   }
 }
 
 export const notFound = (code: string, detail: string) => new BusinessError(HttpStatus.NOT_FOUND, code, detail);
-export const conflict = (code: string, detail: string) => new BusinessError(HttpStatus.CONFLICT, code, detail);
+export const conflict = (code: string, detail: string, extensiones?: Record<string, unknown>) =>
+  new BusinessError(HttpStatus.CONFLICT, code, detail, extensiones);
 export const badRequest = (code: string, detail: string) => new BusinessError(HttpStatus.BAD_REQUEST, code, detail);
 export const forbidden = (code: string, detail: string) => new BusinessError(HttpStatus.FORBIDDEN, code, detail);
 export const unprocessable = (code: string, detail: string) => new BusinessError(HttpStatus.UNPROCESSABLE_ENTITY, code, detail);

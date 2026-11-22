@@ -82,6 +82,8 @@ describe('CheckoutService: eventos solo después del COMMIT', () => {
   const undoRows = (sql: string) => {
     if (sql.includes('AS viejo')) return [{ consumo_id: '7', cantidad: 1, viejo: false, revertido: false }];
     if (sql.includes('AS saldo')) return [{ usuario_id: '42', restaurante_nombre: 'La Sazón', saldo: 5, hora: new Date() }];
+    // El consumo no es parte de ninguna cuenta de cobro (como los consumos de antes de la entrega D).
+    if (sql.includes('FROM cuenta_cobro_linea')) return [];
     return [{}];
   };
 

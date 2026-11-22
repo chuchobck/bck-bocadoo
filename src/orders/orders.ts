@@ -1,5 +1,14 @@
 import { Body, Controller, Get, HttpCode, Injectable, Module, Param, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiPropertyOptional,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -28,16 +37,32 @@ import { occupancy } from '../catalog/catalog.service';
 import {
   type CategoriaPlato,
   type CotizacionRespuesta,
+  type PlatoSuelto,
   SIN_PLAN,
   aRespuesta,
   cotizarInformativa,
   entradaPedido,
   entradaPedidoCreado,
+  precioAlmuerzoDePedido,
 } from '../cobro/adaptador';
-import { CotizacionResponse } from '../cobro/cotizacion.dto';
+import {
+  clavePagoEnElPaso,
+  cuentaDeOrden,
+  cuentaPorClave,
+  descontarYRecotizar,
+  errorDePago,
+  estadoPlanDe,
+  persistirCuenta,
+  registrarPago,
+  renderCuenta,
+  saldoCambio,
+} from '../cobro/aplicar';
+import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion.dto';
+import { CobroDto, CuentaResponse } from '../cobro/cuenta.dto';
+import { huella } from '../common/derive-key';
 import { cargarPlanes, claveCliente, planVigenteHoySql } from '../cobro/planes';
 import { cotizar } from '../billing/cotizar';
-import { CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
+import { type Cotizacion, CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
 import {
   CURSOR_TS,
   HOY_LOCAL,
@@ -164,7 +189,12 @@ export interface OrderRow {
   servida_en: Date | null;
   cancelada_en: Date | null;
   cliente_id: string | null;
+  usuario_id: string;
   usuario_nombre: string;
+  /** Snapshot de P al pedir (INC-06); null en pedidos anteriores al PR 5a. */
+  precio_almuerzo_centavos: string | null;
+  /** Hay un consumo del plan de este pedido que no se deshizo. */
+  con_consumo: boolean;
   restaurante_public_id: string;
   restaurante_nombre: string;
   restaurante_slug: string;
@@ -191,12 +221,40 @@ interface PreciosRow {
 
 export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o.numero_dia, o.fecha_local::text AS fecha_local, ${ESTADO_EFECTIVO} AS estado, o.tipo,
        o.subtotal_centavos, o.recargo_llevar_centavos, o.total_centavos, o.moneda_codigo, o.creada_en, o.vence_en,
-       o.canjeada_en, o.servida_en, o.cancelada_en, o.cliente_id, u.nombre AS usuario_nombre,
+       o.canjeada_en, o.servida_en, o.cancelada_en, o.cliente_id, o.usuario_id, u.nombre AS usuario_nombre, o.precio_almuerzo_centavos,
+       EXISTS (SELECT 1 FROM consumo_almuerzo k WHERE k.restaurante_id = o.restaurante_id AND k.orden_id = o.orden_id AND k.cantidad = 1
+                  AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)) AS con_consumo,
        r.public_id AS restaurante_public_id, r.nombre AS restaurante_nombre, r.slug AS restaurante_slug,
        ${CURSOR_TS('o.creada_en')} AS cursor_t
   FROM orden_cabecera o
   JOIN restaurante r ON r.restaurante_id = o.restaurante_id
   JOIN usuario u ON u.usuario_id = o.usuario_id`;
+
+/** Extras del pedido (renglones sin sección) como platos sueltos para la cotización. */
+function extrasParaCobro(lines: LineRow[]): PlatoSuelto[] {
+  return lines
+    .filter((l) => l.seccion === null)
+    .map((l) => ({
+      platoId: l.plato_public_id,
+      nombre: l.nombre_plato,
+      categoria: l.categoria,
+      seccion: l.plato_seccion,
+      cantidad: l.cantidad,
+      precioUnitario: Number(l.precio_unitario_centavos),
+    }));
+}
+
+/** Renglones de pedidos (orden_detalle) con su plato. */
+async function orderLines(q: Queryable, ordenIds: string[]): Promise<LineRow[]> {
+  return (
+    await q.query<LineRow>(
+      `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion
+         FROM orden_detalle d JOIN plato p ON p.plato_id = d.plato_id
+        WHERE d.orden_id = ANY($1::bigint[]) ORDER BY d.orden_detalle_id`,
+      [ordenIds],
+    )
+  ).rows;
+}
 
 /**
  * Arma los pedidos con sus renglones. En orden_detalle, un renglón con `seccion` es parte del almuerzo (precio 0: el
@@ -204,12 +262,12 @@ export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o
  */
 export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<PedidoResponse[]> {
   if (!rows.length) return [];
-  const lines = await q.query<LineRow>(
-    `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion
-       FROM orden_detalle d JOIN plato p ON p.plato_id = d.plato_id
-      WHERE d.orden_id = ANY($1::bigint[]) ORDER BY d.orden_detalle_id`,
-    [rows.map((r) => r.orden_id)],
-  );
+  const lines = {
+    rows: await orderLines(
+      q,
+      rows.map((r) => r.orden_id),
+    ),
+  };
   // Precios y plan de HOY para la cotización informativa (el precio del almuerzo del pedido sale de subtotal − extras).
   const restaurantes = [...new Set(rows.map((r) => String(r.restaurante_id)))];
   const precios = new Map(
@@ -241,26 +299,21 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
     const pr = precios.get(String(o.restaurante_id))!;
     const plan: PlanPersona =
       (o.cliente_id !== null && planes.get(claveCliente(String(o.restaurante_id), String(o.cliente_id)))) || SIN_PLAN;
-    const cotizacion = cotizarInformativa(
-      entradaPedidoCreado({
-        recargoLlevar: Number(pr.recargo),
-        momentoCobro: pr.momento_cobro,
-        paraLlevar: o.tipo === 'LLEVAR',
-        conAlmuerzo: lunch.length > 0,
-        subtotal: Number(o.subtotal_centavos),
-        plan,
-        extras: mine
-          .filter((l) => l.seccion === null)
-          .map((l) => ({
-            platoId: l.plato_public_id,
-            nombre: l.nombre_plato,
-            categoria: l.categoria,
-            seccion: l.plato_seccion,
-            cantidad: l.cantidad,
-            precioUnitario: Number(l.precio_unitario_centavos),
-          })),
-      }),
-    )!;
+    const base = {
+      recargoLlevar: Number(pr.recargo),
+      momentoCobro: pr.momento_cobro,
+      paraLlevar: o.tipo === 'LLEVAR',
+      conAlmuerzo: lunch.length > 0,
+      subtotal: Number(o.subtotal_centavos),
+      plan,
+      extras: extrasParaCobro(mine),
+    };
+    const canjeado = o.estado === 'CANJEADA' || o.estado === 'SERVIDA' ? { conConsumo: o.con_consumo } : null;
+    // Con snapshot de P (INC-06) se cotiza con él; si así no se puede (P = 0 y sin plan, I-12), como un pedido viejo.
+    const snapshot = o.precio_almuerzo_centavos === null ? null : Number(o.precio_almuerzo_centavos);
+    const cotizacion =
+      (snapshot === null ? null : cotizarInformativa(entradaPedidoCreado({ ...base, precioAlmuerzo: snapshot, canjeado }))) ??
+      cotizarInformativa(entradaPedidoCreado(base))!;
     return {
       id: o.public_id,
       qr: o.public_id,
@@ -493,8 +546,8 @@ export class DinerOrdersService {
     const o = (
       await q.query<{ orden_id: string }>(
         `INSERT INTO orden_cabecera (restaurante_id, usuario_id, cliente_id, numero_dia, fecha_local, tipo, subtotal_centavos,
-                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia)
-         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11)
+                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos)
+         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11, $12)
          RETURNING orden_id`,
         [
           rest.restaurante_id,
@@ -508,6 +561,8 @@ export class DinerOrdersService {
           rest.moneda,
           PREORDER_MINUTES,
           key,
+          // Snapshot de P (INC-06): lo que vale el almuerzo si la caja lo cobra, aunque al pedir lo cubra un plan.
+          Number(rest.precio),
         ],
       )
     ).rows[0]!;
@@ -691,8 +746,55 @@ class PedidoCanjeResponse {
     example: { resultado: 'OK', mensaje: RESULTADOS.OK, descontado: true, consumoId: 'uuid' },
   })
   almuerzo!: { resultado: Resultado | null; mensaje: string | null; descontado: boolean; consumoId: string | null } | null;
-  @ApiProperty({ description: 'Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió' })
+  @ApiProperty({
+    description:
+      'Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió (al precio guardado en el pedido). ' +
+      'Con `cobro` vale `cotizacion.saldoPorCobrarCentavos`.',
+  })
   porCobrarCentavos!: number;
+  @ApiProperty({
+    type: CotizacionResponse,
+    nullable: true,
+    description:
+      'Cotización final (`estimada: false`) con lo que de verdad pasó en caja (plan descontado o no) y el precio del almuerzo guardado en el pedido. ' +
+      'Con cuenta, es la de la cuenta. null solo si el almuerzo no tiene precio en el local y ningún plan lo cubrió (I-12) y no se mandó `cobro`.',
+  })
+  cotizacion!: CotizacionResponse | null;
+  @ApiProperty({
+    type: CuentaResponse,
+    nullable: true,
+    description: 'La cuenta de cobro del pedido. null si el canje no llevó `cobro` (comportamiento de siempre).',
+  })
+  cuenta!: CuentaResponse | null;
+  @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de este canje (p. ej. DUPLICADO, LIMITE_SAAS)' })
+  avisos!: { codigo: string; lineaRef: string | null }[];
+}
+
+/** Forma estable del `cobro` para la huella: los opcionales ausentes cuentan como sus valores por defecto. */
+function normalizarCobro(c: CobroDto | null) {
+  if (!c) return null;
+  return {
+    metodoPago: c.metodoPago ?? null,
+    saldoEsperadoCentavos: c.saldoEsperadoCentavos ?? null,
+    montoCentavos: c.montoCentavos ?? null,
+    pagoConfirmado: c.pagoConfirmado ?? false,
+    comprobanteUrl: c.comprobanteUrl ?? null,
+    referenciaExterna: c.referenciaExterna ?? null,
+  };
+}
+
+export class CanjearPedidoDto {
+  @ApiPropertyOptional({
+    type: CobroDto,
+    description:
+      'Opcional. Sin `cobro` el canje es el de siempre (no crea cuenta). Con `cobro` (aunque sea `{}`) crea la cuenta del pedido; con ' +
+      '`metodoPago`, registra el pago en la misma transacción. Si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` ' +
+      'del pedido) → 409 `SALDO_CAMBIO` sin descontar el plan ni cobrar nada.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CobroDto)
+  cobro?: CobroDto;
 }
 
 interface StaffRow extends OrderRow {
@@ -738,80 +840,184 @@ export class StaffOrdersService {
     return this.db.forRequest(async (q) => (await this.render(q, [await this.load(q, id, false)]))[0]!, { readOnly: true });
   }
 
-  /** Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras tanto. */
-  async redeem(id: string, key: string): Promise<PedidoCanjeResponse> {
+  /**
+   * Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras
+   * tanto. Con `cobro` (docs/spec-cobros.md E.3) crea la cuenta del pedido con la cotización final y, con `metodoPago`,
+   * la paga; si el saldo final no es el esperado, 409 `SALDO_CAMBIO` y la transacción se deshace (ni plan ni cobro).
+   */
+  async redeem(id: string, key: string, dto: CanjearPedidoDto = {}): Promise<PedidoCanjeResponse> {
     const eventos = this.passEvents.pending();
-    const res = await this.db.forRequest(async (q): Promise<PedidoCanjeResponse> => {
-      const o = await this.load(q, id, true);
-      if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
-      if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
-      const pedidoLines = await renderOrders(q, [o]);
-      const hasLunch = pedidoLines[0]!.almuerzo !== null;
-      const platoNombre = pedidoLines[0]!.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
-      const extras = pedidoLines[0]!.extras.reduce((s, e) => s + e.subtotalCentavos, 0);
-      const precio = Number(
-        (await q.query<{ p: string }>('SELECT precio_suelto_centavos AS p FROM restaurante WHERE restaurante_id = app_tenant_id()'))
-          .rows[0]!.p,
-      );
-      const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
-
-      if (o.estado === 'CANJEADA' || o.estado === 'SERVIDA') {
-        const c = await q.query<{ public_id: string }>(
-          `SELECT k.public_id FROM consumo_almuerzo k WHERE k.restaurante_id = app_tenant_id() AND k.orden_id = $1 AND k.cantidad = 1
-              AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)`,
-          [o.orden_id],
-        );
-        const consumoId = c.rows[0]?.public_id ?? null;
-        return {
-          pedido: (await this.render(q, [o]))[0]!,
-          platoNombre,
-          yaCanjeado: true,
-          almuerzo: hasLunch ? { resultado: null, mensaje: null, descontado: consumoId !== null, consumoId } : null,
-          porCobrarCentavos: due(consumoId !== null),
-        };
-      }
-
-      let almuerzo: PedidoCanjeResponse['almuerzo'] = null;
-      if (hasLunch) {
-        if (o.cliente_id) {
-          // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
-          const prev = await q.query<{ orden_id: string | null }>(
-            'SELECT orden_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
-            [key],
-          );
-          if (prev.rows[0] && String(prev.rows[0].orden_id) !== String(o.orden_id))
-            throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra validación.');
-          const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
-          const r = await this.checkout.deduct(q, {
-            clienteId: String(o.cliente_id),
-            personalId,
-            key,
-            canal: 'PREORDEN',
-            paraLlevar: o.tipo === 'LLEVAR',
-            ordenId: String(o.orden_id),
-            eventos,
-            platoNombre,
-          });
-          almuerzo = { resultado: r.resultado, mensaje: r.mensaje, descontado: r.descontado, consumoId: r.consumo?.id ?? null };
-        } else {
-          almuerzo = { resultado: 'SIN_PLAN', mensaje: RESULTADOS.SIN_PLAN, descontado: false, consumoId: null };
-        }
-      }
-      await q.query(
-        `UPDATE orden_cabecera SET estado = 'CANJEADA', canjeada_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
-        [o.orden_id],
-      );
-      const after = await this.load(q, id, false);
-      return {
-        pedido: (await this.render(q, [after]))[0]!,
-        platoNombre,
-        yaCanjeado: false,
-        almuerzo,
-        porCobrarCentavos: due(almuerzo?.descontado ?? false),
-      };
-    });
+    let res: PedidoCanjeResponse;
+    try {
+      res = await this.db.forRequest((q) => this.redeemIn(q, id, key, dto.cobro ?? null, eventos));
+    } catch (err) {
+      throw errorDePago(err);
+    }
     eventos.flush(); // CANJE_REGISTRADO (con los platos) al comensal: solo con el COMMIT hecho
     return res;
+  }
+
+  private async redeemIn(
+    q: Queryable,
+    id: string,
+    key: string,
+    cobro: CobroDto | null,
+    eventos: ReturnType<PassEventBus['pending']>,
+  ): Promise<PedidoCanjeResponse> {
+    const o = await this.load(q, id, true);
+    if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
+    if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
+    const pedido0 = (await renderOrders(q, [o]))[0]!;
+    const hasLunch = pedido0.almuerzo !== null;
+    const platoNombre = pedido0.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
+    const extras = pedido0.extras.reduce((s, e) => s + e.subtotalCentavos, 0);
+    const rest = (
+      await q.query<{ precio: string; recargo: string; momento: MomentoCobro; moneda: string }>(
+        `SELECT precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, momento_cobro AS momento, moneda_codigo AS moneda
+           FROM restaurante WHERE restaurante_id = app_tenant_id()`,
+      )
+    ).rows[0]!;
+    // INC-06: el almuerzo se cobra al precio guardado en el pedido, no al de hoy.
+    const precio = precioAlmuerzoDePedido({
+      snapshot: o.precio_almuerzo_centavos === null ? null : Number(o.precio_almuerzo_centavos),
+      subtotal: Number(o.subtotal_centavos),
+      extras,
+      precioActual: Number(rest.precio),
+    });
+    const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
+    const lineas = await orderLines(q, [String(o.orden_id)]);
+    const entrada = (plan: PlanPersona) =>
+      entradaPedido({
+        precioAlmuerzo: precio,
+        recargoLlevar: Number(rest.recargo),
+        momentoCobro: rest.momento,
+        paraLlevar: o.tipo === 'LLEVAR',
+        conAlmuerzo: hasLunch,
+        plan,
+        extras: extrasParaCobro(lineas),
+      });
+
+    // Misma llave: si ya creó la cuenta de este pedido con el mismo cuerpo es un reintento; con otro pedido u otro cuerpo, 409.
+    const firma = huella({ pedido: o.public_id, cobro: normalizarCobro(cobro) });
+    const previa = await cuentaPorClave(q, key, '0');
+    if (previa && (String(previa.orden_id) !== String(o.orden_id) || previa.huella !== firma))
+      throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para otro canje o con otro cuerpo.');
+
+    if (o.estado === 'CANJEADA' || o.estado === 'SERVIDA') {
+      const c = await q.query<{ public_id: string }>(
+        `SELECT k.public_id FROM consumo_almuerzo k WHERE k.restaurante_id = app_tenant_id() AND k.orden_id = $1 AND k.cantidad = 1
+            AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)`,
+        [o.orden_id],
+      );
+      const consumoId = c.rows[0]?.public_id ?? null;
+      const cuentaId = await cuentaDeOrden(q, String(o.orden_id));
+      const cuenta = cuentaId ? await renderCuenta(q, cuentaId) : null;
+      const reconstruida = cotizarInformativa(entrada(consumoId ? { estado: 'OK', disponibles: 1 } : SIN_PLAN));
+      return {
+        pedido: (await this.render(q, [o]))[0]!,
+        platoNombre,
+        yaCanjeado: true,
+        almuerzo: hasLunch ? { resultado: null, mensaje: null, descontado: consumoId !== null, consumoId } : null,
+        porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(consumoId !== null),
+        cotizacion: cuenta ? cuenta.cotizacion : reconstruida ? aRespuesta({ ...reconstruida, estimada: false }, rest.moneda) : null,
+        cuenta,
+        avisos: [],
+      };
+    }
+
+    let almuerzo: PedidoCanjeResponse['almuerzo'] = null;
+    let consumoInterno: string | null = null;
+    const descontarAlmuerzo = async () => {
+      // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
+      const prev = await q.query<{ orden_id: string | null }>(
+        'SELECT orden_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
+        [key],
+      );
+      if (prev.rows[0] && String(prev.rows[0].orden_id) !== String(o.orden_id))
+        throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra validación.');
+      const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
+      const r = await this.checkout.deduct(q, {
+        clienteId: String(o.cliente_id),
+        personalId,
+        key,
+        canal: 'PREORDEN',
+        paraLlevar: o.tipo === 'LLEVAR',
+        ordenId: String(o.orden_id),
+        eventos,
+        platoNombre,
+      });
+      almuerzo = { resultado: r.resultado, mensaje: r.mensaje, descontado: r.descontado, consumoId: r.consumo?.id ?? null };
+      if (r.consumo)
+        consumoInterno = String(
+          (await q.query<{ consumo_id: string }>('SELECT consumo_id FROM consumo_almuerzo WHERE public_id = $1', [r.consumo.id])).rows[0]!
+            .consumo_id,
+        );
+      return { estado: estadoPlanDe(r.resultado), consumoId: r.descontado ? consumoInterno : null };
+    };
+    if (hasLunch && !o.cliente_id) almuerzo = { resultado: 'SIN_PLAN', mensaje: RESULTADOS.SIN_PLAN, descontado: false, consumoId: null };
+
+    // Con cliente se intenta descontar la unidad (el plan real lo dice la base); sin cliente, sin plan.
+    let cot: Cotizacion | null = null;
+    let consumos: string[] = [];
+    try {
+      ({ cotizacion: cot, consumos } = await descontarYRecotizar(entrada(o.cliente_id ? { estado: 'OK', disponibles: 1 } : SIN_PLAN), () =>
+        descontarAlmuerzo(),
+      ));
+    } catch (e) {
+      if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
+      if (cobro) throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
+      // Sin `cobro`, como siempre: el almuerzo sin precio no impide el canje (I-12 aplica a quien cobra con cuenta).
+      if (hasLunch && o.cliente_id && !almuerzo) await descontarAlmuerzo();
+    }
+
+    let cuenta: CuentaResponse | null = null;
+    if (cobro && cot) {
+      const esperado = cobro.saldoEsperadoCentavos ?? Number(o.total_centavos);
+      if (cot.saldoPorCobrarCentavos !== esperado)
+        throw saldoCambio(cot.saldoPorCobrarCentavos, {
+          saldoEsperadoCentavos: esperado,
+          cotizacion: aRespuesta(cot, rest.moneda),
+        });
+      const cuentaId = await persistirCuenta(q, {
+        key,
+        pagadorRef: '0',
+        origen: { tipo: 'PEDIDO', ordenId: String(o.orden_id) },
+        cotizacion: cot,
+        consumos,
+        pagador: {
+          clienteId: o.cliente_id === null ? null : String(o.cliente_id),
+          usuarioId: String(o.usuario_id),
+          nombre: o.cliente_nombre ?? o.usuario_nombre,
+        },
+        momentoCobro: rest.momento,
+        paraLlevar: o.tipo === 'LLEVAR',
+        huella: firma,
+      });
+      if (cobro.metodoPago && cot.saldoPorCobrarCentavos > 0)
+        await registrarPago(
+          q,
+          cuentaId,
+          { ...cobro, metodoPago: cobro.metodoPago, saldoEsperadoCentavos: esperado },
+          clavePagoEnElPaso(key, '0'),
+        );
+      cuenta = await renderCuenta(q, cuentaId);
+    }
+    await q.query(
+      `UPDATE orden_cabecera SET estado = 'CANJEADA', canjeada_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
+      [o.orden_id],
+    );
+    const after = await this.load(q, id, false);
+    const descontado = (almuerzo as PedidoCanjeResponse['almuerzo'])?.descontado ?? false;
+    return {
+      pedido: (await this.render(q, [after]))[0]!,
+      platoNombre,
+      yaCanjeado: false,
+      almuerzo,
+      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(descontado),
+      cotizacion: cuenta ? cuenta.cotizacion : cot ? aRespuesta(cot, rest.moneda) : null,
+      cuenta,
+      avisos: cot?.avisos ?? [],
+    };
   }
 
   serve(id: string) {
@@ -878,10 +1084,22 @@ export class StaffOrdersController {
       'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta. Un pedido preordenado se canjea ' +
       'aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).',
   })
+  @ApiBody({ type: CanjearPedidoDto, required: false })
   @ApiOkResponse({ type: PedidoCanjeResponse })
-  @ApiProblems({ 404: ['PEDIDO_NO_ENCONTRADO'], 409: ['PEDIDO_EXPIRADO', 'PEDIDO_CANCELADO', 'IDEMPOTENCY_KEY_REUTILIZADA'] })
-  redeem(@Param('id', UuidPipe) id: string, @IdempotencyKey() key: string) {
-    return this.svc.redeem(id, key);
+  @ApiProblems({
+    404: ['PEDIDO_NO_ENCONTRADO'],
+    409: [
+      'PEDIDO_EXPIRADO',
+      'PEDIDO_CANCELADO',
+      'IDEMPOTENCY_KEY_REUTILIZADA',
+      'SALDO_CAMBIO',
+      'REFERENCIA_PAGO_REPETIDA',
+      'ALMUERZO_SIN_PRECIO',
+    ],
+    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+  })
+  redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearPedidoDto, @IdempotencyKey() key: string) {
+    return this.svc.redeem(id, key, dto);
   }
 
   @Roles('DUENO', 'CAJERO')

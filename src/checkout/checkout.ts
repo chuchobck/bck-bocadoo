@@ -13,12 +13,13 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, Length, Matches } from 'class-validator';
-import { createHash } from 'node:crypto';
 import { QrSecretService } from '../auth/qr-secret.service';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
 import { ApiProblems, notFound } from '../common/errors';
 import { CodigoPaseResponse } from '../catalog/dto';
+import { deriveKey } from '../common/derive-key';
+import { PERSONAL_ACTUAL } from '../common/sql';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
@@ -27,6 +28,7 @@ import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { loadSelections, seleccionDe } from '../tables/selection';
 import { aRespuesta } from '../cobro/adaptador';
+import { revertirConsumoEnCuenta } from '../cobro/aplicar';
 import { type OpcionesCotizarMesa, cotizarMesa } from '../cobro/mesa';
 import { planVigenteHoySql } from '../cobro/planes';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
@@ -51,7 +53,7 @@ export const RESULTADOS = {
 } as const;
 export type Resultado = keyof typeof RESULTADOS;
 
-export const PERSONAL_ACTUAL = `(SELECT personal_id FROM personal_restaurante WHERE restaurante_id = app_tenant_id() AND usuario_id = app_user_id() AND activo)`;
+export { PERSONAL_ACTUAL };
 
 export class ValidarDto {
   @ApiPropertyOptional({ description: 'Contenido del QR del comensal (canal QR)' })
@@ -96,12 +98,6 @@ interface QrCheck {
   usuarioId?: string;
   restaurantPublicId?: string | null;
 }
-
-/** Clave de idempotencia propia de cada miembro de una mesa, derivada de la clave de la petición. */
-const deriveKey = (key: string, n: string) => {
-  const h = createHash('sha256').update(`${key}:${n}`).digest('hex');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
-};
 
 @Injectable()
 export class CheckoutService {
@@ -344,6 +340,8 @@ export class CheckoutService {
           throw new ConflictException(
             `Solo se puede deshacer en los ${UNDO_SECONDS} segundos siguientes. Si hubo un error, regístralo como reclamo.`,
           );
+        // Si el almuerzo es parte de una cuenta: cobrada → 409 CUENTA_COBRADA; abierta → línea inversa (y anulada si queda en 0).
+        await revertirConsumoEnCuenta(q, String(c.consumo_id));
         await q.query(`SELECT fn_revertir_consumo(app_tenant_id(), $1, ${PERSONAL_ACTUAL}, 'Deshacer en caja')`, [c.consumo_id]);
         const ev = (
           await q.query<{ usuario_id: string | null; restaurante_nombre: string; saldo: number; hora: Date }>(
@@ -608,9 +606,13 @@ export class CheckoutController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Deshacer una validación',
-    description: `Solo en los ${UNDO_SECONDS} segundos siguientes; después → 409. Devuelve el almuerzo al plan.`,
+    description:
+      `Solo en los ${UNDO_SECONDS} segundos siguientes; después → 409. Devuelve el almuerzo al plan. ` +
+      'Si el almuerzo es parte de una cuenta de cobro: con la cuenta ABIERTA y sin pagos se agrega la línea inversa (con su recargo) y, si la ' +
+      'cuenta queda sin nada por cobrar, pasa a ANULADA; con la cuenta COBRADA o con algún pago → 409 `CUENTA_COBRADA` (primero se anula la cuenta).',
   })
   @ApiOkResponse({ type: ConsumoRevertidoResponse })
+  @ApiProblems({ 409: ['CUENTA_COBRADA'] })
   undo(@Param('id', UuidPipe) id: string) {
     return this.checkout.undo(id);
   }

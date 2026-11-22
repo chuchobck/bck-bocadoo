@@ -12,7 +12,19 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiExtraModels,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiPropertyOptional,
+  ApiTags,
+  getSchemaPath,
+} from '@nestjs/swagger';
+import { renderCuenta, resolverPagoDeCuenta } from '../cobro/aplicar';
+import { CuentaResponse } from '../cobro/cuenta.dto';
 import { SolicitudPlanCreadaResponse } from '../catalog/dto';
 import { ApiProblems } from '../common/errors';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUrl, Length, Matches, MaxLength } from 'class-validator';
@@ -212,9 +224,24 @@ export class SalesService {
     );
   }
 
-  /** Confirma o rechaza una transferencia/Deuna pendiente. Rechazarla anula el plan. Repetir la misma acción no cambia nada. */
+  /**
+   * Confirma o rechaza una transferencia/Deuna pendiente. Rechazarla anula el plan. Repetir la misma acción no cambia nada.
+   * Un pago de una cuenta de cobro (`cuenta_cobro_id`) actualiza el estado de la cuenta y responde la `Cuenta`: rechazado,
+   * el saldo vuelve a ser > 0 y la cuenta vuelve a ABIERTA.
+   */
   resolvePayment(pagoPublicId: string, accion: 'CONFIRMADO' | 'RECHAZADO') {
     return this.db.forRequest(async (q) => {
+      const deCuenta = (
+        await q.query<{ pago_id: string; cuenta_cobro_id: string | null }>(
+          `SELECT pago_id, cuenta_cobro_id FROM transaccion_pago
+            WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL`,
+          [pagoPublicId],
+        )
+      ).rows[0];
+      if (deCuenta?.cuenta_cobro_id) {
+        await resolverPagoDeCuenta(q, String(deCuenta.cuenta_cobro_id), String(deCuenta.pago_id), accion);
+        return renderCuenta(q, String(deCuenta.cuenta_cobro_id));
+      }
       const r = await q.query<{ pago_id: string; estado: string; suscripcion_id: string | null }>(
         `SELECT pago_id, estado, suscripcion_id FROM transaccion_pago
           WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL FOR UPDATE`,
@@ -420,6 +447,9 @@ export class SalesService {
   }
 }
 
+/** Confirmar o rechazar: el plan vendido (pago de un plan) o la cuenta (pago de una cuenta de cobro). */
+const PAGO_RESUELTO = { oneOf: [{ $ref: getSchemaPath(PlanVendidoResponse) }, { $ref: getSchemaPath(CuentaResponse) }] };
+
 @ApiTags('ventas')
 @Controller('v1')
 export class SalesController {
@@ -462,8 +492,12 @@ export class SalesController {
   @Roles('DUENO')
   @Post('pagos/:id/confirmar')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Confirmar un pago pendiente' })
-  @ApiOkResponse({ type: PlanVendidoResponse })
+  @ApiOperation({
+    summary: 'Confirmar un pago pendiente',
+    description: 'Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.',
+  })
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiOkResponse({ schema: PAGO_RESUELTO })
   confirm(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'CONFIRMADO');
   }
@@ -471,8 +505,14 @@ export class SalesController {
   @Roles('DUENO')
   @Post('pagos/:id/rechazar')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Rechazar un pago pendiente', description: 'Anula el plan asociado.' })
-  @ApiOkResponse({ type: PlanVendidoResponse })
+  @ApiOperation({
+    summary: 'Rechazar un pago pendiente',
+    description:
+      'Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta ' +
+      'vuelve a ABIERTA y responde la `Cuenta`.',
+  })
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiOkResponse({ schema: PAGO_RESUELTO })
   reject(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'RECHAZADO');
   }

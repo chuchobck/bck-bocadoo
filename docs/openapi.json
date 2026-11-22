@@ -7771,6 +7771,7 @@
     },
     "/v1/pagos/{id}/confirmar": {
       "post": {
+        "description": "Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.",
         "operationId": "SalesController_confirm",
         "parameters": [
           {
@@ -7797,7 +7798,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlanVendidoResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PlanVendidoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CuentaResponse"
+                    }
+                  ]
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
@@ -7943,7 +7951,7 @@
     },
     "/v1/pagos/{id}/rechazar": {
       "post": {
-        "description": "Anula el plan asociado.",
+        "description": "Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta vuelve a ABIERTA y responde la `Cuenta`.",
         "operationId": "SalesController_reject",
         "parameters": [
           {
@@ -7970,7 +7978,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlanVendidoResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PlanVendidoResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CuentaResponse"
+                    }
+                  ]
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
@@ -9290,7 +9305,7 @@
     },
     "/v1/caja/consumos/{id}/deshacer": {
       "post": {
-        "description": "Solo en los 10 segundos siguientes; después → 409. Devuelve el almuerzo al plan.",
+        "description": "Solo en los 10 segundos siguientes; después → 409. Devuelve el almuerzo al plan. Si el almuerzo es parte de una cuenta de cobro: con la cuenta ABIERTA y sin pagos se agrega la línea inversa (con su recargo) y, si la cuenta queda sin nada por cobrar, pasa a ANULADA; con la cuenta COBRADA o con algún pago → 409 `CUENTA_COBRADA` (primero se anula la cuenta).",
         "operationId": "CheckoutController_undo",
         "parameters": [
           {
@@ -9377,6 +9392,25 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `CUENTA_COBRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "CUENTA_COBRADA",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -11737,6 +11771,786 @@
           }
         ],
         "summary": "Movimientos del día de la caja",
+        "tags": ["Caja"],
+        "x-dominio": "caja"
+      }
+    },
+    "/v1/caja/cuentas/{id}": {
+      "get": {
+        "description": "Líneas (con sus reversos), pagos, lo pagado y el saldo. `debeCobrarseAntesDeServir` en locales ANTES_DE_SERVIR con saldo.",
+        "operationId": "CuentasController_one",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaResponse"
+                },
+                "example": {
+                  "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                  "origen": "PEDIDO",
+                  "estado": "ABIERTA",
+                  "momentoCobro": "ANTES_DE_SERVIR",
+                  "debeCobrarseAntesDeServir": true,
+                  "pagador": {
+                    "nombre": "Ana Pérez",
+                    "esAnfitrion": true
+                  },
+                  "cotizacion": {
+                    "estimada": true,
+                    "lineas": [
+                      {
+                        "ref": "almuerzo#1",
+                        "personaRef": "0",
+                        "pagadorRef": "0",
+                        "tipo": "ALMUERZO",
+                        "nombre": "Doña Rosa",
+                        "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "cantidad": 1,
+                        "paraLlevar": true,
+                        "precioUnitarioCentavos": 350,
+                        "subtotalCentavos": 350,
+                        "recargoUnitarioCentavos": 25,
+                        "recargoCentavos": 25,
+                        "fuente": "PLAN",
+                        "pagador": "PROPIO",
+                        "cubiertoPorPlanCentavos": 350,
+                        "porCobrarCentavos": 25,
+                        "omitida": "PLATO_AGOTADO"
+                      }
+                    ],
+                    "porPagador": [
+                      {
+                        "pagadorRef": "0",
+                        "subtotal": 1,
+                        "recargo": 1,
+                        "total": 1,
+                        "cubierto": 1,
+                        "saldo": 1
+                      }
+                    ],
+                    "subtotalCentavos": 950,
+                    "recargoCentavos": 50,
+                    "totalCentavos": 1000,
+                    "cubiertoPorPlanCentavos": 350,
+                    "saldoPorCobrarCentavos": 650,
+                    "monedaCodigo": "USD",
+                    "avisos": [
+                      {
+                        "codigo": "OFERTA_AGOTADA",
+                        "lineaRef": "texto"
+                      }
+                    ]
+                  },
+                  "pagadoCentavos": 0,
+                  "saldoCentavos": 25,
+                  "pagos": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "metodo": "EFECTIVO",
+                      "montoCentavos": 500,
+                      "estado": "PENDIENTE",
+                      "creadoEn": "2026-11-13T17:00:00.000Z"
+                    }
+                  ],
+                  "creadaEn": "2026-11-13T17:00:00.000Z",
+                  "cobradaEn": "2026-11-13T17:00:00.000Z",
+                  "anuladaEn": "2026-11-13T17:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "FORBIDDEN",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CUENTA_NO_ENCONTRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "CUENTA_NO_ENCONTRADA",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver una cuenta de cobro",
+        "tags": ["Caja"],
+        "x-dominio": "caja"
+      }
+    },
+    "/v1/caja/cuentas/{id}/cobrar": {
+      "post": {
+        "description": "`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. `montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en `POST /v1/pagos/{id}/confirmar|rechazar`). Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.",
+        "operationId": "CuentasController_cobrar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CobrarCuentaDto"
+              },
+              "example": {
+                "montoCentavos": 650,
+                "pagoConfirmado": true,
+                "comprobanteUrl": "https://cdn.ejemplo.com/imagen.png",
+                "referenciaExterna": "texto",
+                "metodoPago": "EFECTIVO",
+                "saldoEsperadoCentavos": 725
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaResponse"
+                },
+                "example": {
+                  "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                  "origen": "PEDIDO",
+                  "estado": "ABIERTA",
+                  "momentoCobro": "ANTES_DE_SERVIR",
+                  "debeCobrarseAntesDeServir": true,
+                  "pagador": {
+                    "nombre": "Ana Pérez",
+                    "esAnfitrion": true
+                  },
+                  "cotizacion": {
+                    "estimada": true,
+                    "lineas": [
+                      {
+                        "ref": "almuerzo#1",
+                        "personaRef": "0",
+                        "pagadorRef": "0",
+                        "tipo": "ALMUERZO",
+                        "nombre": "Doña Rosa",
+                        "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "cantidad": 1,
+                        "paraLlevar": true,
+                        "precioUnitarioCentavos": 350,
+                        "subtotalCentavos": 350,
+                        "recargoUnitarioCentavos": 25,
+                        "recargoCentavos": 25,
+                        "fuente": "PLAN",
+                        "pagador": "PROPIO",
+                        "cubiertoPorPlanCentavos": 350,
+                        "porCobrarCentavos": 25,
+                        "omitida": "PLATO_AGOTADO"
+                      }
+                    ],
+                    "porPagador": [
+                      {
+                        "pagadorRef": "0",
+                        "subtotal": 1,
+                        "recargo": 1,
+                        "total": 1,
+                        "cubierto": 1,
+                        "saldo": 1
+                      }
+                    ],
+                    "subtotalCentavos": 950,
+                    "recargoCentavos": 50,
+                    "totalCentavos": 1000,
+                    "cubiertoPorPlanCentavos": 350,
+                    "saldoPorCobrarCentavos": 650,
+                    "monedaCodigo": "USD",
+                    "avisos": [
+                      {
+                        "codigo": "OFERTA_AGOTADA",
+                        "lineaRef": "texto"
+                      }
+                    ]
+                  },
+                  "pagadoCentavos": 0,
+                  "saldoCentavos": 25,
+                  "pagos": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "metodo": "EFECTIVO",
+                      "montoCentavos": 500,
+                      "estado": "PENDIENTE",
+                      "creadoEn": "2026-11-13T17:00:00.000Z"
+                    }
+                  ],
+                  "creadaEn": "2026-11-13T17:00:00.000Z",
+                  "cobradaEn": "2026-11-13T17:00:00.000Z",
+                  "anuladaEn": "2026-11-13T17:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No trabajas en ese restaurante o tu rol no alcanza",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "FORBIDDEN",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CUENTA_NO_ENCONTRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "CUENTA_NO_ENCONTRADA",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `CUENTA_CERRADA`, `SALDO_CAMBIO`, `REFERENCIA_PAGO_REPETIDA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "CUENTA_CERRADA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "METODO_PAGO_NO_DISPONIBLE",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un pago de la cuenta",
+        "tags": ["Caja"],
+        "x-dominio": "caja"
+      }
+    },
+    "/v1/caja/cuentas/{id}/anular": {
+      "post": {
+        "description": "Devuelve todo: una línea inversa por línea, un pago inverso por cada pago confirmado (los pendientes pasan a RECHAZADO) y el almuerzo del plan de vuelta al comensal. El cajero solo anula cuentas del día local del restaurante (403 `SOLO_CUENTAS_DEL_DIA`); el dueño, cualquiera. Repetir devuelve la cuenta ya anulada (200).",
+        "operationId": "CuentasController_anular",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "UUID generado por el cliente. Si se reintenta con la misma clave, se devuelve el mismo resultado sin cobrar dos veces.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-restaurant-id",
+            "in": "header",
+            "description": "public_id (UUID) del restaurante activo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnularCuentaDto"
+              },
+              "example": {
+                "motivo": "El comensal se fue sin comer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaResponse"
+                },
+                "example": {
+                  "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                  "origen": "PEDIDO",
+                  "estado": "ABIERTA",
+                  "momentoCobro": "ANTES_DE_SERVIR",
+                  "debeCobrarseAntesDeServir": true,
+                  "pagador": {
+                    "nombre": "Ana Pérez",
+                    "esAnfitrion": true
+                  },
+                  "cotizacion": {
+                    "estimada": true,
+                    "lineas": [
+                      {
+                        "ref": "almuerzo#1",
+                        "personaRef": "0",
+                        "pagadorRef": "0",
+                        "tipo": "ALMUERZO",
+                        "nombre": "Doña Rosa",
+                        "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "cantidad": 1,
+                        "paraLlevar": true,
+                        "precioUnitarioCentavos": 350,
+                        "subtotalCentavos": 350,
+                        "recargoUnitarioCentavos": 25,
+                        "recargoCentavos": 25,
+                        "fuente": "PLAN",
+                        "pagador": "PROPIO",
+                        "cubiertoPorPlanCentavos": 350,
+                        "porCobrarCentavos": 25,
+                        "omitida": "PLATO_AGOTADO"
+                      }
+                    ],
+                    "porPagador": [
+                      {
+                        "pagadorRef": "0",
+                        "subtotal": 1,
+                        "recargo": 1,
+                        "total": 1,
+                        "cubierto": 1,
+                        "saldo": 1
+                      }
+                    ],
+                    "subtotalCentavos": 950,
+                    "recargoCentavos": 50,
+                    "totalCentavos": 1000,
+                    "cubiertoPorPlanCentavos": 350,
+                    "saldoPorCobrarCentavos": 650,
+                    "monedaCodigo": "USD",
+                    "avisos": [
+                      {
+                        "codigo": "OFERTA_AGOTADA",
+                        "lineaRef": "texto"
+                      }
+                    ]
+                  },
+                  "pagadoCentavos": 0,
+                  "saldoCentavos": 25,
+                  "pagos": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "metodo": "EFECTIVO",
+                      "montoCentavos": 500,
+                      "estado": "PENDIENTE",
+                      "creadoEn": "2026-11-13T17:00:00.000Z"
+                    }
+                  ],
+                  "creadaEn": "2026-11-13T17:00:00.000Z",
+                  "cobradaEn": "2026-11-13T17:00:00.000Z",
+                  "anuladaEn": "2026-11-13T17:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "application/problem+json con `code`: `SOLO_CUENTAS_DEL_DIA`\n\nNo trabajas en ese restaurante o tu rol no alcanza",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "SOLO_CUENTAS_DEL_DIA",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `CUENTA_NO_ENCONTRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "CUENTA_NO_ENCONTRADA",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Anular la cuenta",
         "tags": ["Caja"],
         "x-dominio": "caja"
       }
@@ -14231,6 +15045,24 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanjearPedidoDto"
+              },
+              "example": {
+                "cobro": {
+                  "metodoPago": "EFECTIVO",
+                  "pagoConfirmado": true,
+                  "comprobanteUrl": "https://cdn.ejemplo.com/imagen.png",
+                  "referenciaExterna": "texto"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Operación exitosa",
@@ -14343,7 +15175,132 @@
                     "descontado": true,
                     "consumoId": "uuid"
                   },
-                  "porCobrarCentavos": 650
+                  "porCobrarCentavos": 650,
+                  "cotizacion": {
+                    "estimada": true,
+                    "lineas": [
+                      {
+                        "ref": "almuerzo#1",
+                        "personaRef": "0",
+                        "pagadorRef": "0",
+                        "tipo": "ALMUERZO",
+                        "nombre": "Doña Rosa",
+                        "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "cantidad": 1,
+                        "paraLlevar": true,
+                        "precioUnitarioCentavos": 350,
+                        "subtotalCentavos": 350,
+                        "recargoUnitarioCentavos": 25,
+                        "recargoCentavos": 25,
+                        "fuente": "PLAN",
+                        "pagador": "PROPIO",
+                        "cubiertoPorPlanCentavos": 350,
+                        "porCobrarCentavos": 25,
+                        "omitida": "PLATO_AGOTADO"
+                      }
+                    ],
+                    "porPagador": [
+                      {
+                        "pagadorRef": "0",
+                        "subtotal": 1,
+                        "recargo": 1,
+                        "total": 1,
+                        "cubierto": 1,
+                        "saldo": 1
+                      }
+                    ],
+                    "subtotalCentavos": 950,
+                    "recargoCentavos": 50,
+                    "totalCentavos": 1000,
+                    "cubiertoPorPlanCentavos": 350,
+                    "saldoPorCobrarCentavos": 650,
+                    "monedaCodigo": "USD",
+                    "avisos": [
+                      {
+                        "codigo": "OFERTA_AGOTADA",
+                        "lineaRef": "texto"
+                      }
+                    ]
+                  },
+                  "cuenta": {
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "origen": "PEDIDO",
+                    "estado": "ABIERTA",
+                    "momentoCobro": "ANTES_DE_SERVIR",
+                    "debeCobrarseAntesDeServir": true,
+                    "pagador": {
+                      "nombre": "Ana Pérez",
+                      "esAnfitrion": true
+                    },
+                    "cotizacion": {
+                      "estimada": true,
+                      "lineas": [
+                        {
+                          "ref": "almuerzo#1",
+                          "personaRef": "0",
+                          "pagadorRef": "0",
+                          "tipo": "ALMUERZO",
+                          "nombre": "Doña Rosa",
+                          "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "cantidad": 1,
+                          "paraLlevar": true,
+                          "precioUnitarioCentavos": 350,
+                          "subtotalCentavos": 350,
+                          "recargoUnitarioCentavos": 25,
+                          "recargoCentavos": 25,
+                          "fuente": "PLAN",
+                          "pagador": "PROPIO",
+                          "cubiertoPorPlanCentavos": 350,
+                          "porCobrarCentavos": 25,
+                          "omitida": "PLATO_AGOTADO"
+                        }
+                      ],
+                      "porPagador": [
+                        {
+                          "pagadorRef": "0",
+                          "subtotal": 1,
+                          "recargo": 1,
+                          "total": 1,
+                          "cubierto": 1,
+                          "saldo": 1
+                        }
+                      ],
+                      "subtotalCentavos": 950,
+                      "recargoCentavos": 50,
+                      "totalCentavos": 1000,
+                      "cubiertoPorPlanCentavos": 350,
+                      "saldoPorCobrarCentavos": 650,
+                      "monedaCodigo": "USD",
+                      "avisos": [
+                        {
+                          "codigo": "OFERTA_AGOTADA",
+                          "lineaRef": "texto"
+                        }
+                      ]
+                    },
+                    "pagadoCentavos": 0,
+                    "saldoCentavos": 25,
+                    "pagos": [
+                      {
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "metodo": "EFECTIVO",
+                        "montoCentavos": 500,
+                        "estado": "PENDIENTE",
+                        "creadoEn": "2026-11-13T17:00:00.000Z"
+                      }
+                    ],
+                    "creadaEn": "2026-11-13T17:00:00.000Z",
+                    "cobradaEn": "2026-11-13T17:00:00.000Z",
+                    "anuladaEn": "2026-11-13T17:00:00.000Z"
+                  },
+                  "avisos": [
+                    {
+                      "codigo": "OFERTA_AGOTADA",
+                      "lineaRef": "texto"
+                    }
+                  ]
                 }
               }
             }
@@ -14425,7 +15382,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `PEDIDO_EXPIRADO`, `PEDIDO_CANCELADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `PEDIDO_EXPIRADO`, `PEDIDO_CANCELADO`, `IDEMPOTENCY_KEY_REUTILIZADA`, `SALDO_CAMBIO`, `REFERENCIA_PAGO_REPETIDA`, `ALMUERZO_SIN_PRECIO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14437,6 +15394,25 @@
                   "status": 409,
                   "code": "PEDIDO_EXPIRADO",
                   "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "METODO_PAGO_NO_DISPONIBLE",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -23417,6 +24393,339 @@
           }
         }
       },
+      "PagadorCuentaResponse": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Ana Pérez"
+          },
+          "esAnfitrion": {
+            "type": "boolean",
+            "description": "true solo en la cuenta del anfitrión de una mesa"
+          }
+        },
+        "required": ["nombre", "esAnfitrion"]
+      },
+      "LineaCotizacionResponse": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "example": "almuerzo#1",
+            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`."
+          },
+          "personaRef": {
+            "type": "string",
+            "example": "0"
+          },
+          "pagadorRef": {
+            "type": "string",
+            "example": "0",
+            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO)"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": ["ALMUERZO", "A_LA_CARTA", "EXTRA", "BEBIDA", "OFERTA", "LIBRE"]
+          },
+          "nombre": {
+            "type": "string",
+            "nullable": true
+          },
+          "platoId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid",
+            "description": "public_id del plato"
+          },
+          "ofertaId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 1
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "example": 350
+          },
+          "subtotalCentavos": {
+            "type": "number",
+            "example": 350
+          },
+          "recargoUnitarioCentavos": {
+            "type": "number",
+            "example": 25
+          },
+          "recargoCentavos": {
+            "type": "number",
+            "example": 25
+          },
+          "fuente": {
+            "type": "string",
+            "enum": ["PLAN", "OFERTA", "CAJA"],
+            "description": "De dónde sale el precio de la línea"
+          },
+          "pagador": {
+            "type": "string",
+            "enum": ["PROPIO", "ANFITRION"],
+            "description": "Quién paga la línea"
+          },
+          "cubiertoPorPlanCentavos": {
+            "type": "number",
+            "example": 350
+          },
+          "porCobrarCentavos": {
+            "type": "number",
+            "example": 25
+          },
+          "omitida": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["PLATO_AGOTADO", "DUPLICADO", "LIMITE_SAAS"]
+          }
+        },
+        "required": [
+          "ref",
+          "personaRef",
+          "pagadorRef",
+          "tipo",
+          "nombre",
+          "platoId",
+          "ofertaId",
+          "cantidad",
+          "paraLlevar",
+          "precioUnitarioCentavos",
+          "subtotalCentavos",
+          "recargoUnitarioCentavos",
+          "recargoCentavos",
+          "fuente",
+          "pagador",
+          "cubiertoPorPlanCentavos",
+          "porCobrarCentavos",
+          "omitida"
+        ]
+      },
+      "TotalPagadorResponse": {
+        "type": "object",
+        "properties": {
+          "pagadorRef": {
+            "type": "string",
+            "example": "0"
+          },
+          "subtotal": {
+            "type": "number"
+          },
+          "recargo": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "cubierto": {
+            "type": "number"
+          },
+          "saldo": {
+            "type": "number"
+          }
+        },
+        "required": ["pagadorRef", "subtotal", "recargo", "total", "cubierto", "saldo"]
+      },
+      "AvisoCotizacionResponse": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "enum": ["OFERTA_AGOTADA", "OFERTA_EXPIRADA", "PLATO_AGOTADO", "DUPLICADO", "LIMITE_SAAS", "PLAN_NO_ALCANZA"]
+          },
+          "lineaRef": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": ["codigo", "lineaRef"]
+      },
+      "CotizacionResponse": {
+        "type": "object",
+        "properties": {
+          "estimada": {
+            "type": "boolean",
+            "example": true,
+            "description": "Siempre `true` en esta entrega: es una estimación, el cobro real lo fija la caja"
+          },
+          "lineas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineaCotizacionResponse"
+            }
+          },
+          "porPagador": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TotalPagadorResponse"
+            }
+          },
+          "subtotalCentavos": {
+            "type": "number",
+            "example": 950
+          },
+          "recargoCentavos": {
+            "type": "number",
+            "example": 50,
+            "description": "Recargo para llevar por unidad (almuerzo y platos a la carta)"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "example": 1000
+          },
+          "cubiertoPorPlanCentavos": {
+            "type": "number",
+            "example": 350,
+            "description": "Lo que cubre el plan (precio del almuerzo × unidades cubiertas)"
+          },
+          "saldoPorCobrarCentavos": {
+            "type": "number",
+            "example": 650,
+            "description": "total − cubierto"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "avisos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvisoCotizacionResponse"
+            }
+          }
+        },
+        "required": [
+          "estimada",
+          "lineas",
+          "porPagador",
+          "subtotalCentavos",
+          "recargoCentavos",
+          "totalCentavos",
+          "cubiertoPorPlanCentavos",
+          "saldoPorCobrarCentavos",
+          "monedaCodigo",
+          "avisos"
+        ]
+      },
+      "PagoCuentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metodo": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "montoCentavos": {
+            "type": "number",
+            "example": 500,
+            "description": "Negativo = reverso (al anular la cuenta)"
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["PENDIENTE", "CONFIRMADO", "RECHAZADO"]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": ["id", "metodo", "montoCentavos", "estado", "creadoEn"]
+      },
+      "CuentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "origen": {
+            "type": "string",
+            "enum": ["PEDIDO", "QR", "MESA"]
+          },
+          "estado": {
+            "type": "string",
+            "enum": ["ABIERTA", "COBRADA", "ANULADA"]
+          },
+          "momentoCobro": {
+            "type": "string",
+            "enum": ["ANTES_DE_SERVIR", "DESPUES_DE_SERVIR"],
+            "description": "Copia del local al crear la cuenta"
+          },
+          "debeCobrarseAntesDeServir": {
+            "type": "boolean",
+            "description": "ANTES_DE_SERVIR con saldo pendiente: la caja debe cobrar antes de entregar"
+          },
+          "pagador": {
+            "$ref": "#/components/schemas/PagadorCuentaResponse"
+          },
+          "cotizacion": {
+            "description": "Las líneas de la cuenta (`estimada: false`), congeladas al crearla. Un reverso es una línea más con la cantidad y los montos en negativo y el mismo `ref`. `avisos` siempre vacío aquí: los avisos son de la operación que creó la cuenta.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CotizacionResponse"
+              }
+            ]
+          },
+          "pagadoCentavos": {
+            "type": "number",
+            "example": 0,
+            "description": "Σ pagos no rechazados (los PENDIENTE cuentan)"
+          },
+          "saldoCentavos": {
+            "type": "number",
+            "example": 25,
+            "description": "cotizacion.saldoPorCobrarCentavos − pagadoCentavos"
+          },
+          "pagos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PagoCuentaResponse"
+            }
+          },
+          "creadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cobradaEn": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "anuladaEn": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "origen",
+          "estado",
+          "momentoCobro",
+          "debeCobrarseAntesDeServir",
+          "pagador",
+          "cotizacion",
+          "pagadoCentavos",
+          "saldoCentavos",
+          "pagos",
+          "creadaEn",
+          "cobradaEn",
+          "anuladaEn"
+        ]
+      },
       "PlanSolicitadoResponse": {
         "type": "object",
         "properties": {
@@ -23724,216 +25033,6 @@
           }
         },
         "required": ["extras"]
-      },
-      "LineaCotizacionResponse": {
-        "type": "object",
-        "properties": {
-          "ref": {
-            "type": "string",
-            "example": "almuerzo#1",
-            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`."
-          },
-          "personaRef": {
-            "type": "string",
-            "example": "0"
-          },
-          "pagadorRef": {
-            "type": "string",
-            "example": "0",
-            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO)"
-          },
-          "tipo": {
-            "type": "string",
-            "enum": ["ALMUERZO", "A_LA_CARTA", "EXTRA", "BEBIDA", "OFERTA", "LIBRE"]
-          },
-          "nombre": {
-            "type": "string",
-            "nullable": true
-          },
-          "platoId": {
-            "type": "string",
-            "nullable": true,
-            "format": "uuid",
-            "description": "public_id del plato"
-          },
-          "ofertaId": {
-            "type": "string",
-            "nullable": true,
-            "format": "uuid"
-          },
-          "cantidad": {
-            "type": "number",
-            "example": 1
-          },
-          "paraLlevar": {
-            "type": "boolean"
-          },
-          "precioUnitarioCentavos": {
-            "type": "number",
-            "example": 350
-          },
-          "subtotalCentavos": {
-            "type": "number",
-            "example": 350
-          },
-          "recargoUnitarioCentavos": {
-            "type": "number",
-            "example": 25
-          },
-          "recargoCentavos": {
-            "type": "number",
-            "example": 25
-          },
-          "fuente": {
-            "type": "string",
-            "enum": ["PLAN", "OFERTA", "CAJA"],
-            "description": "De dónde sale el precio de la línea"
-          },
-          "pagador": {
-            "type": "string",
-            "enum": ["PROPIO", "ANFITRION"],
-            "description": "Quién paga la línea"
-          },
-          "cubiertoPorPlanCentavos": {
-            "type": "number",
-            "example": 350
-          },
-          "porCobrarCentavos": {
-            "type": "number",
-            "example": 25
-          },
-          "omitida": {
-            "type": "string",
-            "nullable": true,
-            "enum": ["PLATO_AGOTADO", "DUPLICADO", "LIMITE_SAAS"]
-          }
-        },
-        "required": [
-          "ref",
-          "personaRef",
-          "pagadorRef",
-          "tipo",
-          "nombre",
-          "platoId",
-          "ofertaId",
-          "cantidad",
-          "paraLlevar",
-          "precioUnitarioCentavos",
-          "subtotalCentavos",
-          "recargoUnitarioCentavos",
-          "recargoCentavos",
-          "fuente",
-          "pagador",
-          "cubiertoPorPlanCentavos",
-          "porCobrarCentavos",
-          "omitida"
-        ]
-      },
-      "TotalPagadorResponse": {
-        "type": "object",
-        "properties": {
-          "pagadorRef": {
-            "type": "string",
-            "example": "0"
-          },
-          "subtotal": {
-            "type": "number"
-          },
-          "recargo": {
-            "type": "number"
-          },
-          "total": {
-            "type": "number"
-          },
-          "cubierto": {
-            "type": "number"
-          },
-          "saldo": {
-            "type": "number"
-          }
-        },
-        "required": ["pagadorRef", "subtotal", "recargo", "total", "cubierto", "saldo"]
-      },
-      "AvisoCotizacionResponse": {
-        "type": "object",
-        "properties": {
-          "codigo": {
-            "type": "string",
-            "enum": ["OFERTA_AGOTADA", "OFERTA_EXPIRADA", "PLATO_AGOTADO", "DUPLICADO", "LIMITE_SAAS", "PLAN_NO_ALCANZA"]
-          },
-          "lineaRef": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "required": ["codigo", "lineaRef"]
-      },
-      "CotizacionResponse": {
-        "type": "object",
-        "properties": {
-          "estimada": {
-            "type": "boolean",
-            "example": true,
-            "description": "Siempre `true` en esta entrega: es una estimación, el cobro real lo fija la caja"
-          },
-          "lineas": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LineaCotizacionResponse"
-            }
-          },
-          "porPagador": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TotalPagadorResponse"
-            }
-          },
-          "subtotalCentavos": {
-            "type": "number",
-            "example": 950
-          },
-          "recargoCentavos": {
-            "type": "number",
-            "example": 50,
-            "description": "Recargo para llevar por unidad (almuerzo y platos a la carta)"
-          },
-          "totalCentavos": {
-            "type": "number",
-            "example": 1000
-          },
-          "cubiertoPorPlanCentavos": {
-            "type": "number",
-            "example": 350,
-            "description": "Lo que cubre el plan (precio del almuerzo × unidades cubiertas)"
-          },
-          "saldoPorCobrarCentavos": {
-            "type": "number",
-            "example": 650,
-            "description": "total − cubierto"
-          },
-          "monedaCodigo": {
-            "type": "string",
-            "example": "USD"
-          },
-          "avisos": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AvisoCotizacionResponse"
-            }
-          }
-        },
-        "required": [
-          "estimada",
-          "lineas",
-          "porPagador",
-          "subtotalCentavos",
-          "recargoCentavos",
-          "totalCentavos",
-          "cubiertoPorPlanCentavos",
-          "saldoPorCobrarCentavos",
-          "monedaCodigo",
-          "avisos"
-        ]
       },
       "MiembroMesaResponse": {
         "type": "object",
@@ -24735,6 +25834,49 @@
         },
         "required": ["fecha", "zonaHoraria", "monedaCodigo", "resumen", "items"]
       },
+      "CobrarCuentaDto": {
+        "type": "object",
+        "properties": {
+          "montoCentavos": {
+            "type": "number",
+            "minimum": 1,
+            "description": "Pago parcial; por defecto todo el saldo. Más que el saldo → 422 `MONTO_EXCEDE_SALDO`"
+          },
+          "pagoConfirmado": {
+            "type": "boolean",
+            "description": "Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma."
+          },
+          "comprobanteUrl": {
+            "type": "string",
+            "description": "URL https del comprobante (máx. 500)"
+          },
+          "referenciaExterna": {
+            "type": "string",
+            "description": "Id del depósito o de Deuna. Repetida → 409 `REFERENCIA_PAGO_REPETIDA`"
+          },
+          "metodoPago": {
+            "type": "string",
+            "enum": ["EFECTIVO", "TRANSFERENCIA", "DEUNA"]
+          },
+          "saldoEsperadoCentavos": {
+            "type": "number",
+            "example": 725,
+            "minimum": 0,
+            "description": "Saldo que la caja vio. Distinto del real → 409 `SALDO_CAMBIO`"
+          }
+        },
+        "required": ["metodoPago", "saldoEsperadoCentavos"]
+      },
+      "AnularCuentaDto": {
+        "type": "object",
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "example": "El comensal se fue sin comer",
+            "maxLength": 200
+          }
+        }
+      },
       "PlanPase": {
         "type": "object",
         "properties": {
@@ -25294,6 +26436,19 @@
           "comensal"
         ]
       },
+      "CanjearPedidoDto": {
+        "type": "object",
+        "properties": {
+          "cobro": {
+            "description": "Opcional. Sin `cobro` el canje es el de siempre (no crea cuenta). Con `cobro` (aunque sea `{}`) crea la cuenta del pedido; con `metodoPago`, registra el pago en la misma transacción. Si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` del pedido) → 409 `SALDO_CAMBIO` sin descontar el plan ni cobrar nada.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CobroDto"
+              }
+            ]
+          }
+        }
+      },
       "PedidoCanjeResponse": {
         "type": "object",
         "properties": {
@@ -25322,10 +26477,37 @@
           },
           "porCobrarCentavos": {
             "type": "number",
-            "description": "Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió"
+            "description": "Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió (al precio guardado en el pedido). Con `cobro` vale `cotizacion.saldoPorCobrarCentavos`."
+          },
+          "cotizacion": {
+            "nullable": true,
+            "description": "Cotización final (`estimada: false`) con lo que de verdad pasó en caja (plan descontado o no) y el precio del almuerzo guardado en el pedido. Con cuenta, es la de la cuenta. null solo si el almuerzo no tiene precio en el local y ningún plan lo cubrió (I-12) y no se mandó `cobro`.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CotizacionResponse"
+              }
+            ]
+          },
+          "cuenta": {
+            "nullable": true,
+            "description": "La cuenta de cobro del pedido. null si el canje no llevó `cobro` (comportamiento de siempre).",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CuentaResponse"
+              }
+            ]
+          },
+          "avisos": {
+            "description": "Avisos de este canje (p. ej. DUPLICADO, LIMITE_SAAS)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvisoCotizacionResponse"
+            }
           }
         },
-        "required": ["pedido", "yaCanjeado", "porCobrarCentavos"]
+        "required": ["pedido", "yaCanjeado", "porCobrarCentavos", "cotizacion", "cuenta", "avisos"]
       },
       "CrearMesaCompartidaDto": {
         "type": "object",

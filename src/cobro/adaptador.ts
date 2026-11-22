@@ -144,17 +144,41 @@ export function entradaPedido(p: PedidoParaCobro): EntradaCobro {
 }
 
 /**
- * Pedido ya creado: todavía no existe el snapshot del precio del almuerzo (F.2), así que sale de `subtotal − extras`
- * (como `renderOrders`). Un almuerzo guardado en 0 se fijó cubierto por el plan al pedir: se respeta (si no, la
- * cotización lo vería como un almuerzo de caja con P = 0, I-12, aunque el plan ya se haya gastado al canjear).
+ * Pedido ya creado.
+ * - Con snapshot del precio del almuerzo (`precioAlmuerzo`, `orden_cabecera.precio_almuerzo_centavos`, INC-06): P es
+ *   el del pedido. Si el pedido ya se canjeó, el plan es lo que pasó en caja (un consumo vivo del pedido = cubierto; si
+ *   no, sin plan); si no, el plan de hoy.
+ * - Pedidos viejos, sin snapshot: P sale de `subtotal − extras` (como `renderOrders`). Un almuerzo guardado en 0 se fijó
+ *   cubierto por el plan al pedir y se respeta (si no, la cotización lo vería como un almuerzo de caja con P = 0,
+ *   I-12, aunque el plan ya se haya gastado al canjear).
  */
 export function entradaPedidoCreado(
-  p: Omit<PedidoParaCobro, 'precioAlmuerzo' | 'plan'> & { subtotal: number; plan: PlanPersona },
+  p: Omit<PedidoParaCobro, 'precioAlmuerzo' | 'plan'> & {
+    subtotal: number;
+    plan: PlanPersona;
+    precioAlmuerzo?: number | null;
+    /** Ya canjeado en caja: `conConsumo` dice si se descontó del plan (y no se deshizo). */
+    canjeado?: { conConsumo: boolean } | null;
+  },
 ): EntradaCobro {
+  if (p.precioAlmuerzo !== undefined && p.precioAlmuerzo !== null) {
+    const plan: PlanPersona = p.canjeado ? (p.canjeado.conConsumo ? { estado: 'OK', disponibles: 1 } : SIN_PLAN) : p.plan;
+    return entradaPedido({ ...p, precioAlmuerzo: p.precioAlmuerzo, plan });
+  }
   const extras = p.extras.reduce((s, e) => s + e.cantidad * e.precioUnitario, 0);
   const precioAlmuerzo = Math.max(0, p.subtotal - extras);
   const plan: PlanPersona = p.conAlmuerzo && precioAlmuerzo === 0 ? { estado: 'OK', disponibles: Math.max(1, p.plan.disponibles) } : p.plan;
   return entradaPedido({ ...p, precioAlmuerzo, plan });
+}
+
+/**
+ * P de un pedido para cobrarlo: el snapshot si existe; si no (pedidos viejos), lo que se guardó al pedir si el almuerzo
+ * se cobraba (`subtotal − extras` > 0) o, si se guardó cubierto (0), el precio actual del local.
+ */
+export function precioAlmuerzoDePedido(p: { snapshot: number | null; subtotal: number; extras: number; precioActual: number }): number {
+  if (p.snapshot !== null) return p.snapshot;
+  const guardado = p.subtotal - p.extras;
+  return guardado > 0 ? guardado : p.precioActual;
 }
 
 // --- Mesa --------------------------------------------------------------------------------------------------------

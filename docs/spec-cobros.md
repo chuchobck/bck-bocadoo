@@ -614,6 +614,7 @@ arqueo como "pos" (todo lo que no es plan, `src/checkout/cash.ts:116-117`).
 | 409  | `LINEA_DE_PLAN`             | quitar línea                                                                  |
 | 409  | `REFERENCIA_PAGO_REPETIDA`  | cobros (hoy el POS responde un 409 sin `code`, `src/checkout/pos.ts:190-191`) |
 | 409  | `SALDO_CAMBIO`              | cobros                                                                        |
+| 422  | `MONTO_EXCEDE_SALDO`        | cobrar con `montoCentavos` mayor que el saldo (agregado en el PR 5a)          |
 | 422  | `OFERTA_NO_APLICA_ALMUERZO` | pedidos, selección                                                            |
 | 422  | `OFERTA_SIN_PLATO`          | pedidos, selección                                                            |
 
@@ -840,9 +841,14 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
    cada miembro; `INVITO_YO`: el anfitrión), calculados con la condición de `fn_descontar_almuerzo`, y nada más del
    plan ni del cliente (sin nombre, teléfono, precios ni vencimientos). Completa `miembros[].cotizacion` en las vistas
    de mesa del comensal (hoy `null`, E.6).
-5. **feat(checkout): accounts and payments** — `src/billing/aplicar.ts`, endpoints de E.11, `cobro`/`items` en
-   `POST /v1/caja/validar` y `cobro` en `POST /v1/caja/pedidos/{id}/canjear` (con snapshot de P), `CUENTA_COBRADA` en
-   deshacer, `cuentasAbiertas` en el cierre. Integración: casos 17–23, 37, 43–46, 48.
+5. **feat(checkout): accounts and payments**, en dos partes:
+   - **5a (hecho):** `src/cobro/aplicar.ts` (fuera de `src/billing`, que sigue sin `db`/`nest`/`pg`),
+     `GET /v1/caja/cuentas/{id}`, `POST …/cobrar` y `POST …/anular` de E.11, `cobro` en
+     `POST /v1/caja/pedidos/{id}/canjear` (con snapshot de P), confirmar/rechazar pagos de cuenta y `CUENTA_COBRADA` en
+     deshacer (se adelantó del 5b: sin esto, deshacer un pedido cobrado devolvía el almuerzo y dejaba el pago).
+     Integración: 43, 45 y, adaptados a cuentas de pedido, 44, 46 y 48.
+   - **5b:** `cobro`/`items` en `POST /v1/caja/validar`, `GET /v1/caja/cuentas` (lista), `items` y `quitar` de E.11,
+     `cuentasAbiertas` en el cierre. Integración: casos 17–23, 37 y 44, 46, 48 con QR.
 6. **feat(tables): selection becomes charge** — `aplicarSeleccion` (**`true` por defecto, etiqueta
    `cambio-incompatible`**, I-4), cuentas por pagador, `salir`, ofertas en la selección. Integración: casos 28–36, 38, 39, 47.
    Junto con el endpoint `salir` debe cerrar por RLS el acceso de los miembros con `salio_en`: que no vuelvan a escribir

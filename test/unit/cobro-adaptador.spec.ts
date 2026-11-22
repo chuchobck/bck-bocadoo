@@ -11,6 +11,7 @@ import {
   entradaPedido,
   entradaPedidoCreado,
   planDesdeFilas,
+  precioAlmuerzoDePedido,
   tipoDePlato,
 } from '../../src/cobro/adaptador';
 
@@ -271,5 +272,41 @@ describe('aRespuesta', () => {
     expect(r).not.toHaveProperty('unidadesPlan');
     expect(r.monedaCodigo).toBe('USD');
     expect(r.estimada).toBe(true);
+  });
+});
+
+describe('entradaPedidoCreado con snapshot de P (INC-06)', () => {
+  const base = { ...precios, paraLlevar: true, conAlmuerzo: true, subtotal: 100, extras: [plato('Cola', 'BEBIDA', 100)] };
+
+  it('el almuerzo vale el snapshot (no subtotal − extras) y lo cubre el plan de hoy', () => {
+    const c = cotizar(entradaPedidoCreado({ ...base, plan: ok(1), precioAlmuerzo: P }));
+    expect(c.lineas[0]).toMatchObject({ tipo: 'ALMUERZO', fuente: 'PLAN', precioUnitarioCentavos: P });
+    expect(c).toMatchObject({ subtotalCentavos: P + 100, cubiertoPorPlanCentavos: P, saldoPorCobrarCentavos: 100 + R });
+  });
+
+  it('canjeado con consumo: cubierto aunque el plan de hoy esté en 0', () => {
+    const c = cotizar(entradaPedidoCreado({ ...base, plan: SIN_PLAN, precioAlmuerzo: P, canjeado: { conConsumo: true } }));
+    expect(c.cubiertoPorPlanCentavos).toBe(P);
+  });
+
+  it('canjeado sin consumo (o deshecho): el almuerzo va a caja aunque hoy haya plan', () => {
+    const c = cotizar(entradaPedidoCreado({ ...base, plan: ok(3), precioAlmuerzo: P, canjeado: { conConsumo: false } }));
+    expect(c).toMatchObject({ cubiertoPorPlanCentavos: 0, saldoPorCobrarCentavos: P + 100 + R });
+  });
+
+  it('snapshot null: el camino de antes (pedidos viejos)', () => {
+    const c = cotizar(entradaPedidoCreado({ ...base, plan: SIN_PLAN, precioAlmuerzo: null }));
+    expect(c.lineas[0]).toMatchObject({ fuente: 'PLAN', precioUnitarioCentavos: 0 });
+  });
+});
+
+describe('precioAlmuerzoDePedido', () => {
+  it.each([
+    ['con snapshot: el snapshot', { snapshot: 300, subtotal: 900, extras: 100, precioActual: 500 }, 300],
+    ['snapshot 0 (el local no cobraba el almuerzo): 0', { snapshot: 0, subtotal: 100, extras: 100, precioActual: 500 }, 0],
+    ['sin snapshot y almuerzo cobrado: subtotal − extras', { snapshot: null, subtotal: 450, extras: 100, precioActual: 500 }, 350],
+    ['sin snapshot y guardado cubierto (0): el precio actual', { snapshot: null, subtotal: 100, extras: 100, precioActual: 500 }, 500],
+  ])('%s', (_n, p, esperado) => {
+    expect(precioAlmuerzoDePedido(p)).toBe(esperado);
   });
 });
