@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-22 (PR 6b: cuenta automática del QR, rama `feat/qr-cuenta-automatica-6b`; PR 6a mezclado en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (PR 6c: huecos de cobro, rama `fix/huecos-cobro-6c`; PR 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,9 +17,50 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) en la rama `feat/qr-cuenta-automatica-6b`, sin migración; siguen PR 7 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; siguen PR 7 en adelante (H.1).
 
-## Cuenta automática del QR (entrega D, PR 6b; rama `feat/qr-cuenta-automatica-6b`)
+## Huecos de cobro (entrega D, PR 6c; rama `fix/huecos-cobro-6c`)
+
+**Una migración** (`20261122180000_limite_saas_despues_del_plan`, probada solo en `bocadoo-test-pg`; **falta aplicarla en Neon** con `pnpm db:migrate --remoto` antes del merge) y **cambios de comportamiento** sin cambio de esquema: `pnpm openapi:breaking` sin cambios incompatibles (solo suma el 422 de `PATCH /v1/restaurante`); conviene la etiqueta `cambio-incompatible` en la PR. Cierra los tres huecos de cobro que dejó el 6b. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] **Canje sin `cobro`** (`redeemIn`, `src/orders/orders.ts`): si la cotización final deja saldo > 0, abre la cuenta `ABIERTA` del pedido (origen el pedido, sin pago) con la misma regla que el QR del 6b; con saldo 0, sin cuenta. Sin `cobro` no hay `SALDO_CAMBIO` (no llega saldo esperado). Con `cobro`, sin cambios. La huella de idempotencia no cambia (sin `cobro` ≠ `{ "cobro": {} }`): la misma llave devuelve la misma cuenta (`yaCanjeado: true`) y con otro cuerpo → 409. Dos canjes a la vez: el pedido ya se bloqueaba `FOR UPDATE`, así que el segundo ve `CANJEADA` y la misma cuenta.
+- [x] **`porCobrarCentavos`** (decisión de Oe en este PR): con cotización final vale su saldo también sin cuenta. Antes, sin cuenta, la fórmula vieja pedía el almuerzo a P cuando quedaba omitido (`DUPLICADO`, `LIMITE_SAAS`; I-10) aunque la cotización dijera 0. La fórmula vieja solo queda sin cotización (P = 0 sin plan).
+- [x] **`LIMITE_SAAS` sin plan**: migración nueva que reordena `fn_descontar_almuerzo` (`CREATE OR REPLACE`, misma firma y salida): primero busca el plan FIFO; si no hay plan que descontar hoy responde la razón real (`SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`) y la caja cobra el almuerzo a P; solo con plan mira el límite SaaS. `LIMITE_SAAS` sigue sin devolver `suscripcion_id`. Vale para QR, búsqueda manual, preorden y mesa sin tocar código de la API.
+- [x] **P > 0** (`src/restaurant/restaurant.service.ts`): `PATCH /v1/restaurante` con `precioSueltoCentavos: 0` en un local `ACTIVO` → 422 `PRECIO_ALMUERZO_REQUERIDO` y no guarda nada del PATCH. `activar` ahora bloquea la fila (`FOR UPDATE`): sin eso, un PATCH a 0 simultáneo podía dejar un local `ACTIVO` con P = 0 (la prueba de concurrencia falla 3 de 3 sin el candado). `null`/`""` siguen en 400 por el DTO (columna NOT NULL), en cualquier estado.
+
+### Por qué migración y no una consulta del plan aparte
+
+- Un solo lugar: los cuatro canales (QR, MANUAL, PREORDEN, MESA) llaman a la función; la alternativa repetía la consulta (o la metía en `deduct`) y la mesa `INVITO_YO`, que descuenta varias unidades seguidas, la habría tenido que repetir por unidad.
+- La respuesta es verdadera en la base: `intento_escaneo` registra `SIN_PLAN` (no `LIMITE_SAAS`) y `rechazadosPorLimite` de `GET /v1/suscripcion/uso` deja de contar a quien no tenía nada que descontar. Con la consulta aparte, el intento y el `resultado` habrían dicho `LIMITE_SAAS` mientras se cobraba P.
+- Atómico: el plan se lee bajo el candado de la ficha que ya toma la función, en la misma sentencia; una consulta aparte leería el plan sin ese candado.
+- Menos candados: quien no tiene plan ya no bloquea la fila SaaS del local. El orden es ficha → plan → SaaS; ninguna otra función bloquea SaaS y luego un plan.
+
+### Migración: GRANT y RLS antes y después
+
+| Objeto                                                                       | Antes                                                                                                                               | Después                                                                                   |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `fn_descontar_almuerzo(bigint ×3, uuid, canal, boolean, bigint ×3, boolean)` | `SECURITY DEFINER`, dueño `postgres`, `search_path = public, pg_temp`, `EXECUTE` a `bocadoo_app` y `bocadoo_servicio` (no a PUBLIC) | Igual (`CREATE OR REPLACE` conserva dueño y ACL); solo cambia el orden plan → límite SaaS |
+| Políticas RLS, tablas y demás funciones                                      | —                                                                                                                                   | Sin cambios                                                                               |
+
+Verificado con `pg_proc.proacl`, `prosecdef`, `proconfig` y `md5(prosrc)` antes de `up`, tras `up`, tras `down` (el `md5` vuelve exacto al original) y tras el segundo `up`.
+
+### Verificación
+
+- [x] `test/integration/huecos-cobro.int.ts` (15, probe): canje sin cobro con saldo (con plan para llevar + Cola, quien no es cliente, cuerpo `{}`), saldo 0 sin cuenta, plan agotado entre pedir y canjear (sin `cobro` abre la cuenta; con `{ "cobro": {} }` sigue el 409 `SALDO_CAMBIO`), idempotencia con y sin plan (misma cuenta, `IDEMPOTENCY_KEY_REUTILIZADA` con otro cuerpo u otro pedido), `LIMITE_SAAS` con plan (solo la Cola); `LIMITE_SAAS` por suspensión y por tope (ficha sin plan → `SIN_PLAN` con cuenta P, con plan → `LIMITE_SAAS`, plan de otro día → `DIA_NO_VALIDO` con cuenta, contador y `rechazadosPorLimite`), canje de una ficha sin plan en un local suspendido, la función como `bck_api` (tenant propio y ajeno) y `bck_servicio`, y su ACL; `PATCH` con 0 / `null` / `""` / negativo en `ACTIVO`, `BORRADOR` y `PAUSADO`, `activar` sin precio, cajero 403, otro dueño 403, Swagger del 422; roles (cajero, otro local 404, comensal 403, sin sesión 401) y RLS de la cuenta como `bck_api` y `bck_servicio`. Las de `LIMITE_SAAS` fallan con la función vieja (comprobado con `down`).
+- [x] `test/integration/huecos-cobro-concurrency.int.ts` (3, clon descartable): dos cajas canjean el mismo pedido a la vez (4 veces, con y sin plan) → una cuenta, un consumo; la misma llave 4 veces a la vez → todas 200, una cuenta; PATCH a 0 contra `activar` (4 veces) → nunca `ACTIVO` con P = 0.
+- [x] Ajustadas: `cuentas-caja.int.ts` y `cotizaciones.int.ts` asumían que el canje sin cuerpo no abre cuenta.
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (965), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (sin cambios incompatibles). Integración contra `bocadoo-test-pg` (nunca Neon): **51 de 51 suites, 448 de 448 pruebas**.
+
+### Huecos que quedan (no se cambiaron en este PR)
+
+- **Reintento de un canje sin cuenta con el almuerzo omitido** (`yaCanjeado: true`): la cotización se reconstruye como `SIN_PLAN` porque no se guarda el resultado del primer canje, así que `porCobrarCentavos` del reintento vuelve a pedir P (+ R). Solo pasa con `DUPLICADO`/`LIMITE_SAAS` y saldo 0 (sin cuenta).
+- **Local `PAUSADO` con P = 0**: el PATCH lo permite (la regla es para `ACTIVO`) y la caja sigue atendiendo un local pausado, así que un QR o canje sin plan sigue sin cotización ni cuenta. Se puede cerrar exigiendo P > 0 también en `PAUSADO` o con un CHECK en la base cuando la consulta de Neon dé 0 filas.
+- **Validar mesa con `aplicarSeleccion: false`**: sin cambios (PR 9).
+- **Candados de mesa `CADA_UNO` contra un QR del mismo miembro** (sin verificar con prueba): la mesa descuenta miembro por miembro en una transacción y la fila SaaS queda tomada desde el primero; un QR simultáneo de otro miembro toma su ficha y luego espera la fila SaaS. Ya existía con el orden anterior; el nuevo lo reduce (quien no tiene plan no toma la fila SaaS).
+
+## Cuenta automática del QR (entrega D, PR 6b; mezclado en `main`)
 
 **Sin migración** y **un cambio de comportamiento** en `POST /v1/caja/validar` (E.4, H.2): sin `items` ni `cobro`, si la cotización final deja saldo > 0 se abre la cuenta `ABIERTA` y se devuelve en `cuenta`. Así el almuerzo suelto de quien no tiene plan, y el recargo para llevar de quien sí lo tiene, nunca quedan sin registrar. `pnpm openapi:breaking` no lo detecta (0 errores: el esquema no cambia); conviene la etiqueta `cambio-incompatible` en la PR. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
 
@@ -38,7 +79,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 - [x] Ajustadas: `cuentas-cobro.int.ts` (validar una ficha sin plan ya abre la cuenta de su intento) y `cuentas-caja.int.ts` (G-48 de pedido contaba todas las cuentas de la base; `checkout.int.ts`, sin probe, ahora confirma una cuenta propia).
 - [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (965), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (0 errores). Integración contra `bocadoo-test-pg` (nunca Neon): **49 de 49 suites, 430 de 430 pruebas**.
 
-### Huecos en otras rutas (no se cambiaron en este PR)
+### Huecos en otras rutas (no se cambiaron en este PR; los de canje, `LIMITE_SAAS` y P = 0 se cerraron en el PR 6c)
 
 - **Canje de pedido sin `cobro`** (`POST /v1/caja/pedidos/{id}/canjear`): sigue sin cuenta; `porCobrarCentavos` informa lo que falta, pero el almuerzo suelto de un pedido sin plan (y el recargo y los extras) no queda registrado. Propuesta: la misma regla del QR (saldo > 0 → cuenta `ABIERTA`), sin `SALDO_CAMBIO` cuando no hay `cobro` (la confirmación de I-6 solo aplica a quien cobra), anunciada como cambio de comportamiento.
 - **Validar mesa con `aplicarSeleccion: false`**: 1 almuerzo por miembro y `cuentas: []`; quien no tiene plan queda en `porCobrar` sin cuenta. Propuesta: retirar la opción cuando el frontend de caja esté en el default, o abrir cuentas también ahí.
