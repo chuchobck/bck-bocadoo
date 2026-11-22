@@ -274,7 +274,8 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       });
       // La cotización final del canje dice lo mismo.
       expect(canje.json().cotizacion).toMatchObject({ estimada: false, saldoPorCobrarCentavos: 100, cubiertoPorPlanCentavos: 350 });
-      expect(canje.json().cuenta).toBeNull();
+      // Desde el PR 6c, sin `cobro` y con saldo > 0 (la Cola) el canje abre la cuenta ABIERTA con ese saldo.
+      expect(canje.json().cuenta).toMatchObject({ origen: 'PEDIDO', estado: 'ABIERTA', saldoCentavos: 100 });
       expect(canje.json().pedido.totalCentavos).toBe(100);
     });
 
