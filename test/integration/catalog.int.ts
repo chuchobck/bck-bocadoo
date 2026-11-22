@@ -226,7 +226,9 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     const other = await activeLocal(`Concurrido ${unique()} B`, { puestos: 10 });
     const set = (who: Actor, payload: object) => own(who).post('/v1/restaurante/lleno', payload);
     const list = async (who: Actor) => {
-      const r = await pub(`/v1/restaurantes?q=${encodeURIComponent(who.slug.split('-')[0]!)}&limit=50`);
+      // Se busca por la parte única del nombre (`unique()`), no por "concurrido": esta suite no usa probe y los locales
+      // de corridas anteriores se acumulan; con más de 50 el nuevo quedaba fuera de la primera página.
+      const r = await pub(`/v1/restaurantes?q=${encodeURIComponent(who.slug.split('-')[1]!)}&limit=50`);
       return (r.json().items as { slug: string; ocupacion: unknown }[]).find((i) => i.slug === who.slug)?.ocupacion;
     };
     const detail = async (who: Actor) => (await pub(`/v1/restaurantes/${who.slug}`)).json().ocupacion;
