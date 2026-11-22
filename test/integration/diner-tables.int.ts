@@ -56,12 +56,13 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
     expect(j.statusCode, j.body).toBe(200);
     expect(j.json().soyAnfitrion).toBe(false);
     expect(j.json().miembros).toEqual([
-      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, seleccion: null, cotizacion: null },
+      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, salio: false, seleccion: null, cotizacion: null },
       {
         nombre: 'Comensal Prueba',
         esAnfitrion: false,
         paraLlevar: true,
         soyYo: true,
+        salio: false,
         seleccion: { almuerzo: null, extras: [] },
         // Sin selección cuenta 1 almuerzo (I-4); sin plan, y para llevar: 350 + 25.
         cotizacion: expect.objectContaining({ estimada: true, totalCentavos: 375, saldoPorCobrarCentavos: 375, monedaCodigo: 'USD' }),

@@ -431,15 +431,16 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       const s = (await k.as(sinPlan).get(`/v1/mis/mesas/${id}`)).json();
       expect(resumen(s.miembros)).toEqual([null, null, P]);
 
-      // Anfitrión: ve las selecciones de todos, pero la API del comensal solo lee SU plan (RLS): la cotización de los
-      // demás no se puede calcular y queda null; la de la mesa también. Con caja sí están todas.
+      // Anfitrión: ve las selecciones y las cotizaciones de todos y la de la mesa, iguales a las de la caja. Del plan de
+      // cada invitado solo obtiene cuántos almuerzos cubre hoy (fn_plan_pagador_mesa, PR 6); antes eran null.
       const h = (await k.as(host).get(`/v1/mis/mesas/${id}`)).json();
       expect(h.miembros.every((m: M & { seleccion: unknown }) => m.seleccion !== null)).toBe(true);
-      expect(resumen(h.miembros)).toEqual([0, null, null]);
-      expect(h.cotizacion).toBeNull();
+      expect(resumen(h.miembros)).toEqual([0, R, P]);
+      expect(h.miembros.map((m: M) => m.cotizacion)).toEqual(caja.miembros.map((m: M) => m.cotizacion));
+      expect(h.cotizacion).toEqual(caja.cotizacion);
     });
 
-    it('INVITO_YO: el anfitrión ve todas y la de la mesa; un invitado no puede calcular la suya (paga el plan del anfitrión)', async () => {
+    it('INVITO_YO: el anfitrión ve todas y la de la mesa; un invitado ve la suya con el plan del anfitrión', async () => {
       const o = await k.activeOwner();
       await k.menu(o);
       const { id, host, guest } = await mesa(o, 'INVITO_YO');
@@ -460,7 +461,7 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       expect(h.cotizacion).toEqual(caja.cotizacion);
 
       const g = (await k.as(guest).get(`/v1/mis/mesas/${id}`)).json();
-      expect(g.miembros.map((m: M) => m.cotizacion)).toEqual([null, null, null]);
+      expect(g.miembros.map((m: M) => m.cotizacion)).toEqual([null, caja.miembros[1].cotizacion, null]);
       expect(g.cotizacion).toBeNull();
     });
 
@@ -529,7 +530,7 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
 
   // --------------------------------------------------------------------------------------------------------------
 
-  describe('POST /v1/caja/mesas/{id}/validar: cotizacion informativa (E.5)', () => {
+  describe('POST /v1/caja/mesas/{id}/validar con aplicarSeleccion false: cotizacion informativa (E.5)', () => {
     it('trae la cotización de 1 almuerzo por miembro con su paraLlevar y no cambia descuentos ni porCobrar', async () => {
       const o = await k.activeOwner();
       const ids = await k.menu(o);
@@ -546,7 +547,9 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
 
       const saldoAntes = (await filas())!.saldo;
       const key = randomUUID();
-      const r = await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, key);
+      // aplicarSeleccion: false = lo de antes del PR 6 (1 almuerzo por miembro, sin cuentas).
+      const legacy = { aplicarSeleccion: false };
+      const r = await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, legacy, key);
       expect(r.statusCode, r.body).toBe(200);
       const v = r.json();
       // Lo de siempre.
@@ -575,7 +578,7 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
 
       // Reintento (misma clave y otra): sigue sin descontar y reconstruye la misma cotización desde la base.
       for (const kk of [key, randomUUID()]) {
-        const again = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, kk)).json();
+        const again = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, legacy, kk)).json();
         expect(again).toMatchObject({ yaValidada: true, resultados: [] });
         expect(again.cotizacion).toEqual(v.cotizacion);
         expect(again.miembros.map((x: { cotizacion: unknown }) => x.cotizacion)).toEqual(
@@ -593,7 +596,7 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
         await k.as(host).post('/v1/mis/mesas', { restaurante: o.restaurante, horaLlegada: inMinutes(30), modo: 'INVITO_YO' }, randomUUID())
       ).json();
       for (let i = 0; i < 2; i++) await k.as(await k.diner()).post(`/v1/mesas/invitacion/${m.id}/unirse`, {}, randomUUID());
-      const v = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, randomUUID())).json();
+      const v = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, { aplicarSeleccion: false }, randomUUID())).json();
       expect(v).toMatchObject({ descontados: 2, porCobrar: 1 });
       expect(v.cotizacion).toMatchObject({ cubiertoPorPlanCentavos: 2 * P, saldoPorCobrarCentavos: P });
       expect(v.cotizacion.avisos).toEqual([expect.objectContaining({ codigo: 'PLAN_NO_ALCANZA' })]);

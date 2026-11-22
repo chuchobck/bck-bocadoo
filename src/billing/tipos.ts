@@ -16,6 +16,12 @@ export interface PlanPersona {
   estado: EstadoPlan;
   /** Almuerzos que el plan cubre hoy (0 si `estado` ≠ OK). */
   disponibles: number;
+  /**
+   * Solo con `estado` OK: qué respondió la base a la primera unidad que ya no se descontó (B.3 paso 5, «esa unidad se
+   * reclasifica según ese resultado»). DUPLICADO o LIMITE_SAAS → las unidades restantes quedan omitidas (I-10); sin
+   * él (o con otro estado), van a CAJA con aviso PLAN_NO_ALCANZA.
+   */
+  trasAgotarse?: EstadoPlan;
 }
 
 export interface PersonaCobro {
