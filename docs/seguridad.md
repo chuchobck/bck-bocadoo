@@ -122,8 +122,17 @@ En producción `JWT_PRIVATE_KEY` es obligatoria (la app no arranca sin ella). En
 
 Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierra sesiones.
 
+## Rate limiting: memoria acotada (auditoría OWASP, 22 nov 2026)
+
+Hallazgo ALTO cerrado: el guard evaluaba todos los checks del preset (p. ej. `a:ip:identificador`, `c:identificador` del login) aunque el tope general por IP ya hubiera rechazado la petición, creando una clave nueva por cada intento con un identificador inventado. Con suficientes intentos desde una sola IP, el mapa crecía sin límite real hasta agotar la memoria del proceso (`sweep()` recorría todo el mapa sin liberar nada mientras la ventana de 15 min seguía activa). Arreglo en `src/security/rate-limit.ts`:
+
+- El tope general por IP se evalúa primero y solo: si ya está excedido, no se miran ni se crean las claves del preset.
+- Tope duro de memoria (`MAX_ENTRIES = 100 000`): el mapa de contadores nunca crece más allá de eso. Al llegar al tope, cada clave nueva expulsa primero la más vieja (orden de inserción, O(1)), en vez del barrido completo anterior.
+- Cubre tanto el ataque de una sola IP (el guard corta temprano) como una botnet con miles de IPs/identificadores distintos (el tope duro acota la memoria de todas formas).
+- Pruebas: `test/unit/rate-limit.spec.ts` (reproduce el ataque: 200 intentos con identificadores distintos tras agotar el tope de la IP no crean ninguna clave nueva; confirma el tope de 100 000 y el orden de expulsión).
+
 ## Límites conocidos (a revisar)
 
-- El rate limit es **en memoria**: vale para una sola instancia. Si la API escala a varias, hay que moverlo a un almacén compartido.
+- El rate limit es **en memoria**: vale para una sola instancia. Si la API escala a varias, hay que moverlo a un almacén compartido. El tope duro de memoria lo hace seguro mientras tanto, pero sigue sin compartirse entre instancias.
 - Sin verificación de correo ni recuperación de contraseña (fuera del alcance de v1). Login con Google, después de v1.
 - Los access tokens no se pueden revocar antes de su vencimiento (15 min).
