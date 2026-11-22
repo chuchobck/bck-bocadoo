@@ -24,14 +24,15 @@ describe.skipIf(!probe)('Fase 9: suscripción SaaS y uso de escaneos', () => {
     );
     const id = plan.rows[0]!.plan_saas_id;
     await probe!.sql(
-      `INSERT INTO plan_saas_precio (plan_saas_id, pais_codigo, moneda_codigo, precio_mensual_centavos) VALUES ($1, 'EC', 'USD', $2) ON CONFLICT DO NOTHING`,
+      `INSERT INTO plan_saas_precio (plan_saas_id, pais_codigo, moneda_codigo, precio_mensual_centavos, vigente_desde) VALUES ($1, 'EC', 'USD', $2, DATE '2000-01-01') ON CONFLICT DO NOTHING`,
       [id, o.precio],
     );
     await probe!.sql(
       `INSERT INTO suscripcion_saas_restaurante (restaurante_id, plan_saas_id, estado, escaneos_usados_ciclo_actual, inicio_ciclo_actual, fin_ciclo_actual, proximo_cobro)
        SELECT r.restaurante_id, $2, $3::estado_suscripcion_saas_enum, $4,
-              (CURRENT_DATE - 10), CURRENT_DATE + $5::int, CASE WHEN $6 > 0 THEN CURRENT_DATE + $5::int END
-         FROM restaurante r WHERE r.public_id = $1`,
+              hoy.d - 10, hoy.d + $5::int, CASE WHEN $6 > 0 THEN hoy.d + $5::int END
+         FROM restaurante r CROSS JOIN LATERAL (SELECT (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date AS d) hoy
+        WHERE r.public_id = $1`,
       [restaurante, id, o.estado, o.usados ?? 0, o.finDias ?? 20, o.precio],
     );
   }
