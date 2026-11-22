@@ -832,10 +832,23 @@ export class CheckoutController {
       'Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: ' +
       Object.entries(RESULTADOS)
         .map(([k, v]) => `**${k}**: ${v}`)
-        .join(' · '),
+        .join(' · ') +
+      '. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del ' +
+      'intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. ' +
+      'Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.',
   })
   @ApiOkResponse({ type: ValidacionResponse })
-  @ApiProblems({ 409: ['MENU_NO_PUBLICADO'] })
+  @ApiProblems({
+    409: [
+      'MENU_NO_PUBLICADO',
+      'SALDO_CAMBIO',
+      'ALMUERZO_SIN_PRECIO',
+      'PLATO_AGOTADO',
+      'REFERENCIA_PAGO_REPETIDA',
+      'IDEMPOTENCY_KEY_REUTILIZADA',
+    ],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+  })
   validate(@Body() dto: ValidarDto, @IdempotencyKey() key: string) {
     return this.checkout.validate(dto, key);
   }

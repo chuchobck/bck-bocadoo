@@ -9108,7 +9108,7 @@
     },
     "/v1/caja/validar": {
       "post": {
-        "description": "Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.",
+        "description": "Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.",
         "operationId": "CheckoutController_validate",
         "parameters": [
           {
@@ -9373,7 +9373,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`",
+            "description": "application/problem+json con `code`: `MENU_NO_PUBLICADO`, `SALDO_CAMBIO`, `ALMUERZO_SIN_PRECIO`, `PLATO_AGOTADO`, `REFERENCIA_PAGO_REPETIDA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -9385,6 +9385,25 @@
                   "status": 409,
                   "code": "MENU_NO_PUBLICADO",
                   "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "PLATO_NO_DISPONIBLE",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
