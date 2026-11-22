@@ -95,8 +95,8 @@ export class ValidarDto {
   @ApiPropertyOptional({
     type: [ItemCajaDto],
     description:
-      'Carta, extras y bebidas en la misma cuenta (hasta 10 platos distintos). Heredan `paraLlevar`. Con `items` o `cobro` se abre la cuenta ' +
-      'del QR si hay platos o algo por cobrar.',
+      'Carta, extras y bebidas en la misma cuenta (hasta 10 platos distintos). Heredan `paraLlevar`. La cuenta del QR se abre si hay ' +
+      'platos o algo por cobrar (desde el PR 6b también sin `items` ni `cobro`).',
   })
   @IsOptional()
   @ItemsCaja()
@@ -104,8 +104,9 @@ export class ValidarDto {
   @ApiPropertyOptional({
     type: CobroDto,
     description:
-      'Opcional (como en canjear un pedido). Sin `items` ni `cobro` la validación es la de siempre (no crea cuenta). Con `metodoPago`, paga ' +
-      'la cuenta en la misma transacción. Si `saldoEsperadoCentavos` no es el saldo real → 409 `SALDO_CAMBIO` sin descontar ni cobrar.',
+      'Opcional (como en canjear un pedido). Sin `cobro`, si queda algo por cobrar la cuenta se abre ABIERTA igual (PR 6b) y se cobra con ' +
+      '`POST /v1/caja/cuentas/{id}/cobrar`. Con `metodoPago`, la paga en la misma transacción. Si `saldoEsperadoCentavos` no es el saldo ' +
+      'real → 409 `SALDO_CAMBIO` sin descontar ni cobrar.',
   })
   @IsOptional()
   @ValidateNested()
@@ -212,15 +213,18 @@ export class ValidacionResponse {
     nullable: true,
     description:
       'Cotización final (`estimada: false`) del almuerzo (y de `items`) con lo que de verdad pasó con el plan. Con cuenta, la de la cuenta. ' +
-      'null si el código no identificó a nadie (QR inválido, vencido u otro local), si el comensal no es cliente y no se mandó `items` ni ' +
-      '`cobro`, o si el almuerzo no tiene precio y ningún plan lo cubrió.',
+      'null si el código no identificó a nadie (QR inválido, vencido u otro local) o si el almuerzo no tiene precio (P = 0), ningún plan ' +
+      'lo cubrió y no se mandó `items` ni `cobro`.',
   })
   cotizacion!: CotizacionResponse | null;
   @ApiProperty({
     type: CuentaResponse,
     nullable: true,
     description:
-      'La cuenta del QR. null sin `items` ni `cobro`, si el plan cubrió todo sin platos (nada por cobrar) o con DUPLICADO / LIMITE_SAAS.',
+      'La cuenta del QR. Se abre siempre que quede algo por cobrar (almuerzo suelto sin plan, recargo para llevar, platos), aunque no ' +
+      'lleguen `items` ni `cobro` (PR 6b): ABIERTA, o COBRADA si `cobro.metodoPago` la saldó. null si el plan cubrió todo sin platos ' +
+      '(nada por cobrar), con DUPLICADO / LIMITE_SAAS (también DUPLICADO sin plan: otra cuenta QR de la misma persona hace < 60 s), o ' +
+      'sin cotización.',
   })
   cuenta!: CuentaResponse | null;
   @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de esta validación (p. ej. DUPLICADO, LIMITE_SAAS)' })
@@ -317,10 +321,11 @@ export class CheckoutService {
   }
 
   /**
-   * Validar en caja (E.4). Sin `items` ni `cobro`, lo de siempre (más `cotizacion` informativa, `cuenta: null`).
-   * Con alguno de los dos, además de descontar el plan, cotiza con la regla única (B.3) y abre la cuenta del QR si hay
-   * platos o algo por cobrar: de origen el consumo (con plan) o el intento de escaneo (sin plan); con
-   * `cobro.metodoPago`, la paga en la misma transacción. DUPLICADO y LIMITE_SAAS no cobran nada (I-10).
+   * Validar en caja (E.4). Descuenta el plan, cotiza con la regla única (B.3) y abre la cuenta del QR si hay platos o
+   * algo por cobrar (PR 6b: también sin `items` ni `cobro`, p. ej. el almuerzo suelto de quien no tiene plan o el
+   * recargo para llevar): de origen el consumo (con plan) o el intento de escaneo (sin plan); con `cobro.metodoPago`, la
+   * paga en la misma transacción. Sin nada por cobrar ni platos, sin cuenta (G-17). DUPLICADO y LIMITE_SAAS no cobran
+   * nada (I-10); quien no tiene plan y ya abrió una cuenta QR hace < 60 s también es DUPLICADO (`duplicadoSinPlan`).
    */
   private async validateIn(
     q: Queryable,
@@ -330,7 +335,8 @@ export class CheckoutService {
     eventos: PendingPassEvents,
   ): Promise<ValidacionResponse> {
     const canal = qr ? 'QR' : 'MANUAL';
-    const conCuenta = dto.items !== undefined || dto.cobro !== undefined;
+    /** La caja pidió la cuenta (`items` o `cobro`): un almuerzo sin precio es un 409 y no una validación sin cotización. */
+    const pideCuenta = dto.items !== undefined || dto.cobro !== undefined;
     // Canje directo por QR o manual (sin preorden): exige el menú de hoy publicado. Los pedidos preordenados se
     // canjean por `POST /v1/caja/pedidos/{id}/canjear`, que no depende de que el menú siga publicado.
     await assertMenuPublicado(q);
@@ -342,13 +348,13 @@ export class CheckoutService {
       )
     ).rows[0]!;
     const sinCobro = { cotizacion: null, cuenta: null, avisos: [] };
-    const registrarIntento = async (resultado: Resultado, usuarioId?: string) =>
+    const registrarIntento = async (resultado: Resultado, usuarioId?: string | null, clienteDelLocal?: string) =>
       String(
         (
           await q.query<{ intento_id: string }>(
-            `INSERT INTO intento_escaneo (restaurante_id, personal_id, usuario_id, canal, resultado) VALUES (app_tenant_id(), $1, $2, $3, $4)
-             RETURNING intento_id`,
-            [ctx.personal_id, usuarioId ?? null, canal, resultado],
+            `INSERT INTO intento_escaneo (restaurante_id, personal_id, usuario_id, cliente_id, canal, resultado)
+             VALUES (app_tenant_id(), $1, $2, $3, $4, $5) RETURNING intento_id`,
+            [ctx.personal_id, usuarioId ?? null, clienteDelLocal ?? null, canal, resultado],
           )
         ).rows[0]!.intento_id,
       );
@@ -379,7 +385,6 @@ export class CheckoutService {
         [qr.usuarioId],
       );
       if (c.rows[0]) clienteId = String(c.rows[0].cliente_id);
-      else if (!conCuenta) return fail('SIN_PLAN', qr.usuarioId);
       else usuarioSinCliente = qr.usuarioId!;
     }
     const cliente = clienteId
@@ -397,6 +402,11 @@ export class CheckoutService {
       ]);
       if (!m.rowCount) throw new BadRequestException('mesaLocalId no existe o está inactiva.');
     }
+    // Una validación a la vez por persona (dos cajas con el mismo QR, o QR y búsqueda manual): la segunda ve lo que la
+    // primera dejó, sea la cuenta de su misma llave (reintento) o la que hace DUPLICADO sin plan. Va por usuario si lo
+    // hay, para que QR y MANUAL del mismo comensal compartan el candado. Antes del candado de fila de fn_descontar_almuerzo.
+    const usuarioPersona = usuarioSinCliente ?? (cliente && cliente.usuario_id !== null ? String(cliente.usuario_id) : null);
+    await q.query('SELECT pg_advisory_xact_lock(7002, hashtext($1))', [usuarioPersona ? `u:${usuarioPersona}` : `c:${clienteId}`]);
 
     // Idempotencia (F.3): la cuenta guarda la huella del cuerpo. Misma llave con otro cuerpo → 409; con el mismo, la misma respuesta.
     const items = (dto.items ?? []).map((i) => ({ plato: i.plato.toLowerCase(), cantidad: i.cantidad }));
@@ -404,7 +414,7 @@ export class CheckoutService {
       validar: clienteId ? { cliente: clienteId } : { usuario: usuarioSinCliente },
       paraLlevar: dto.paraLlevar ?? false,
       mesaLocalId: dto.mesaLocalId ?? null,
-      items: conCuenta ? [...items].sort((a, b) => a.plato.localeCompare(b.plato)) : null,
+      items: pideCuenta ? [...items].sort((a, b) => a.plato.localeCompare(b.plato)) : null,
       cobro: normalizarCobro(dto.cobro ?? null),
     });
     const previa = await cuentaPorClave(q, key, '0');
@@ -436,10 +446,23 @@ export class CheckoutService {
     }
 
     const precios = { precioAlmuerzo: Number(ctx.precio), recargoLlevar: Number(ctx.recargo), momentoCobro: ctx.momento };
-    const resueltos = conCuenta && !previa ? await resolverPlatosSueltos(q, items) : [];
+    const resueltos = previa ? [] : await resolverPlatosSueltos(q, items);
     const entrada = (plan: PlanPersona, conItems = true) =>
       entradaQr({ ...precios, paraLlevar: dto.paraLlevar ?? false, plan, items: conItems ? resueltos : [] });
     const sinPrecio = () => conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
+    const omitirTodo = (b: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>, estado: 'DUPLICADO' | 'LIMITE_SAAS') => {
+      const omitida = cotizar(entrada({ estado, disponibles: 0 }, false), { estimada: false });
+      return { ...b, cotizacion: aRespuesta(omitida, ctx.moneda), cuenta: null, avisos: omitida.avisos };
+    };
+
+    // DUPLICADO sin plan (decisión del PR 6b): el plan tiene su regla de 60 s en fn_descontar_almuerzo (sobre consumos);
+    // quien no tiene plan no deja consumo, así que la regla se aplica aquí sobre su cuenta QR sin consumo (origen el
+    // intento) creada hace < 60 s y no anulada. Sin esto, dos cajas (o dos toques) abrirían dos cuentas del mismo almuerzo.
+    // Un reintento con la misma llave no llega aquí: ya respondió arriba (cuenta del intento) o la reconoce más abajo.
+    if (!previa && !prev.rows[0] && (await this.duplicadoSinPlan(q, clienteId ?? null, usuarioPersona))) {
+      await registrarIntento('DUPLICADO', usuarioPersona, clienteId);
+      return omitirTodo({ ...rechazo('DUPLICADO'), cliente: clienteId ? { id: clienteId, nombre: cliente!.nombre } : null }, 'DUPLICADO');
+    }
 
     let base: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>;
     let cot: Cotizacion | null = null;
@@ -464,8 +487,9 @@ export class CheckoutService {
         ({ cotizacion: cot, consumos } = await descontarYRecotizar(entrada({ estado: 'OK', disponibles: 1 }), () => descontar()));
       } catch (e) {
         if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
-        if (conCuenta) throw sinPrecio();
-        // Sin cuenta, como siempre: el almuerzo sin precio (I-12) no impide validar; solo no hay cotización.
+        if (pideCuenta) throw sinPrecio();
+        // Sin `items` ni `cobro`, como siempre: el almuerzo sin precio (I-12) no impide validar; solo no hay cotización
+        // ni cuenta (tampoco del recargo: hueco conocido de un local mal configurado, decisión del PR 6b).
       }
       if (!r) await descontar();
       base = { ...r!, cliente: { id: clienteId, nombre: cliente!.nombre } };
@@ -474,7 +498,7 @@ export class CheckoutService {
         const cuenta = await renderCuenta(q, String(previa.cuenta_id));
         return { ...base, cotizacion: cuenta.cotizacion, cuenta, avisos: [] };
       }
-      if (!consumos.length && conCuenta)
+      if (!consumos.length)
         intentoId =
           (
             await q.query<{ intento_id: string }>(
@@ -484,29 +508,27 @@ export class CheckoutService {
             )
           ).rows[0]?.intento_id ?? null;
     } else {
-      // QR de un comensal que no es cliente del local (solo con items o cobro): el almuerzo va a caja.
-      intentoId = await registrarIntento('SIN_PLAN', usuarioSinCliente!);
+      // QR de un comensal que no es cliente del local: no tiene plan, el almuerzo va a caja (a precio suelto).
+      intentoId = await registrarIntento('SIN_PLAN', usuarioSinCliente);
       base = rechazo('SIN_PLAN');
       try {
         cot = cotizar(entrada(SIN_PLAN), { estimada: false });
       } catch (e) {
-        if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO') throw sinPrecio();
-        throw e;
+        if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
+        if (pideCuenta) throw sinPrecio();
+        // Sin `items` ni `cobro` y P = 0: lo de antes (SIN_PLAN, sin cotización ni cuenta).
       }
     }
 
     // DUPLICADO y LIMITE_SAAS no cobran nada (I-10): ni el almuerzo (omitido) ni los platos; sin cuenta.
-    if (base.resultado === 'DUPLICADO' || base.resultado === 'LIMITE_SAAS') {
-      const omitida = cotizar(entrada({ estado: base.resultado, disponibles: 0 }, false), { estimada: false });
-      return { ...base, cotizacion: aRespuesta(omitida, ctx.moneda), cuenta: null, avisos: omitida.avisos };
-    }
-    if (!conCuenta || !cot)
-      return { ...base, cotizacion: cot ? aRespuesta(cot, ctx.moneda) : null, cuenta: null, avisos: cot?.avisos ?? [] };
+    if (base.resultado === 'DUPLICADO' || base.resultado === 'LIMITE_SAAS') return omitirTodo(base, base.resultado);
+    if (!cot) return { ...base, cotizacion: null, cuenta: null, avisos: [] };
 
     const saldo = cot.saldoPorCobrarCentavos;
     if (dto.cobro?.saldoEsperadoCentavos !== undefined && dto.cobro.saldoEsperadoCentavos !== saldo)
       throw saldoCambio(saldo, { saldoEsperadoCentavos: dto.cobro.saldoEsperadoCentavos, cotizacion: aRespuesta(cot, ctx.moneda) });
-    // Sin platos y sin nada por cobrar no hay cuenta (G-17): el plan cubrió todo.
+    // Sin platos y sin nada por cobrar no hay cuenta (G-17): el plan cubrió todo. Con saldo > 0 la cuenta se abre aunque
+    // no lleguen `items` ni `cobro` (PR 6b): así el almuerzo suelto o el recargo nunca quedan sin registrar.
     if (!resueltos.length && saldo === 0) return { ...base, cotizacion: aRespuesta(cot, ctx.moneda), cuenta: null, avisos: cot.avisos };
     // La llave ya descontó este almuerzo en una validación sin cuenta: crear la cuenta ahora sería otro cuerpo.
     if (prev.rows[0])
@@ -537,6 +559,25 @@ export class CheckoutService {
       );
     const cuenta = await renderCuenta(q, cuentaId);
     return { ...base, cotizacion: cuenta.cotizacion, cuenta, avisos: cot.avisos };
+  }
+
+  /**
+   * ¿Esta persona (ficha del local o usuario de la app) ya abrió hace < 60 s una cuenta QR sin consumo (sin plan) que
+   * sigue viva? Es la regla de doble escaneo de fn_descontar_almuerzo, aplicada a quien no deja consumo. Quien llama
+   * tiene el candado de la persona, así que ve la cuenta de una validación simultánea ya confirmada.
+   */
+  private async duplicadoSinPlan(q: Queryable, clienteId: string | null, usuarioId: string | null): Promise<boolean> {
+    const r = await q.query(
+      `SELECT 1 FROM cuenta_cobro c
+        WHERE c.restaurante_id = app_tenant_id() AND c.intento_id IS NOT NULL AND c.estado <> 'ANULADA'
+          AND c.creada_en > CURRENT_TIMESTAMP - INTERVAL '60 seconds'
+          AND c.fecha_local >= (SELECT (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date - 1 FROM restaurante r
+                                 WHERE r.restaurante_id = app_tenant_id())
+          AND (c.cliente_id = $1 OR c.usuario_id = $2)
+        LIMIT 1`,
+      [clienteId, usuarioId],
+    );
+    return Boolean(r.rowCount);
   }
 
   /** Llama a la función atómica de la base (FIFO, duplicado, idempotencia, límite SaaS) y arma la respuesta. */
@@ -1045,9 +1086,10 @@ export class CheckoutController {
       Object.entries(RESULTADOS)
         .map(([k, v]) => `**${k}**: ${v}`)
         .join(' · ') +
-      '. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del ' +
-      'intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. ' +
-      'Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.',
+      '. Si queda algo por cobrar (almuerzo suelto sin plan, recargo para llevar o `items`) crea además la cuenta de cobro `ABIERTA`, ' +
+      'aunque no lleguen `items` ni `cobro` (PR 6b): con plan, la del consumo; sin él, la del intento de escaneo (el almuerzo va a caja a P). ' +
+      'Se cobra con `POST /v1/caja/cuentas/{id}/cobrar`, o en el mismo paso con `cobro.metodoPago`. Sin nada por cobrar ni platos, no hay ' +
+      'cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada; quien no tiene plan y ya abrió una cuenta QR hace menos de 60 s también recibe `DUPLICADO`.',
   })
   @ApiOkResponse({ type: ValidacionResponse })
   @ApiProblems({

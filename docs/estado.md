@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-22 (blindaje de las pruebas contra Neon; PR 5b mezclado en `main` y su migración aplicada en Neon). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (PR 6b: cuenta automática del QR, rama `feat/qr-cuenta-automatica-6b`; PR 6a mezclado en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,7 +17,34 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) en la rama `feat/mesas-cobro-6a`, con su migración **pendiente de aplicar en Neon**; siguen 6b (cuenta automática del QR) y PR 7 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) en la rama `feat/qr-cuenta-automatica-6b`, sin migración; siguen PR 7 en adelante (H.1).
+
+## Cuenta automática del QR (entrega D, PR 6b; rama `feat/qr-cuenta-automatica-6b`)
+
+**Sin migración** y **un cambio de comportamiento** en `POST /v1/caja/validar` (E.4, H.2): sin `items` ni `cobro`, si la cotización final deja saldo > 0 se abre la cuenta `ABIERTA` y se devuelve en `cuenta`. Así el almuerzo suelto de quien no tiene plan, y el recargo para llevar de quien sí lo tiene, nunca quedan sin registrar. `pnpm openapi:breaking` no lo detecta (0 errores: el esquema no cambia); conviene la etiqueta `cambio-incompatible` en la PR. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] `validateIn` (`src/checkout/checkout.ts`): la cuenta ya no depende de `items`/`cobro`; con saldo 0 y sin platos sigue sin cuenta (G-17). Origen: el consumo si hubo plan; si no, el intento de escaneo (como en 5b). Un QR de alguien que no es cliente del local ya no sale antes con `SIN_PLAN` sin cotización: se cotiza a P y abre su cuenta.
+- [x] `DUPLICADO` sin plan (decisión de Oe): quien no tiene plan no deja consumo, así que la regla de 60 s de `fn_descontar_almuerzo` no lo veía. Ahora, si esa persona (misma ficha o mismo usuario) ya tiene una cuenta QR sin consumo creada hace < 60 s y no `ANULADA`, responde `DUPLICADO`, `cuenta: null`, aviso `DUPLICADO`, y registra el intento `DUPLICADO`. Vale entre QR y búsqueda manual. La regla del plan no cambia.
+- [x] Candado por persona: `pg_advisory_xact_lock(7002, hashtext('u:<usuario>' | 'c:<cliente>'))` antes de las comprobaciones de idempotencia (antes del candado de fila de `fn_descontar_almuerzo`; nadie más toma 7002, sin interbloqueos). Dos cajas a la vez: una abre la cuenta y la otra ve `DUPLICADO`; la misma llave repetida a la vez ve la cuenta de la primera.
+- [x] P = 0 sin `items` ni `cobro` (decisión de Oe): como antes, `SIN_PLAN` sin cotización ni cuenta. Con ellos, el 409 `ALMUERZO_SIN_PRECIO` de siempre.
+- [x] `DUPLICADO` y `LIMITE_SAAS` siguen sin cobrar nada; la huella de idempotencia no cambia (sin `items` ni `cobro` = otro cuerpo que con `{ "cobro": {} }`).
+
+### Verificación
+
+- [x] `test/integration/cuentas-qr.int.ts` (37, probe; 12 nuevas): QR sin plan → cuenta `ABIERTA` con la cotización (P, línea `ALMUERZO`/`CAJA`, origen el intento `SIN_PLAN`, a nombre del comensal) y cobro por `/cobrar`; para llevar en `DESPUES_DE_SERVIR` (P + R) y `MANUAL` de una ficha sin plan; G-17, 18a, 18b (con G-43: deshacer la anula), 20, 21 (sin `cobro`), 22 y 23 sin `items` ni `cobro`; `DUPLICADO` sin plan (también con `items`/`cobro`; anulada o pasados 60 s abre otra) y entre canales; idempotencia (misma llave → misma cuenta, un consumo; otro cuerpo → 409) con y sin plan; roles (cajero, otro local 404, comensal 403, sin sesión 401) y RLS como `bck_api` (local, comensal dueño, ajeno, otro local) y `bck_servicio`. La prueba de 5b «sin items ni cobro no crea cuenta» se reemplazó por estas.
+- [x] `test/integration/cuentas-qr-concurrency.int.ts` (8, clon descartable; 3 nuevas): dos cajas con el mismo QR sin plan (4 veces) y con plan para llevar (3 veces): una cuenta y un `DUPLICADO`; la misma llave 4 veces a la vez: una cuenta, un intento. Sin el candado fallan las dos de «sin plan» (comprobado quitándolo).
+- [x] Ajustadas: `cuentas-cobro.int.ts` (validar una ficha sin plan ya abre la cuenta de su intento) y `cuentas-caja.int.ts` (G-48 de pedido contaba todas las cuentas de la base; `checkout.int.ts`, sin probe, ahora confirma una cuenta propia).
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (965), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (0 errores). Integración contra `bocadoo-test-pg` (nunca Neon): **49 de 49 suites, 430 de 430 pruebas**.
+
+### Huecos en otras rutas (no se cambiaron en este PR)
+
+- **Canje de pedido sin `cobro`** (`POST /v1/caja/pedidos/{id}/canjear`): sigue sin cuenta; `porCobrarCentavos` informa lo que falta, pero el almuerzo suelto de un pedido sin plan (y el recargo y los extras) no queda registrado. Propuesta: la misma regla del QR (saldo > 0 → cuenta `ABIERTA`), sin `SALDO_CAMBIO` cuando no hay `cobro` (la confirmación de I-6 solo aplica a quien cobra), anunciada como cambio de comportamiento.
+- **Validar mesa con `aplicarSeleccion: false`**: 1 almuerzo por miembro y `cuentas: []`; quien no tiene plan queda en `porCobrar` sin cuenta. Propuesta: retirar la opción cuando el frontend de caja esté en el default, o abrir cuentas también ahí.
+- **`LIMITE_SAAS` de un cliente sin plan**: `fn_descontar_almuerzo` mira el límite SaaS antes que el plan, así que una ficha sin plan en un local suspendido responde `LIMITE_SAAS` y no se cobra su almuerzo suelto (I-10 pensaba en lo ya prepagado). En cambio, un QR de alguien que no es cliente nunca pasa por la función y sí abre cuenta. Propuesta: en `LIMITE_SAAS`, si la persona no tiene plan vigente, cobrar a P (necesita consultar el plan aparte o cambiar el orden en la función: migración).
+- **P = 0** sin `items` ni `cobro`: el almuerzo y el recargo para llevar no se cobran (decisión de este PR). Propuesta: exigir P > 0 también en `PATCH /v1/restaurante` de un local `ACTIVO`.
+- **POS y canje de oferta**: cobran en el momento (pago en la misma transacción); sin hueco.
 
 ## La mesa se cobra con la selección (entrega D, PR 6a; rama `feat/mesas-cobro-6a`)
 
@@ -106,7 +133,7 @@ Sin migraciones ni cambios de contrato. Detalle y comandos en [`docs/pruebas.md`
 
 ### Decisiones y límites
 
-- **La spec choca con lo pedido para este PR** en la cuenta automática: E.4 y H.2 (casos 18 y 20) dicen que un QR con saldo crea la cuenta aunque no lleguen `items` ni `cobro`. Se siguió lo pedido (sin `items` ni `cobro`, sin cambios). **Decisión pendiente**; activarla después es un cambio de comportamiento que hay que anunciar (H.2).
+- **La spec choca con lo pedido para este PR** en la cuenta automática: E.4 y H.2 (casos 18 y 20) dicen que un QR con saldo crea la cuenta aunque no lleguen `items` ni `cobro`. Se siguió lo pedido (sin `items` ni `cobro`, sin cambios). **Resuelto en el PR 6b**; activarla después es un cambio de comportamiento que hay que anunciar (H.2).
 - **El índice nuevo conserva `metodo_pago_id`**: lo pedido era `(restaurante, referencia_externa)`. Quitar el método endurecería la regla (hoy la misma referencia en dos métodos del mismo local se acepta) y podría fallar con datos existentes en Neon. Si se quiere sin método, es otra migración.
 - **La lista devuelve `{ fecha, items, nextCursor }`** y no `Cuenta[]` como dice E.11: se pidió paginación por cursor como el resto. Solo el día de hoy; `estado` por defecto `TODAS`.
 - **Códigos nuevos que la spec no listaba:** 404 `LINEA_NO_ENCONTRADA`, 409 `SALDO_NEGATIVO`, 422 `CANTIDAD_INVALIDA` (un plato pasaría de 100 unidades). `CUENTA_CERRADA` también para agregar platos en `ANTES_DE_SERVIR` con pagos (B.5).
@@ -114,7 +141,7 @@ Sin migraciones ni cambios de contrato. Detalle y comandos en [`docs/pruebas.md`
 - **Agregar un plato que ya está** suma cantidad al precio guardado de esa línea, no al de hoy.
 - **Idempotencia de agregar/quitar**: se reconoce por las llaves derivadas de las líneas, que llevan el id de la cuenta; la misma llave usada en **otra** cuenta no se detecta como reutilizada (cada cuenta la trata como nueva).
 - **Cuentas de mesa** en agregar/quitar: no soportadas hasta PR 6 (hoy no existen).
-- **QR de quien no es cliente sin `items` ni `cobro`:** `cotizacion: null`, como antes.
+- **QR de quien no es cliente sin `items` ni `cobro`:** `cotizacion: null`, como antes (hasta el PR 6b: ahora abre su cuenta).
 - **`almuerzosSueltos` del cierre** no cuenta los almuerzos cobrados en cuentas del QR sin plan (solo POS); es el PR 8 de H.1.
 - **No entra en 5b:** la selección de mesa como cobro, `salir` y las cuentas de mesa (PR 6); ofertas y carta en pedidos y recargo por unidad (PR 7); reportes (PR 8).
 

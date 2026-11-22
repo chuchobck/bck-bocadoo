@@ -14,6 +14,7 @@ const E = 75; // Huevo frito (EXTRA, menú de hoy)
 /**
  * PR 5b (docs/spec-cobros.md E.4, E.11, F.3, G 17–22, 44 y 48 literales con QR): cuentas del QR en caja, lista del día,
  * agregar y quitar líneas, cuentas abiertas en el cierre, roles, RLS y referencia de pago por restaurante.
+ * PR 6b: la cuenta del QR se abre sola cuando queda algo por cobrar, aunque no lleguen `items` ni `cobro`.
  */
 describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
   const k = new DinerKit(probe!, 87);
@@ -81,31 +82,338 @@ describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
       )
     ).rows[0]!;
 
-  describe('POST /v1/caja/validar con items y cobro', () => {
-    it('sin items ni cobro es la validación de siempre: no crea cuenta (aunque haya recargo) y agrega la cotización informativa', async () => {
+  /** Mueve al pasado la creación de una cuenta (cuenta_cobro solo cambia su estado: triggers apagados dentro del probe). */
+  async function atrasarCuenta(cuentaPublicId: string, minutos: number) {
+    await probe!.sql('SET LOCAL session_replication_role = replica');
+    await probe!.sql('UPDATE cuenta_cobro SET creada_en = creada_en - make_interval(mins => $2) WHERE public_id = $1', [
+      cuentaPublicId,
+      minutos,
+    ]);
+    await probe!.sql('SET LOCAL session_replication_role = origin');
+  }
+  const intentos = async (usuarioPublicId: string) =>
+    (
+      await probe!.sql<{ resultado: string }>(
+        `SELECT i.resultado::text AS resultado FROM intento_escaneo i JOIN usuario u ON u.usuario_id = i.usuario_id
+          WHERE u.public_id = $1 ORDER BY i.intento_id`,
+        [usuarioPublicId],
+      )
+    ).rows.map((x) => x.resultado);
+
+  describe('PR 6b: cuenta automática del QR sin items ni cobro', () => {
+    it('QR sin plan (no es cliente): antes SIN_PLAN sin cotización ni cuenta; ahora cuenta ABIERTA con el almuerzo a P y se cobra por /cobrar', async () => {
+      const l = await local();
+      const d = await k.diner();
+      const antes = await filas();
+      const r = await validar(l.o, { codigoQr: await codigo(d, l) });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({
+        resultado: 'SIN_PLAN',
+        mensaje: 'No tiene un plan en este restaurante.',
+        descontado: false,
+        cliente: null,
+        consumo: null,
+        avisos: [],
+        cotizacion: {
+          estimada: false,
+          subtotalCentavos: P,
+          recargoCentavos: 0,
+          totalCentavos: P,
+          cubiertoPorPlanCentavos: 0,
+          saldoPorCobrarCentavos: P,
+          lineas: [{ ref: 'almuerzo', tipo: 'ALMUERZO', fuente: 'CAJA', cantidad: 1, precioUnitarioCentavos: P, porCobrarCentavos: P }],
+        },
+        cuenta: {
+          origen: 'QR',
+          estado: 'ABIERTA',
+          momentoCobro: 'ANTES_DE_SERVIR',
+          debeCobrarseAntesDeServir: true,
+          pagadoCentavos: 0,
+          saldoCentavos: P,
+          pagos: [],
+        },
+      });
+      expect(r.json().cotizacion).toEqual(r.json().cuenta.cotizacion);
+      expect(r.json().cuenta.pagador.nombre).toBeTruthy();
+      expectOnlyPublicIds(r.json().cuenta);
+      const or = await origen(r.json().cuenta.id);
+      expect(or).toMatchObject({ consumo: false, intento: true, resultado: 'SIN_PLAN', cliente: null });
+      expect(or.usuario).toBe(await k.internalUser(d.usuarioId));
+      const despues = await filas();
+      expect(Number(despues.cuentas) - Number(antes.cuentas)).toBe(1);
+      expect(Number(despues.lineas) - Number(antes.lineas)).toBe(1);
+      expect(despues.consumos).toBe(antes.consumos);
+      expect(despues.pagos).toBe(antes.pagos);
+      expect(await intentos(d.usuarioId)).toEqual(['SIN_PLAN']);
+
+      // El cajero cobra con la cuenta devuelta.
+      const c = await cobrar(l.o, r.json().cuenta.id, { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: P });
+      expect(c.statusCode, c.body).toBe(200);
+      expect(c.json()).toMatchObject({ estado: 'COBRADA', pagadoCentavos: P, saldoCentavos: 0, debeCobrarseAntesDeServir: false });
+    });
+
+    it('QR sin plan para llevar, DESPUES_DE_SERVIR: cuenta ABIERTA P + R; MANUAL de una ficha sin plan: igual, a nombre de la ficha', async () => {
+      const l = await local({ momento: 'DESPUES_DE_SERVIR' });
+      const r = await validar(l.o, { codigoQr: await codigo(await k.diner(), l), paraLlevar: true });
+      expect(r.json()).toMatchObject({
+        resultado: 'SIN_PLAN',
+        cotizacion: { subtotalCentavos: P, recargoCentavos: R, cubiertoPorPlanCentavos: 0, saldoPorCobrarCentavos: P + R },
+        cuenta: { estado: 'ABIERTA', saldoCentavos: P + R, debeCobrarseAntesDeServir: false },
+      });
+      // Ficha del local sin plan, por búsqueda manual: el intento lo registra la función de base (SIN_PLAN) y es el origen.
+      const ficha = (await k.as(l.o).post('/v1/clientes', { nombre: 'Sin plan' })).json().id as string;
+      const m = await validar(l.o, { clienteId: ficha });
+      expect(m.statusCode, m.body).toBe(200);
+      expect(m.json()).toMatchObject({
+        resultado: 'SIN_PLAN',
+        cliente: { id: ficha, nombre: 'Sin plan' },
+        cuenta: { estado: 'ABIERTA', saldoCentavos: P, pagador: { nombre: 'Sin plan' } },
+      });
+      expect(await origen(m.json().cuenta.id)).toMatchObject({ intento: true, resultado: 'SIN_PLAN', cliente: ficha });
+    });
+
+    it('G-17 sin items ni cobro: aquí con plan OK → saldo 0, sin cuenta (como siempre)', async () => {
       const l = await local();
       const d = await k.dinerWithPlan(l.o);
       const antes = await filas();
-      const r = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
-      expect(r.statusCode, r.body).toBe(200);
+      const r = await validar(l.o, { codigoQr: await codigo(d, l) });
       expect(r.json()).toMatchObject({
         resultado: 'OK',
         descontado: true,
         cuenta: null,
         avisos: [],
-        cotizacion: { estimada: false, recargoCentavos: R, cubiertoPorPlanCentavos: P, saldoPorCobrarCentavos: R },
+        cotizacion: { subtotalCentavos: P, recargoCentavos: 0, totalCentavos: P, cubiertoPorPlanCentavos: P, saldoPorCobrarCentavos: 0 },
       });
-      expect(Number((await filas()).cuentas)).toBe(Number(antes.cuentas));
-      // Un comensal que no es cliente: SIN_PLAN como siempre, sin cotización.
-      const extraño = await k.diner();
-      expect((await validar(l.o, { codigoQr: await codigo(extraño, l) })).json()).toMatchObject({
-        resultado: 'SIN_PLAN',
-        cotizacion: null,
-        cuenta: null,
-      });
-      expect(Number((await filas()).cuentas)).toBe(Number(antes.cuentas));
+      const despues = await filas();
+      expect({ cuentas: despues.cuentas, pagos: despues.pagos }).toEqual({ cuentas: antes.cuentas, pagos: antes.pagos });
+      expect(Number(despues.consumos) - Number(antes.consumos)).toBe(1);
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
     });
 
+    it('G-18a sin cobro: ANTES_DE_SERVIR, llevar con plan → cuenta ABIERTA 25 (origen el consumo) que debe cobrarse antes de servir', async () => {
+      const l = await local({ momento: 'ANTES_DE_SERVIR' });
+      const d = await k.dinerWithPlan(l.o);
+      const r = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({
+        resultado: 'OK',
+        descontado: true,
+        cuenta: { origen: 'QR', estado: 'ABIERTA', saldoCentavos: R, debeCobrarseAntesDeServir: true, pagos: [] },
+        cotizacion: {
+          subtotalCentavos: P,
+          recargoCentavos: R,
+          totalCentavos: P + R,
+          cubiertoPorPlanCentavos: P,
+          saldoPorCobrarCentavos: R,
+        },
+      });
+      expect(r.json().cuenta.cotizacion.lineas).toMatchObject([{ ref: 'almuerzo#1', fuente: 'PLAN', recargoCentavos: R }]);
+      expect(await origen(r.json().cuenta.id)).toMatchObject({ consumo: true, intento: false });
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
+      const c = await cobrar(l.o, r.json().cuenta.id, { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: R });
+      expect(c.json()).toMatchObject({ estado: 'COBRADA', pagadoCentavos: R, pagos: [{ metodo: 'EFECTIVO', montoCentavos: R }] });
+    });
+
+    it('G-18b sin cobro: DESPUES_DE_SERVIR, llevar con plan → ABIERTA 25; G-43: deshacer en 10 s la anula y devuelve el almuerzo', async () => {
+      const l = await local({ momento: 'DESPUES_DE_SERVIR' });
+      const d = await k.dinerWithPlan(l.o);
+      const r = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
+      expect(r.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: R, debeCobrarseAntesDeServir: false });
+      const u = await k.as(l.o).post(`/v1/caja/consumos/${r.json().consumo.id}/deshacer`);
+      expect(u.statusCode, u.body).toBe(200);
+      expect(await cuenta(l.o, r.json().cuenta.id)).toMatchObject({ estado: 'ANULADA', saldoCentavos: 0 });
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(5);
+    });
+
+    it('G-20 sin cobro: llevar con plan que no vale hoy → cuenta ABIERTA 375 (origen el intento DIA_NO_VALIDO), plan intacto', async () => {
+      const l = await local();
+      const dow = (
+        await probe!.sql<{ d: number }>(
+          `SELECT EXTRACT(ISODOW FROM (CURRENT_TIMESTAMP AT TIME ZONE zona_horaria))::int AS d FROM restaurante WHERE public_id = $1`,
+          [l.o.restaurante],
+        )
+      ).rows[0]!.d;
+      const d = await k.dinerWithPlan(l.o, { diasValidos: [dow === 7 ? 1 : dow + 1] });
+      const r = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({
+        resultado: 'DIA_NO_VALIDO',
+        descontado: false,
+        consumo: null,
+        cuenta: { estado: 'ABIERTA', saldoCentavos: P + R },
+        cotizacion: { subtotalCentavos: P, recargoCentavos: R, cubiertoPorPlanCentavos: 0, saldoPorCobrarCentavos: P + R },
+      });
+      expect(await origen(r.json().cuenta.id)).toMatchObject({ consumo: false, intento: true, resultado: 'DIA_NO_VALIDO' });
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(5);
+    });
+
+    it('G-21 sin cobro: llevar con plan + Cola, Churrasco y Huevo → cuenta ABIERTA 825, cobrada después por /cobrar', async () => {
+      const l = await local();
+      const d = await k.dinerWithPlan(l.o);
+      const r = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true, items: items(l) });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: 825, pagos: [] });
+      expect(r.json().cotizacion).toMatchObject({
+        subtotalCentavos: 1125,
+        recargoCentavos: 50,
+        totalCentavos: 1175,
+        cubiertoPorPlanCentavos: 350,
+        saldoPorCobrarCentavos: 825,
+      });
+      expect((await cobrar(l.o, r.json().cuenta.id, { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: 825 })).json()).toMatchObject({
+        estado: 'COBRADA',
+        pagadoCentavos: 825,
+      });
+    });
+
+    it('G-22 sin items ni cobro: con plan, DUPLICADO (otra llave antes de 60 s) no abre otra cuenta ni descuenta', async () => {
+      const l = await local();
+      const d = await k.dinerWithPlan(l.o);
+      const primero = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
+      expect(primero.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: R });
+      const antes = await filas();
+      const dup = await validar(l.o, { codigoQr: await codigo(d, l), paraLlevar: true });
+      expect(dup.statusCode, dup.body).toBe(200);
+      expect(dup.json()).toMatchObject({
+        resultado: 'DUPLICADO',
+        descontado: false,
+        cuenta: null,
+        avisos: [{ codigo: 'DUPLICADO', lineaRef: 'almuerzo' }],
+        cotizacion: { totalCentavos: 0, saldoPorCobrarCentavos: 0, lineas: [{ ref: 'almuerzo', omitida: 'DUPLICADO' }] },
+      });
+      expect(await filas()).toEqual(antes);
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
+    });
+
+    it('DUPLICADO sin plan: otra cuenta QR de la misma persona hace < 60 s → sin cuenta nueva; anulada o pasados 60 s, abre otra', async () => {
+      const l = await local();
+      const d = await k.diner();
+      const primero = await validar(l.o, { codigoQr: await codigo(d, l) });
+      expect(primero.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: P });
+      const antes = await filas();
+      // Otra llave (otra caja o un segundo toque), sin items y también con items y cobro: nada se cobra (I-10).
+      for (const body of [
+        {},
+        { paraLlevar: true },
+        { items: [{ plato: l.cola, cantidad: 1 }], cobro: { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: P + B } },
+      ]) {
+        const dup = await validar(l.o, { codigoQr: await codigo(d, l), ...body });
+        expect(dup.statusCode, dup.body).toBe(200);
+        expect(dup.json(), JSON.stringify(body)).toMatchObject({
+          resultado: 'DUPLICADO',
+          mensaje: 'Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez.',
+          descontado: false,
+          cliente: null,
+          cuenta: null,
+          avisos: [{ codigo: 'DUPLICADO', lineaRef: 'almuerzo' }],
+          cotizacion: { totalCentavos: 0, saldoPorCobrarCentavos: 0, lineas: [{ ref: 'almuerzo', omitida: 'DUPLICADO' }] },
+        });
+      }
+      expect({ ...(await filas()) }).toEqual(antes);
+      expect(await intentos(d.usuarioId)).toEqual(['SIN_PLAN', 'DUPLICADO', 'DUPLICADO', 'DUPLICADO']);
+      // La misma llave del primero sigue siendo un reintento (la misma cuenta), no un DUPLICADO.
+      // Anulada la primera, el siguiente escaneo abre otra cuenta.
+      expect((await k.as(l.o).post(`/v1/caja/cuentas/${primero.json().cuenta.id}/anular`, {}, randomUUID())).statusCode).toBe(200);
+      const tras = await validar(l.o, { codigoQr: await codigo(d, l) });
+      expect(tras.json()).toMatchObject({ resultado: 'SIN_PLAN', cuenta: { estado: 'ABIERTA', saldoCentavos: P } });
+      // Pasados 60 s desde esa cuenta (sigue abierta), otra vez abre cuenta: es otro almuerzo.
+      await atrasarCuenta(tras.json().cuenta.id, 2);
+      const luego = await validar(l.o, { codigoQr: await codigo(d, l) });
+      expect(luego.json()).toMatchObject({ resultado: 'SIN_PLAN', cuenta: { estado: 'ABIERTA', saldoCentavos: P } });
+      expect(luego.json().cuenta.id).not.toBe(tras.json().cuenta.id);
+    });
+
+    it('DUPLICADO sin plan cruza canales: la ficha sin plan validada por QR y luego por búsqueda manual', async () => {
+      const l = await local();
+      const d = await k.diner();
+      const ficha = (await k.as(l.o).post('/v1/clientes', { nombre: `Ficha ${randomUUID().slice(0, 8)}` })).json().id as string;
+      expect((await k.as(l.o).post(`/v1/clientes/${ficha}/vincular`, { correo: d.correo })).statusCode).toBe(200);
+      const qr = await validar(l.o, { codigoQr: await codigo(d, l) });
+      expect(qr.json()).toMatchObject({ resultado: 'SIN_PLAN', cuenta: { estado: 'ABIERTA', saldoCentavos: P } });
+      const manual = await validar(l.o, { clienteId: ficha });
+      expect(manual.json()).toMatchObject({ resultado: 'DUPLICADO', cliente: { id: ficha }, cuenta: null });
+      // Un plan no cambia la regla de los 60 s de quien sí tiene plan: es la de la base (G-22), sobre consumos.
+      const otra = await k.dinerWithPlan(l.o);
+      const a = await validar(l.o, { clienteId: otra.clienteId });
+      expect(a.json()).toMatchObject({ resultado: 'OK', cuenta: null });
+      expect((await validar(l.o, { codigoQr: await codigo(otra, l) })).json()).toMatchObject({ resultado: 'DUPLICADO', cuenta: null });
+    });
+
+    it('G-23 sin items ni cobro: un campo `ofertaId` → 400, sin validar', async () => {
+      const l = await local();
+      const d = await k.diner();
+      const antes = await filas();
+      const r = await validar(l.o, { codigoQr: await codigo(d, l), ofertaId: randomUUID() });
+      expect(r.statusCode).toBe(400);
+      expect(await filas()).toEqual(antes);
+      expect(await intentos(d.usuarioId)).toEqual([]);
+    });
+
+    it('idempotencia: el mismo QR y la misma llave dos veces → una cuenta, un descuento; con otro cuerpo → 409', async () => {
+      const l = await local();
+      // Con plan para llevar: la cuenta del consumo.
+      const d = await k.dinerWithPlan(l.o);
+      const qr = await codigo(d, l);
+      const key = randomUUID();
+      const r1 = await validar(l.o, { codigoQr: qr, paraLlevar: true }, key);
+      const despues = await filas();
+      const r2 = await validar(l.o, { codigoQr: qr, paraLlevar: true }, key);
+      expect(r2.statusCode, r2.body).toBe(200);
+      expect(r2.json()).toMatchObject({ resultado: 'OK', consumo: { id: r1.json().consumo.id }, cuenta: { id: r1.json().cuenta.id } });
+      expect(await filas()).toEqual(despues);
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
+      for (const otro of [{ codigoQr: qr, paraLlevar: true, cobro: {} }, { codigoQr: qr }]) {
+        const x = await validar(l.o, otro, key);
+        expect(x.statusCode, JSON.stringify(otro)).toBe(409);
+        expect(x.json().code).toBe('IDEMPOTENCY_KEY_REUTILIZADA');
+      }
+
+      // Sin plan: la cuenta del intento; el reintento no vuelve a escanear (ni DUPLICADO ni otro intento).
+      const s = await k.diner();
+      const qs = await codigo(s, l);
+      const k2 = randomUUID();
+      const a = await validar(l.o, { codigoQr: qs }, k2);
+      const tras = await filas();
+      const b = await validar(l.o, { codigoQr: qs }, k2);
+      expect(b.json()).toMatchObject({ resultado: 'SIN_PLAN', cuenta: { id: a.json().cuenta.id, saldoCentavos: P } });
+      expect(b.json().cotizacion).toEqual(a.json().cotizacion);
+      expect(await filas()).toEqual(tras);
+      expect(await intentos(s.usuarioId)).toEqual(['SIN_PLAN']);
+      expect((await validar(l.o, { codigoQr: qs, paraLlevar: true }, k2)).json().code).toBe('IDEMPOTENCY_KEY_REUTILIZADA');
+    });
+
+    it('roles y RLS: cajero abre la cuenta sin items; otro local no la ve; el comensal ve la suya; comensal 403 y sin sesión 401', async () => {
+      const l = await local();
+      const cajero = await k.h.cashier(l.o.restaurante);
+      const d = await k.diner();
+      const c = (await validar(cajero, { codigoQr: await codigo(d, l) })).json().cuenta;
+      expect(c).toMatchObject({ estado: 'ABIERTA', saldoCentavos: P });
+      expect((await k.as(cajero).get(`/v1/caja/cuentas/${c.id}`)).json()).toMatchObject({ id: c.id, saldoCentavos: P });
+      expect((await cobrar(cajero, c.id, { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: P })).json().estado).toBe('COBRADA');
+
+      const otro = await local();
+      expect((await k.as(otro.o).get(`/v1/caja/cuentas/${c.id}`)).statusCode).toBe(404);
+      const rid = (await probe!.sql<{ id: string }>('SELECT restaurante_id AS id FROM restaurante WHERE public_id = $1', [l.o.restaurante]))
+        .rows[0]!.id;
+      const otroId = (
+        await probe!.sql<{ id: string }>('SELECT restaurante_id AS id FROM restaurante WHERE public_id = $1', [otro.o.restaurante])
+      ).rows[0]!.id;
+      const sql = 'SELECT public_id FROM cuenta_cobro WHERE public_id = $1';
+      expect(await k.rls({ tenantId: String(otroId) }, sql, [c.id])).toEqual([]);
+      expect(await k.rls({ userId: await k.internalUser((await k.diner()).usuarioId) }, sql, [c.id])).toEqual([]);
+      expect(await k.rls({ tenantId: String(rid) }, sql, [c.id])).toHaveLength(1);
+      expect(await k.rls({ userId: await k.internalUser(d.usuarioId) }, sql, [c.id])).toHaveLength(1);
+      expect(await k.h.db.service(async (s) => (await s.query(sql, [c.id])).rowCount)).toBe(1);
+
+      const comensal = await validar({ ...d, restaurante: l.o.restaurante }, { codigoQr: await codigo(d, l) });
+      expect(comensal.statusCode).toBe(403);
+      expect((await validar({}, { codigoQr: await codigo(d, l) })).statusCode).toBe(401);
+      // Ninguno de los dos rechazos abrió cuenta.
+      expect((await k.as(l.o).get('/v1/caja/cuentas')).json().items.map((x: { id: string }) => x.id)).toEqual([c.id]);
+    });
+  });
+
+  describe('POST /v1/caja/validar con items y cobro', () => {
     it('G-17: aquí con plan OK y cobro → nada por cobrar ni platos: sin cuenta y sin pago', async () => {
       const l = await local();
       const d = await k.dinerWithPlan(l.o);

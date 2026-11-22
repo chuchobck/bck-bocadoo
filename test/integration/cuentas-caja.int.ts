@@ -218,7 +218,12 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
       // Otra llave: ya canjeado, misma cuenta, sin otro consumo ni otra cuenta.
       const otraLlave = await canjear(o, p.id, undefined, randomUUID());
       expect(otraLlave.json()).toMatchObject({ yaCanjeado: true, cuenta: { id: r.json().cuenta.id } });
-      expect((await probe!.sql('SELECT 1 FROM cuenta_cobro')).rowCount).toBe(1);
+      // Solo las de este local: las suites sin probe (checkout.int.ts) confirman cuentas propias desde el PR 6b.
+      const delLocal = await probe!.sql(
+        'SELECT 1 FROM cuenta_cobro c JOIN restaurante r ON r.restaurante_id = c.restaurante_id WHERE r.public_id = $1',
+        [o.restaurante],
+      );
+      expect(delLocal.rowCount).toBe(1);
       // La llave de ese canje en otro pedido: 409.
       const { p: p2 } = await pedido({ o });
       expect((await canjear(o, p2.id, { cobro: {} }, key)).json().code).toBe('IDEMPOTENCY_KEY_REUTILIZADA');

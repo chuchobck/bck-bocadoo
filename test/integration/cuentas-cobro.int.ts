@@ -219,7 +219,8 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
     const a = await escenario();
     const b = await escenario();
 
-    // QR de un almuerzo sin plan: no hay consumo, pero sí el intento de escaneo (SIN_PLAN). Ese es el origen.
+    // QR de un almuerzo sin plan: no hay consumo, pero sí el intento de escaneo (SIN_PLAN). Ese es el origen. Desde el
+    // PR 6b validar abre esa cuenta solo (queda el almuerzo por cobrar), aunque no lleguen items ni cobro.
     const sinPlan = (await k.as(a.o).post('/v1/clientes', { nombre: 'Sin plan' })).json().id as string;
     const v = await k.as(a.o).post('/v1/caja/validar', { clienteId: sinPlan }, randomUUID());
     expect(v.json().resultado, v.body).toBe('SIN_PLAN');
@@ -227,7 +228,7 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
     expect(
       (await one<{ consumo_id: string | null }>('SELECT consumo_id FROM intento_escaneo WHERE intento_id = $1', [intento])).consumo_id,
     ).toBeNull();
-    const c = await cuenta(a, { intento_id: intento });
+    const c = (await one<{ cuenta_id: string }>('SELECT cuenta_id FROM cuenta_cobro WHERE public_id = $1', [v.json().cuenta.id])).cuenta_id;
     expect(await k.rls(a.personal, 'SELECT intento_id, consumo_id FROM cuenta_cobro WHERE cuenta_id = $1', [c])).toEqual([
       { intento_id: intento, consumo_id: null },
     ]);
