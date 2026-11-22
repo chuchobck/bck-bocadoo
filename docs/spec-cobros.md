@@ -632,14 +632,17 @@ Todo en migraciones nuevas (dbmate). Ninguna aplicada se edita. Las de la entreg
 **`cuenta_cobro`** (cabecera; mutable solo en su estado)
 
 - `cuenta_id` identidad, `public_id` UUID único, `restaurante_id`.
-- Origen (exactamente uno): `orden_id`, `consumo_id` (QR), `mesa_compartida_id` (+ `miembro_id` del pagador). FK
-  compuestas `(restaurante_id, …)` como el resto del esquema.
+- Origen (exactamente uno): `orden_id`, `consumo_id` (QR con plan), `intento_id` (QR sin consumo: el
+  `intento_escaneo` que registra todo escaneo, también los rechazados, p. ej. un almuerzo sin plan, E.4),
+  `mesa_compartida_id` (+ `miembro_id` del pagador). FK compuestas `(restaurante_id, …)` como el resto del esquema
+  (`intento_escaneo` gana `UNIQUE (restaurante_id, intento_id)` para eso).
 - Pagador: `cliente_id` (nullable), `usuario_id` (nullable), `nombre_pagador` (copia).
 - `momento_cobro` (copia del local al crear), `para_llevar` de cabecera, `moneda_codigo`.
 - `estado` `ABIERTA` | `COBRADA` | `ANULADA`, `cobrada_en`, `anulada_en`, `anulada_por_personal_id`, `motivo_anulacion`.
 - `clave_idempotencia` UUID, `huella` (sha256 de la entrada normalizada), `personal_id`, `fecha_local`, `creada_en`.
 - Restricciones: `UNIQUE (restaurante_id, clave_idempotencia)`; un solo origen (`num_nonnulls(...) = 1`); índice único
-  parcial "una cuenta no anulada por `orden_id`", "por `(mesa_compartida_id, miembro_id)`" y "por `consumo_id`".
+  parcial "una cuenta no anulada por `orden_id`", "por `(mesa_compartida_id, miembro_id)`", "por `consumo_id`" y "por
+  `intento_id`".
 - Permisos: `GRANT UPDATE (estado, cobrada_en, anulada_en, anulada_por_personal_id, motivo_anulacion)` a `bocadoo_app`
   (mismo patrón que `db/migrations/20261118000000_ofertas_flash.sql:10-11`) y un trigger que solo permite
   `ABIERTA → COBRADA`, `COBRADA → ABIERTA` (pago rechazado) y `* → ANULADA` (terminal).
@@ -725,10 +728,24 @@ Todas las claves salen de la `Idempotency-Key` de la petición (`K`), así un re
 - `cuenta_cobro` y `cuenta_cobro_linea`: política `tenant_total` (la de `baseline:1439`) para el personal; `comensal_lee`
   (`usuario_id = app_user_id()`, y las líneas vía su cuenta) para que la app pueda mostrar "te falta pagar X". El
   comensal no inserta ni actualiza. `bocadoo_servicio`: todo (jobs).
+- `transaccion_pago`: política de solo lectura `comensal_lee_pagos_cuenta` para el pagador: ve los pagos cuyo
+  `cuenta_cobro_id` es de una cuenta con `usuario_id = app_user_id()` (así el saldo con pagos parciales le cuadra). No ve
+  pagos sin cuenta (planes, POS, ofertas sueltas) ni de cuentas ajenas, y no escribe.
 - Ninguna política nueva sobre `orden_*` ni `mesa_*`: las columnas nuevas caen bajo las políticas existentes; las del
   comensal en `orden_detalle` ya exigen pedido propio `EN_CAMINO` (`db/migrations/20261117000000_preordenes_comensal.sql:36-38`).
 - Pruebas de RLS directas como `bck_api` (patrón de `test/integration/mesa-seleccion.int.ts`): otro local no ve cuentas;
   el comensal no ve cuentas ajenas ni puede escribir.
+
+> **Nota del PR 4 (lo que quedó en la base; el texto de arriba no cambia).** Migraciones `20261121150000_cuentas_cobro`,
+> `20261121150100_orden_snapshot_ofertas` y `20261121150200_mesa_salida_ofertas`. La CHECK de origen de
+> `transaccion_pago` se llamaba `transaccion_pago_check`; la nueva es `ck_pago_origen_unico`. Además de lo de F.1:
+> `ck_cuenta_mesa_con_miembro` (mesa ⇔ miembro pagador), CHECK de coherencia de `cobrada_en`/`anulada_en`, el reverso de
+> una línea debe ser de la misma cuenta, `ck_miembro_anfitrion_no_sale` y la vista `v_cuenta_saldo` (`security_invoker`).
+> `fn_salir_mesa(uuid)` devuelve `SALIO`, `YA_SALIO`, `NO_ENCONTRADA`, `ANFITRION_NO_PUEDE_SALIR` o `MESA_CERRADA`;
+> `fn_plan_pagador_mesa(bigint, bigint)` devuelve solo un entero, **acotado**: al propio pagador, sus almuerzos
+> disponibles reales; a cualquier otro, `LEAST(disponibles, miembros de la mesa sin salio_en)`, que basta para cotizar
+> (un almuerzo por miembro) sin revelar el saldo exacto de un plan ajeno. El invitado solo pregunta por sí mismo. Queda
+> abierto (PR 6): las políticas de `mesa_*` no miran `salio_en`; detalle en `docs/estado.md`, sección del PR 4.
 
 ---
 
@@ -828,6 +845,10 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
    deshacer, `cuentasAbiertas` en el cierre. Integración: casos 17–23, 37, 43–46, 48.
 6. **feat(tables): selection becomes charge** — `aplicarSeleccion` (**`true` por defecto, etiqueta
    `cambio-incompatible`**, I-4), cuentas por pagador, `salir`, ofertas en la selección. Integración: casos 28–36, 38, 39, 47.
+   Junto con el endpoint `salir` debe cerrar por RLS el acceso de los miembros con `salio_en`: que no vuelvan a escribir
+   su selección (`comensal_escribe`/`comensal_borra` de `mesa_compartida_miembro_item`), que no ocupen cupo en
+   `fn_mesa_invitacion` y que puedan (o no, a decidir) volver a unirse con `fn_unirse_mesa` (hoy reciben
+   `YA_ERES_MIEMBRO`).
 7. **feat(orders,pos,offers): carta, offers and per-unit surcharge** — carta y ofertas en pedidos (E.2), `paraLlevar`
    por línea en POS (E.9), `paraLlevar` en el canje de oferta (E.10). Es el PR con cambios de comportamiento (recargo a
    la carta): se anuncia antes (H.2). Integración: casos 1–16, 24–27, 40–42, 49.

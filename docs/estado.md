@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (cotizaciones informativas, entrega D PR 3). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (cuentas de cobro en la base, entrega D PR 4). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,7 +17,37 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura) y PR 3 (cotizaciones informativas, abajo) hechos; siguen PR 4 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas) y PR 4 (migraciones de cuentas, abajo; sin aplicar en Neon) hechos; siguen PR 5 en adelante (H.1).
+
+## Cuentas de cobro en la base (entrega D, PR 4; rama `feat/db-cuentas-cobro`)
+
+**Solo migraciones y pruebas.** Ningún endpoint ni archivo de `src/` cambia; todo lo nuevo es una tabla nueva, una columna nullable o con default, o una política de solo lectura, así que el código de hoy sigue igual. **No están aplicadas en Neon** (aplicar con revisión, H.1).
+
+### Migraciones
+
+- `20261121150000_cuentas_cobro` (F.1, F.4, F.5): `cuenta_cobro` (cabecera) y `cuenta_cobro_linea` (libro de solo-inserción, `fn_solo_insercion`); enums `estado_cuenta_cobro_enum`, `tipo_linea_cobro_enum`, `fuente_cobro_enum`, `pagador_linea_enum`, `motivo_omision_enum`.
+  - **Cuatro orígenes** (exactamente uno, `ck_cuenta_origen_unico`): `orden_id`, `consumo_id` (QR con plan), `intento_id` (QR sin consumo, p. ej. almuerzo sin plan: FK compuesta a `intento_escaneo`, que gana `UNIQUE (restaurante_id, intento_id)`) y `mesa_compartida_id` + `miembro_id`. Una cuenta no anulada por cada origen (índices parciales, también `uq_cuenta_por_intento`).
+  - Trigger `fn_cuenta_cobro_transicion`: solo `ABIERTA → COBRADA`, `COBRADA → ABIERTA` y `ABIERTA|COBRADA → ANULADA` (terminal); ninguna otra columna cambia (también frena al rol de servicio) y no hay `DELETE`. `bocadoo_app`: `SELECT`, `INSERT` y `UPDATE (estado, cobrada_en, anulada_en, anulada_por_personal_id, motivo_anulacion)` en la cabecera; `SELECT`, `INSERT` en las líneas. Las CHECK de montos de las líneas aplican solo con `omitida IS NULL`.
+  - `transaccion_pago.cuenta_cobro_id` (FK compuesta) y la CHECK de origen único reemplazada: la migración busca la vieja por su definición en `pg_constraint` (en la base real se llama **`transaccion_pago_check`**) y falla si no hay exactamente una; la nueva se llama `ck_pago_origen_unico`.
+  - RLS: `tenant_total` (personal) y `comensal_lee` (solo lectura, lo suyo) en cuentas y líneas; **`comensal_lee_pagos_cuenta`** en `transaccion_pago`: el pagador lee solo los pagos de sus cuentas (no los pagos sin cuenta ni los de cuentas ajenas), sin escritura. Vista `v_cuenta_saldo` con `security_invoker`: el saldo con pagos parciales le cuadra igual al comensal y a la caja.
+- `20261121150100_orden_snapshot_ofertas` (F.2): `orden_cabecera.precio_almuerzo_centavos` y `almuerzo_oferta_flash_id`; `orden_detalle.oferta_flash_id` y `recargo_unitario_centavos` (default 0); `canje_oferta_flash.cuenta_cobro_id`. Todas con FK compuesta al mismo restaurante.
+- `20261121150200_mesa_salida_ofertas` (F.2, E.7, H.1): `mesa_compartida_miembro.salio_en` y `almuerzo_oferta_flash_id`, `mesa_compartida_miembro_item.oferta_flash_id`, CHECK `ck_miembro_anfitrion_no_sale`. Dos funciones `SECURITY DEFINER` endurecidas (`search_path = public, pg_temp`, objetos con esquema, sin SQL dinámico, `REVOKE ALL FROM PUBLIC`, `EXECUTE` solo a `bocadoo_app`, identidad desde `app_user_id()`):
+  - `fn_salir_mesa(p_mesa uuid) → text`: `SALIO`, `YA_SALIO` (repetir no cambia nada), `NO_ENCONTRADA` (mesa inexistente o no es miembro), `ANFITRION_NO_PUEDE_SALIR`, `MESA_CERRADA`. Marca `salio_en` y borra la selección del que sale.
+  - `fn_plan_pagador_mesa(p_mesa_compartida_id bigint, p_miembro_id bigint) → integer`: almuerzos que el plan del pagador cubre hoy (condición de `fn_descontar_almuerzo`); pagador = anfitrión en `INVITO_YO`, el propio miembro en `CADA_UNO`. **Acotado:** al propio pagador le da el valor real; a cualquier otro, `LEAST(disponibles, miembros sin salio_en)` (basta para cotizar, un almuerzo por miembro, sin revelar el saldo exacto). El anfitrión pregunta por cualquier miembro y un invitado solo por sí mismo (visibilidad de E.6); `NULL` si quien pregunta no es miembro (o salió) o el miembro no es de esa mesa; `0` sin plan.
+
+### Verificación
+
+- [x] Postgres 16 desechable en Docker (puerto 55432, URLs inline que abortan si hay `neon.tech`, sin leer `.env`): up → down → up tres veces con esquema idéntico (`pg_dump`), y el down deja el esquema igual al de una base nueva migrada hasta `20261121140100` (también el nombre `transaccion_pago_check`). El `up` de cada migración se puede volver a correr sin cambios. Sin la CHECK vieja, o con dos iguales, la migración falla con el mensaje.
+- [x] `test/integration/cuentas-cobro.int.ts` (8) y `test/integration/mesa-salida.int.ts` (7), como `bck_api` con RLS (patrón probe): otro local no ve ni escribe cuentas, líneas ni saldos; el comensal ve solo lo suyo y no inserta ni actualiza; `UPDATE`/`DELETE` de líneas fallan (permiso para la API, trigger para el servicio); transiciones inválidas; CHECK de líneas (PLAN, omitidas, montos, reversos); cuenta con origen escaneo (QR `SIN_PLAN` real) y rechazo de 0 o 2 orígenes, de un segundo intento y del intento de otro local; pagos visibles al pagador (saldo con pagos parciales) y no los ajenos ni los sin cuenta; `fn_salir_mesa`; `fn_plan_pagador_mesa` (no miembro, solo el entero, otra mesa, acotado: plan de 20 en mesa de 3 → 3, plan de 1 → 1, el pagador ve el real, `dias_validos`); endurecimiento en `pg_proc`.
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test` (845), `pnpm format:check`. Suite de integración: 327 de 333.
+- [x] **Preexistentes, fallan igual sin estas migraciones** (bajadas con `rollback`; `src/` no cambió): `estados-publicos` (1), `menu-publicado` (2), `reports-operations` (1) y **`saas` (2: «plan con tope…» y «plan gratuito sin tope…», `precioMensualCentavos` sale `null`)**.
+
+### Hallazgos
+
+- **Resuelto en este PR:** la cuenta de un QR sin plan ya tiene origen (`intento_id`) y el comensal ve los pagos de sus cuentas (`comensal_lee_pagos_cuenta`).
+- **Miembro que salió (PR 6):** las políticas de la entrega C no miran `salio_en`: por RLS puede volver a escribir su selección mientras la mesa siga abierta, sigue contando en el cupo de `fn_mesa_invitacion` y `fn_unirse_mesa` le responde `YA_ERES_MIEMBRO`. Anotado en H.1 (PR 6): se cierra junto con el endpoint `salir`.
+- **Solo el entero del plan:** `fn_plan_pagador_mesa` no dice por qué un pagador tiene 0 (`SIN_PLAN`, `SIN_SALDO`, `VENCIDO`, `DIA_NO_VALIDO`). Los montos de la cotización no cambian (todos van a `CAJA`), pero los avisos de plan de otro pagador no se pueden mostrar al comensal.
+- **CI no corre las pruebas probe:** el job de integración no define `PROBE_DATABASE_URL`, así que estas suites (y las de la fase 8 en adelante) se saltan en CI; solo corren en local.
 
 ## Cotizaciones informativas (entrega D, PR 3; rama `feat/cotizaciones-informativas`)
 
