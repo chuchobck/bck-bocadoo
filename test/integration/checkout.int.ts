@@ -211,9 +211,16 @@ describe('Fase 7: caja', () => {
       const o = await h.owner('Duplicado');
       await h.publishMenu(o);
       const c = await withPlan(o);
-      expect((await validar(o, { clienteId: c })).json().resultado).toBe('OK');
+      const primero = (await validar(o, { clienteId: c })).json();
+      expect(primero.resultado).toBe('OK');
       const dup = (await validar(o, { clienteId: c })).json();
-      expect(dup).toMatchObject({ resultado: 'DUPLICADO', descontado: false, consumo: null, almuerzosRestantes: 4 });
+      expect(dup).toMatchObject({
+        resultado: 'DUPLICADO',
+        descontado: false,
+        consumo: null,
+        almuerzosRestantes: 4,
+        consumoPrevio: { creadoEn: primero.consumo.creadoEn },
+      });
       expect(await saldo(o, c)).toBe(4);
     });
 
@@ -295,7 +302,9 @@ describe('Fase 7: caja', () => {
           [o.restaurante],
         ),
       );
-      expect((await validar(o, { clienteId: conPlan })).json()).toMatchObject({ resultado: 'LIMITE_SAAS', descontado: false });
+      const limite = (await validar(o, { clienteId: conPlan })).json();
+      expect(limite).toMatchObject({ resultado: 'LIMITE_SAAS', descontado: false });
+      expect(limite.consumoPrevio).toBeUndefined(); // solo DUPLICADO expone consumoPrevio, no LIMITE_SAAS
       expect(await saldo(o, conPlan)).toBe(5);
     });
 

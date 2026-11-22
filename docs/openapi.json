@@ -9332,7 +9332,10 @@
                       "codigo": "OFERTA_AGOTADA",
                       "lineaRef": "texto"
                     }
-                  ]
+                  ],
+                  "consumoPrevio": {
+                    "creadoEn": "2026-11-13T17:00:00.000Z"
+                  }
                 }
               }
             }
@@ -26324,6 +26327,18 @@
           }
         }
       },
+      "ConsumoPrevioResponse": {
+        "type": "object",
+        "properties": {
+          "creadoEn": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-13T17:00:00.000Z",
+            "description": "Hora del canje previo que causó el DUPLICADO (con plan: el consumo; sin plan: cuando se abrió la primera cuenta)."
+          }
+        },
+        "required": ["creadoEn"]
+      },
       "ValidacionResponse": {
         "type": "object",
         "properties": {
@@ -26416,6 +26431,14 @@
             "items": {
               "$ref": "#/components/schemas/AvisoCotizacionResponse"
             }
+          },
+          "consumoPrevio": {
+            "description": "Solo cuando `resultado` = `DUPLICADO`: hora del canje anterior (de hace menos de 60 s) que lo causó.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConsumoPrevioResponse"
+              }
+            ]
           }
         },
         "required": ["resultado", "mensaje", "descontado", "cotizacion", "cuenta", "avisos"]
