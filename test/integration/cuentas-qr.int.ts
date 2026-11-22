@@ -145,6 +145,12 @@ describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
       expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
       // `cliente.id` de validar es el id de la ficha (interno, como en /v1/clientes): solo la cuenta se revisa aquí.
       expectOnlyPublicIds(r.json().cuenta);
+      // G-45 con QR: deshacer el consumo de una cuenta cobrada → 409, sin cambios.
+      const u = await k.as(l.o).post(`/v1/caja/consumos/${r.json().consumo.id}/deshacer`);
+      expect(u.statusCode).toBe(409);
+      expect(u.json().code).toBe('CUENTA_COBRADA');
+      expect(await saldoPlan(l.o, d.clienteId)).toBe(4);
+      expect(await cuenta(l.o, r.json().cuenta.id)).toMatchObject({ estado: 'COBRADA', pagadoCentavos: R });
     });
 
     it('G-18b: DESPUES_DE_SERVIR sin metodoPago → cuenta ABIERTA con saldo 25', async () => {
