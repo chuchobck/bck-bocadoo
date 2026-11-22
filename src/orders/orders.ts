@@ -750,7 +750,7 @@ class PedidoCanjeResponse {
   @ApiProperty({
     description:
       'Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió (al precio guardado en el pedido). ' +
-      'Con `cobro` vale `cotizacion.saldoPorCobrarCentavos`.',
+      'Vale `cotizacion.saldoPorCobrarCentavos` (desde el PR 6c también sin cuenta: 0 si el almuerzo quedó omitido por `DUPLICADO` o `LIMITE_SAAS`).',
   })
   porCobrarCentavos!: number;
   @ApiProperty({
@@ -764,7 +764,9 @@ class PedidoCanjeResponse {
   @ApiProperty({
     type: CuentaResponse,
     nullable: true,
-    description: 'La cuenta de cobro del pedido. null si el canje no llevó `cobro` (comportamiento de siempre).',
+    description:
+      'La cuenta de cobro del pedido. Con `cobro`, siempre. Sin `cobro`, se abre `ABIERTA` (sin pago) si el saldo final es > 0 ' +
+      '(desde el PR 6c); null si el saldo es 0 (el plan cubrió todo) o si el almuerzo no tiene precio en el local (I-12).',
   })
   cuenta!: CuentaResponse | null;
   @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de este canje (p. ej. DUPLICADO, LIMITE_SAAS)' })
@@ -775,8 +777,9 @@ export class CanjearPedidoDto {
   @ApiPropertyOptional({
     type: CobroDto,
     description:
-      'Opcional. Sin `cobro` el canje es el de siempre (no crea cuenta). Con `cobro` (aunque sea `{}`) crea la cuenta del pedido; con ' +
-      '`metodoPago`, registra el pago en la misma transacción. Si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` ' +
+      'Opcional. Sin `cobro`, si el saldo final es > 0 se abre la cuenta `ABIERTA` del pedido sin pago (desde el PR 6c) y nunca hay ' +
+      '`SALDO_CAMBIO`; con saldo 0, sin cuenta. Con `cobro` (aunque sea `{}`) siempre crea la cuenta del pedido; con ' +
+      '`metodoPago`, registra el pago en la misma transacción. Con `cobro`, si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` ' +
       'del pedido) → 409 `SALDO_CAMBIO` sin descontar el plan ni cobrar nada.',
   })
   @IsOptional()
@@ -832,6 +835,7 @@ export class StaffOrdersService {
    * Canjear el QR del pedido. Repetirlo (misma u otra clave) no descuenta otra vez: el pedido queda bloqueado mientras
    * tanto. Con `cobro` (docs/spec-cobros.md E.3) crea la cuenta del pedido con la cotización final y, con `metodoPago`,
    * la paga; si el saldo final no es el esperado, 409 `SALDO_CAMBIO` y la transacción se deshace (ni plan ni cobro).
+   * Sin `cobro`, la cuenta se abre (sin pago ni SALDO_CAMBIO) solo si el saldo final es > 0 (PR 6c).
    */
   async redeem(id: string, key: string, dto: CanjearPedidoDto = {}): Promise<PedidoCanjeResponse> {
     const eventos = this.passEvents.pending();
@@ -959,9 +963,13 @@ export class StaffOrdersService {
     }
 
     let cuenta: CuentaResponse | null = null;
-    if (cobro && cot) {
-      const esperado = cobro.saldoEsperadoCentavos ?? Number(o.total_centavos);
-      if (cot.saldoPorCobrarCentavos !== esperado)
+    // Con `cobro` siempre hay cuenta (5a). Sin `cobro` (PR 6c, misma regla que el QR del 6b): si la cotización final
+    // deja saldo > 0 la cuenta ABIERTA se abre igual, para que el almuerzo suelto, el recargo y los extras nunca queden
+    // sin registrar; con saldo 0, sin cuenta. Sin `cobro` no hay SALDO_CAMBIO: no llega un saldo esperado que confirmar
+    // (I-6 protege a quien cobra) y abrir la cuenta no cobra nada. P = 0 sin plan → `cot` null, como antes (I-12).
+    if (cot && (cobro || cot.saldoPorCobrarCentavos > 0)) {
+      const esperado = cobro ? (cobro.saldoEsperadoCentavos ?? Number(o.total_centavos)) : cot.saldoPorCobrarCentavos;
+      if (cobro && cot.saldoPorCobrarCentavos !== esperado)
         throw saldoCambio(cot.saldoPorCobrarCentavos, {
           saldoEsperadoCentavos: esperado,
           cotizacion: aRespuesta(cot, rest.moneda),
@@ -981,7 +989,7 @@ export class StaffOrdersService {
         paraLlevar: o.tipo === 'LLEVAR',
         huella: firma,
       });
-      if (cobro.metodoPago && cot.saldoPorCobrarCentavos > 0)
+      if (cobro?.metodoPago && cot.saldoPorCobrarCentavos > 0)
         await registrarPago(
           q,
           cuentaId,
@@ -1001,7 +1009,9 @@ export class StaffOrdersService {
       platoNombre,
       yaCanjeado: false,
       almuerzo,
-      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(descontado),
+      // E.3: con cotización final vale su saldo (también sin cuenta: un almuerzo omitido por DUPLICADO o LIMITE_SAAS no
+      // se cobra, I-10). La fórmula de antes solo queda sin cotización (P = 0 sin plan, I-12).
+      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : cot ? cot.saldoPorCobrarCentavos : due(descontado),
       cotizacion: cuenta ? cuenta.cotizacion : cot ? aRespuesta(cot, rest.moneda) : null,
       cuenta,
       avisos: cot?.avisos ?? [],
@@ -1069,8 +1079,9 @@ export class StaffOrdersController {
     summary: 'Canjear el QR del pedido',
     description:
       'Si el pedido lleva almuerzo y el comensal es cliente, descuenta del plan que vence primero (canal PREORDEN, mismos resultados ' +
-      'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte como venta suelta. Un pedido preordenado se canjea ' +
-      'aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).',
+      'que `POST /v1/caja/validar`). `porCobrarCentavos` es lo que se cobra aparte. Si queda saldo > 0 (almuerzo sin plan, recargo, extras), ' +
+      'el canje abre la cuenta `ABIERTA` del pedido aunque no llegue `cobro` (desde el PR 6c), y se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. ' +
+      'Un pedido preordenado se canjea aunque el menú ya no esté publicado (no responde `MENU_NO_PUBLICADO`).',
   })
   @ApiBody({ type: CanjearPedidoDto, required: false })
   @ApiOkResponse({ type: PedidoCanjeResponse })

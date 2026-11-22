@@ -64,7 +64,7 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
     ).rows[0]!;
 
   describe('canjear con cobro', () => {
-    it('sin cuerpo (o con {}) es el canje de siempre: no crea cuenta y agrega cotizacion final, cuenta null y avisos', async () => {
+    it('sin cuerpo (o con {}): cotizacion final y, desde el PR 6c, la cuenta ABIERTA del saldo sin pago (antes cuenta null)', async () => {
       const { o, d, p } = await pedido();
       const antes = await filasCuenta();
       const r = await canjear(o, p.id);
@@ -73,13 +73,16 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
         yaCanjeado: false,
         almuerzo: { resultado: 'OK', descontado: true },
         porCobrarCentavos: 100 + R,
-        cuenta: null,
+        cuenta: { origen: 'PEDIDO', estado: 'ABIERTA', saldoCentavos: 100 + R, pagos: [] },
         avisos: [],
         cotizacion: { estimada: false, subtotalCentavos: P + 100, cubiertoPorPlanCentavos: P, saldoPorCobrarCentavos: 100 + R },
       });
       expect(await saldoPlan(o, d.clienteId!)).toBe(4);
-      expect(await filasCuenta()).toEqual(antes);
+      const despues = await filasCuenta();
+      expect(Number(despues.cuentas) - Number(antes.cuentas)).toBe(1);
+      expect(despues.pagos).toBe(antes.pagos);
       expectOnlyPublicIds(r.json());
+      // El caso sin cuenta (saldo 0) y el resto del 6c están en huecos-cobro.int.ts.
     });
 
     it('G-18b/G-43: cuenta ABIERTA (saldo = recargo); deshacer el consumo la anula y devuelve el almuerzo', async () => {

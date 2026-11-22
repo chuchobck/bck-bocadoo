@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { unprocessable } from '../common/errors';
 import { DbService, Queryable } from '../db/db.service';
 import { ActualizarMesaDto, CrearMesaDto, HorarioDto, LlenoDto, NivelManual, UpdateRestauranteDto } from './dto';
 import { menuAgotadoSql, occupancy } from '../catalog/catalog.service';
@@ -141,6 +142,15 @@ export class RestaurantService {
         puestosDefinidos: actual.puestos_definidos,
         mesas: actual.mesas_total,
       });
+      // P > 0 en un local ACTIVO (PR 6c, I-12): con P = 0 la caja no puede cobrar el almuerzo suelto ni abrir su cuenta.
+      // `null` o `""` ya los rechaza el DTO (400) en cualquier estado: la columna es NOT NULL. El candado de la fila
+      // ordena este PATCH con `activar`, que exige lo mismo.
+      const precio = dto.precioAlmuerzoCentavos ?? dto.precioSueltoCentavos;
+      if (precio !== undefined && precio <= 0 && actual.estado === 'ACTIVO')
+        throw unprocessable(
+          'PRECIO_ALMUERZO_REQUERIDO',
+          'Un local activo necesita precio del almuerzo mayor que 0. Para dejarlo sin precio, primero pausa el local.',
+        );
       const values: Partial<Record<keyof UpdateRestauranteDto, unknown>> = { ...dto, telefono: perfil.telefono };
       // precioSueltoCentavos y precioAlmuerzoCentavos son la misma columna (ya validados como iguales si vienen ambos).
       if (dto.precioAlmuerzoCentavos !== undefined) delete values.precioSueltoCentavos;
@@ -183,7 +193,8 @@ export class RestaurantService {
   /** BORRADOR/PAUSADO → ACTIVO, solo si el local ya se puede mostrar. */
   async activate() {
     return this.db.forRequest(async (q) => {
-      const r = await this.load(q);
+      // Con la fila bloqueada: un PATCH simultáneo que deja el precio en 0 no se cuela entre la comprobación y el UPDATE.
+      const r = await this.load(q, true);
       if (r.estado === 'ACTIVO') return toRestauranteDto(r);
       if (r.estado === 'BAJA') throw new ConflictException('Un restaurante dado de baja no se puede activar.');
       const h = await q.query('SELECT 1 FROM restaurante_horario WHERE restaurante_id = app_tenant_id() LIMIT 1');
