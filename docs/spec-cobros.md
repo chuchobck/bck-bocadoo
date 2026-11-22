@@ -730,6 +730,16 @@ Todas las claves salen de la `Idempotency-Key` de la petición (`K`), así un re
 - Pruebas de RLS directas como `bck_api` (patrón de `test/integration/mesa-seleccion.int.ts`): otro local no ve cuentas;
   el comensal no ve cuentas ajenas ni puede escribir.
 
+> **Nota del PR 4 (lo que quedó en la base; el texto de arriba no cambia).** Migraciones `20261121150000_cuentas_cobro`,
+> `20261121150100_orden_snapshot_ofertas` y `20261121150200_mesa_salida_ofertas`. La CHECK de origen de
+> `transaccion_pago` se llamaba `transaccion_pago_check`; la nueva es `ck_pago_origen_unico`. Además de lo de F.1:
+> `ck_cuenta_mesa_con_miembro` (mesa ⇔ miembro pagador), CHECK de coherencia de `cobrada_en`/`anulada_en`, el reverso de
+> una línea debe ser de la misma cuenta, `ck_miembro_anfitrion_no_sale` y la vista `v_cuenta_saldo` (`security_invoker`).
+> `fn_salir_mesa(uuid)` devuelve `SALIO`, `YA_SALIO`, `NO_ENCONTRADA`, `ANFITRION_NO_PUEDE_SALIR` o `MESA_CERRADA`;
+> `fn_plan_pagador_mesa(bigint, bigint)` devuelve solo el entero (el invitado solo pregunta por sí mismo). Choques
+> abiertos (cuenta de QR sin plan sin origen, el comensal no ve sus pagos, políticas que no miran `salio_en`): en
+> `docs/estado.md`, sección del PR 4.
+
 ---
 
 ## G. Plan de pruebas (casos de tabla)
