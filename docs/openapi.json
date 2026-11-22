@@ -1818,6 +1818,7 @@
                         "esAnfitrion": true,
                         "paraLlevar": true,
                         "soyYo": true,
+                        "salio": true,
                         "seleccion": {
                           "almuerzo": {
                             "platos": [
@@ -2081,6 +2082,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -2373,6 +2375,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -9665,6 +9668,7 @@
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
+                      "salio": true,
                       "tieneCuenta": true,
                       "almuerzosDisponibles": 4,
                       "seleccion": {
@@ -9894,7 +9898,7 @@
     },
     "/v1/caja/mesas/{id}/validar": {
       "post": {
-        "description": "CADA_UNO: cada quien con su plan. INVITO_YO: paga el anfitrión. Sin plan → por cobrar.",
+        "description": "Por defecto (`aplicarSeleccion: true`) se cobra lo que eligió cada miembro con la regla única de cobro: sin selección cuenta 1 almuerzo; el plan solo cubre almuerzos (CADA_UNO: el de cada miembro; INVITO_YO: el del anfitrión, en orden de llegada, y lo que no alcanza va a precio suelto con aviso PLAN_NO_ALCANZA). Se abre una cuenta ABIERTA por pagador con algo por cobrar (`cuentas`; una sola en INVITO_YO), que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. `aplicarSeleccion: false`: 1 almuerzo por miembro como antes, sin cuentas. Repetir sobre una mesa validada no descuenta: `yaValidada: true` con sus `cuentas`.",
         "operationId": "CheckoutController_validateTable",
         "parameters": [
           {
@@ -9924,6 +9928,19 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidarMesaDto"
+              },
+              "example": {
+                "aplicarSeleccion": true
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Operación exitosa",
@@ -9944,6 +9961,7 @@
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
+                      "salio": true,
                       "tieneCuenta": true,
                       "almuerzosDisponibles": 4,
                       "seleccion": {
@@ -10067,11 +10085,92 @@
                       "miembro": "Ana Pérez",
                       "resultado": "OK",
                       "descontado": true,
-                      "consumoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                      "consumoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "cuentaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                     }
                   ],
                   "descontados": 2,
-                  "porCobrar": 1
+                  "porCobrar": 1,
+                  "cuentas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "origen": "PEDIDO",
+                      "estado": "ABIERTA",
+                      "momentoCobro": "ANTES_DE_SERVIR",
+                      "debeCobrarseAntesDeServir": true,
+                      "pagador": {
+                        "nombre": "Ana Pérez",
+                        "esAnfitrion": true
+                      },
+                      "cotizacion": {
+                        "estimada": true,
+                        "lineas": [
+                          {
+                            "ref": "almuerzo#1",
+                            "personaRef": "0",
+                            "pagadorRef": "0",
+                            "tipo": "ALMUERZO",
+                            "nombre": "Doña Rosa",
+                            "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "cantidad": 1,
+                            "paraLlevar": true,
+                            "precioUnitarioCentavos": 350,
+                            "subtotalCentavos": 350,
+                            "recargoUnitarioCentavos": 25,
+                            "recargoCentavos": 25,
+                            "fuente": "PLAN",
+                            "pagador": "PROPIO",
+                            "cubiertoPorPlanCentavos": 350,
+                            "porCobrarCentavos": 25,
+                            "omitida": "PLATO_AGOTADO"
+                          }
+                        ],
+                        "porPagador": [
+                          {
+                            "pagadorRef": "0",
+                            "subtotal": 1,
+                            "recargo": 1,
+                            "total": 1,
+                            "cubierto": 1,
+                            "saldo": 1
+                          }
+                        ],
+                        "subtotalCentavos": 950,
+                        "recargoCentavos": 50,
+                        "totalCentavos": 1000,
+                        "cubiertoPorPlanCentavos": 350,
+                        "saldoPorCobrarCentavos": 650,
+                        "monedaCodigo": "USD",
+                        "avisos": [
+                          {
+                            "codigo": "OFERTA_AGOTADA",
+                            "lineaRef": "texto"
+                          }
+                        ]
+                      },
+                      "pagadoCentavos": 0,
+                      "saldoCentavos": 25,
+                      "pagos": [
+                        {
+                          "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "metodo": "EFECTIVO",
+                          "montoCentavos": 500,
+                          "estado": "PENDIENTE",
+                          "creadoEn": "2026-11-13T17:00:00.000Z"
+                        }
+                      ],
+                      "creadaEn": "2026-11-13T17:00:00.000Z",
+                      "cobradaEn": "2026-11-13T17:00:00.000Z",
+                      "anuladaEn": "2026-11-13T17:00:00.000Z"
+                    }
+                  ],
+                  "avisos": [
+                    {
+                      "codigo": "OFERTA_AGOTADA",
+                      "lineaRef": "texto"
+                    }
+                  ]
                 }
               }
             }
@@ -10133,6 +10232,25 @@
               }
             }
           },
+          "409": {
+            "description": "application/problem+json con `code`: `IDEMPOTENCY_KEY_REUTILIZADA`, `ALMUERZO_SIN_PRECIO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "IDEMPOTENCY_KEY_REUTILIZADA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
             "content": {
@@ -10177,7 +10295,7 @@
             "bearer": []
           }
         ],
-        "summary": "Validar toda la mesa de una vez",
+        "summary": "Validar toda la mesa de una vez (la selección de cada miembro se cobra)",
         "tags": ["Caja"],
         "x-dominio": "caja"
       }
@@ -12930,7 +13048,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `CUENTA_CERRADA`, `PLATO_AGOTADO`, `MENU_NO_PUBLICADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `CUENTA_CERRADA`, `CUENTA_DE_MESA`, `PLATO_AGOTADO`, `MENU_NO_PUBLICADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -13218,7 +13336,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `CUENTA_CERRADA`, `LINEA_DE_PLAN`, `SALDO_NEGATIVO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `CUENTA_CERRADA`, `CUENTA_DE_MESA`, `LINEA_DE_PLAN`, `SALDO_NEGATIVO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -16784,6 +16902,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -17064,6 +17183,7 @@
                         "esAnfitrion": true,
                         "paraLlevar": true,
                         "soyYo": true,
+                        "salio": true,
                         "seleccion": {
                           "almuerzo": {
                             "platos": [
@@ -17295,6 +17415,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -17585,6 +17706,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -17762,7 +17884,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `MESA_CERRADA`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`",
+            "description": "application/problem+json con `code`: `MESA_CERRADA`, `SALISTE_DE_LA_MESA`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17848,6 +17970,295 @@
         "x-dominio": "comensal"
       }
     },
+    "/v1/mis/mesas/{id}/salir": {
+      "post": {
+        "description": "Borra mi selección y me marca como salido (`miembros[].salio`): ya no ocupo lugar y la caja no me cobra nada al validar. Sin cuerpo y sin `Idempotency-Key`: repetirlo no cambia nada. El anfitrión no puede salir (puede cancelar la mesa). Puedo volver a unirme con el link.",
+        "operationId": "TablesController_leave",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operación exitosa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MesaResponse"
+                },
+                "example": {
+                  "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                  "invitacion": "texto",
+                  "restaurante": {
+                    "id": "uuid",
+                    "nombre": "Doña Rosa",
+                    "slug": "dona-rosa"
+                  },
+                  "anfitrion": {
+                    "nombre": "Ana Pérez"
+                  },
+                  "soyAnfitrion": true,
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
+                  "modo": "CADA_UNO",
+                  "estado": "ABIERTA",
+                  "validadaEn": "2026-11-13T17:00:00.000Z",
+                  "miembros": [
+                    {
+                      "nombre": "Doña Rosa",
+                      "esAnfitrion": true,
+                      "paraLlevar": true,
+                      "soyYo": true,
+                      "salio": true,
+                      "seleccion": {
+                        "almuerzo": {
+                          "platos": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "nombre": "Doña Rosa",
+                              "seccion": "JUGO"
+                            }
+                          ]
+                        },
+                        "extras": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "categoria": "BEBIDA",
+                            "cantidad": 2
+                          }
+                        ]
+                      },
+                      "cotizacion": {
+                        "estimada": true,
+                        "lineas": [
+                          {
+                            "ref": "almuerzo#1",
+                            "personaRef": "0",
+                            "pagadorRef": "0",
+                            "tipo": "ALMUERZO",
+                            "nombre": "Doña Rosa",
+                            "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "cantidad": 1,
+                            "paraLlevar": true,
+                            "precioUnitarioCentavos": 350,
+                            "subtotalCentavos": 350,
+                            "recargoUnitarioCentavos": 25,
+                            "recargoCentavos": 25,
+                            "fuente": "PLAN",
+                            "pagador": "PROPIO",
+                            "cubiertoPorPlanCentavos": 350,
+                            "porCobrarCentavos": 25,
+                            "omitida": "PLATO_AGOTADO"
+                          }
+                        ],
+                        "porPagador": [
+                          {
+                            "pagadorRef": "0",
+                            "subtotal": 1,
+                            "recargo": 1,
+                            "total": 1,
+                            "cubierto": 1,
+                            "saldo": 1
+                          }
+                        ],
+                        "subtotalCentavos": 950,
+                        "recargoCentavos": 50,
+                        "totalCentavos": 1000,
+                        "cubiertoPorPlanCentavos": 350,
+                        "saldoPorCobrarCentavos": 650,
+                        "monedaCodigo": "USD",
+                        "avisos": [
+                          {
+                            "codigo": "OFERTA_AGOTADA",
+                            "lineaRef": "texto"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "cotizacion": {
+                    "estimada": true,
+                    "lineas": [
+                      {
+                        "ref": "almuerzo#1",
+                        "personaRef": "0",
+                        "pagadorRef": "0",
+                        "tipo": "ALMUERZO",
+                        "nombre": "Doña Rosa",
+                        "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "cantidad": 1,
+                        "paraLlevar": true,
+                        "precioUnitarioCentavos": 350,
+                        "subtotalCentavos": 350,
+                        "recargoUnitarioCentavos": 25,
+                        "recargoCentavos": 25,
+                        "fuente": "PLAN",
+                        "pagador": "PROPIO",
+                        "cubiertoPorPlanCentavos": 350,
+                        "porCobrarCentavos": 25,
+                        "omitida": "PLATO_AGOTADO"
+                      }
+                    ],
+                    "porPagador": [
+                      {
+                        "pagadorRef": "0",
+                        "subtotal": 1,
+                        "recargo": 1,
+                        "total": 1,
+                        "cubierto": 1,
+                        "saldo": 1
+                      }
+                    ],
+                    "subtotalCentavos": 950,
+                    "recargoCentavos": 50,
+                    "totalCentavos": 1000,
+                    "cubiertoPorPlanCentavos": 350,
+                    "saldoPorCobrarCentavos": 650,
+                    "monedaCodigo": "USD",
+                    "avisos": [
+                      {
+                        "codigo": "OFERTA_AGOTADA",
+                        "lineaRef": "texto"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: application/problem+json con `code`: `BAD_REQUEST`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "code": "BAD_REQUEST",
+                  "detail": "La solicitud no es válida: revisa los campos enviados.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: application/problem+json con `code`: `UNAUTHORIZED`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "code": "UNAUTHORIZED",
+                  "detail": "Token ausente o inválido.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not Found",
+                  "status": 404,
+                  "code": "MESA_NO_ENCONTRADA",
+                  "detail": "No se encontró lo que pides.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `MESA_CERRADA`, `ANFITRION_NO_PUEDE_SALIR`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "MESA_CERRADA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too Many Requests",
+                  "status": 429,
+                  "code": "TOO_MANY_REQUESTS",
+                  "detail": "Demasiadas solicitudes. Reintenta cuando indique Retry-After.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error: application/problem+json con `code`: `ERROR_INTERNO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Internal Server Error",
+                  "status": 500,
+                  "code": "ERROR_INTERNO",
+                  "detail": "Error interno del servidor.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Salir de la mesa (un invitado, antes de que la caja la valide)",
+        "tags": ["Comensal"],
+        "x-dominio": "comensal"
+      }
+    },
     "/v1/mis/mesas/{id}/cancelar": {
       "post": {
         "operationId": "TablesController_cancel",
@@ -17891,6 +18302,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -18369,6 +18781,7 @@
                       "esAnfitrion": true,
                       "paraLlevar": true,
                       "soyYo": true,
+                      "salio": true,
                       "seleccion": {
                         "almuerzo": {
                           "platos": [
@@ -23771,7 +24184,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de toda la mesa. Solo el anfitrión (`null` para un invitado). También `null` si el plan de algún pagador no es legible para el comensal.",
+            "description": "Cotización estimada de toda la mesa (sin los que salieron). Solo el anfitrión (`null` para un invitado y para quien salió).",
             "type": "object",
             "allOf": [
               {
@@ -26089,6 +26502,10 @@
           "paraLlevar": {
             "type": "boolean"
           },
+          "salio": {
+            "type": "boolean",
+            "description": "Salió de la mesa (`POST /v1/mis/mesas/{id}/salir`): no cuenta en `personas`, no se cobra y su `cotizacion` es null"
+          },
           "tieneCuenta": {
             "type": "boolean",
             "description": "Es cliente del local (tiene ficha)"
@@ -26107,7 +26524,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). En `POST /v1/caja/mesas/{id}/validar` es la informativa de E.5: cada miembro con 1 almuerzo y su `paraLlevar`, con el plan de antes de descontar. `null` solo si el local no tiene precio de almuerzo.",
+            "description": "Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). En `POST /v1/caja/mesas/{id}/validar` es la final (`estimada: false`) de lo que se le cobró; con `aplicarSeleccion: false`, la informativa de E.5 (1 almuerzo y su `paraLlevar`, con el plan de antes de descontar). `null` si el miembro salió o si el local no tiene precio de almuerzo.",
             "type": "object",
             "allOf": [
               {
@@ -26116,7 +26533,7 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "tieneCuenta", "almuerzosDisponibles", "seleccion", "cotizacion"]
+        "required": ["nombre", "esAnfitrion", "paraLlevar", "salio", "tieneCuenta", "almuerzosDisponibles", "seleccion", "cotizacion"]
       },
       "MesaVistaResponse": {
         "type": "object",
@@ -26141,7 +26558,8 @@
           },
           "personas": {
             "type": "number",
-            "example": 3
+            "example": 3,
+            "description": "Miembros que siguen en la mesa (sin los que salieron)"
           },
           "cubiertos": {
             "type": "number",
@@ -26156,7 +26574,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de toda la mesa (con la selección de cada miembro; en `validar`, la informativa de 1 almuerzo por miembro).",
+            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`); con `aplicarSeleccion: false`, la informativa de 1 almuerzo por miembro.",
             "type": "object",
             "allOf": [
               {
@@ -26167,6 +26585,16 @@
         },
         "required": ["modo", "estado", "horaLlegada", "validadaEn", "personas", "cubiertos", "miembros", "cotizacion"]
       },
+      "ValidarMesaDto": {
+        "type": "object",
+        "properties": {
+          "aplicarSeleccion": {
+            "type": "boolean",
+            "default": true,
+            "description": "true (por defecto desde el PR 6): se cobra la selección de cada miembro (sin selección = 1 almuerzo); solo se descuenta el almuerzo a quien lo pidió y se abre una cuenta ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). false: lo de antes, 1 almuerzo por miembro y sin cuentas (cotización solo informativa)."
+          }
+        }
+      },
       "ResultadoMiembroResponse": {
         "type": "object",
         "properties": {
@@ -26176,7 +26604,8 @@
           },
           "resultado": {
             "type": "string",
-            "example": "OK"
+            "example": "OK",
+            "description": "El del escáner (OK, OK_ADVERTENCIA, SIN_PLAN, SIN_SALDO, VENCIDO, DIA_NO_VALIDO, DUPLICADO, LIMITE_SAAS) para el almuerzo de este miembro, o `SIN_ALMUERZO` si su selección no lleva almuerzo (solo con `aplicarSeleccion`)."
           },
           "descontado": {
             "type": "boolean"
@@ -26185,9 +26614,15 @@
             "type": "string",
             "nullable": true,
             "format": "uuid"
+          },
+          "cuentaId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid",
+            "description": "Cuenta donde quedó lo de este miembro (en INVITO_YO, la del anfitrión). null si su pagador no tiene nada por cobrar."
           }
         },
-        "required": ["miembro", "resultado", "descontado", "consumoId"]
+        "required": ["miembro", "resultado", "descontado", "consumoId", "cuentaId"]
       },
       "MesaValidadaResponse": {
         "type": "object",
@@ -26212,7 +26647,8 @@
           },
           "personas": {
             "type": "number",
-            "example": 3
+            "example": 3,
+            "description": "Miembros que siguen en la mesa (sin los que salieron)"
           },
           "cubiertos": {
             "type": "number",
@@ -26227,7 +26663,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de toda la mesa (con la selección de cada miembro; en `validar`, la informativa de 1 almuerzo por miembro).",
+            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`); con `aplicarSeleccion: false`, la informativa de 1 almuerzo por miembro.",
             "type": "object",
             "allOf": [
               {
@@ -26237,9 +26673,10 @@
           },
           "yaValidada": {
             "type": "boolean",
-            "description": "La mesa ya se había validado: no se descontó nada esta vez"
+            "description": "La mesa ya se había validado: no se descontó nada esta vez (sí vienen sus `cuentas`)"
           },
           "resultados": {
+            "description": "Uno por miembro que sigue en la mesa. Vacío si `yaValidada`.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ResultadoMiembroResponse"
@@ -26247,12 +26684,27 @@
           },
           "descontados": {
             "type": "number",
-            "example": 2
+            "example": 2,
+            "description": "Almuerzos descontados de planes"
           },
           "porCobrar": {
             "type": "number",
             "example": 1,
-            "description": "Almuerzos a cobrar aparte"
+            "description": "Almuerzos a cobrar aparte. Con `aplicarSeleccion`: los almuerzos que van a una cuenta a precio suelto (no cuenta los omitidos por DUPLICADO o LIMITE_SAAS ni a quien no pidió almuerzo). Con `aplicarSeleccion: false`: miembros no descontados, como antes."
+          },
+          "cuentas": {
+            "description": "Cuentas de cobro de la mesa: una ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). Vacío con `aplicarSeleccion: false` o si nadie debe nada. En un reintento (`yaValidada`), las que la mesa ya tiene.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CuentaResponse"
+            }
+          },
+          "avisos": {
+            "description": "Avisos del cobro (PLAN_NO_ALCANZA, PLATO_AGOTADO, DUPLICADO, LIMITE_SAAS). Vacío en un reintento.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvisoCotizacionResponse"
+            }
           }
         },
         "required": [
@@ -26267,7 +26719,9 @@
           "yaValidada",
           "resultados",
           "descontados",
-          "porCobrar"
+          "porCobrar",
+          "cuentas",
+          "avisos"
         ]
       },
       "PagoVentaResponse": {
@@ -27652,6 +28106,10 @@
             "type": "boolean",
             "description": "Es el comensal que consulta"
           },
+          "salio": {
+            "type": "boolean",
+            "description": "Salió de la mesa (`POST /v1/mis/mesas/{id}/salir`): no ocupa lugar, no se le cobra y su selección y su cotización vienen vacías/null. Puede volver a unirse con el link."
+          },
           "seleccion": {
             "nullable": true,
             "description": "Lo que eligió este miembro. El anfitrión ve la de todos; un invitado solo la suya (las demás vienen `null`: no se muestran). Vacía = aún no eligió.",
@@ -27664,7 +28122,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de lo que pide este miembro (sin selección cuenta 1 almuerzo), con su plan de hoy y su paraLlevar. Misma visibilidad que `seleccion`: el anfitrión ve la de todos; un invitado solo la suya (las demás `null`). También `null` si el plan de quien paga no es legible para quien consulta (la API del comensal solo lee su propio plan): ver docs/api-contrato.md.",
+            "description": "Cotización estimada de lo que pide este miembro (sin selección cuenta 1 almuerzo), con el plan de quien paga y su paraLlevar: es lo que la caja cobrará al validar. Misma visibilidad que `seleccion`: el anfitrión ve la de todos; un invitado solo la suya (las demás `null`). `null` también si el miembro salió de la mesa. Del plan de otra persona solo se usa cuántos almuerzos cubre hoy, acotado al número de miembros (nunca su saldo exacto).",
             "type": "object",
             "allOf": [
               {
@@ -27673,7 +28131,7 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo", "seleccion", "cotizacion"]
+        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo", "salio", "seleccion", "cotizacion"]
       },
       "SeleccionAlmuerzoDto": {
         "type": "object",

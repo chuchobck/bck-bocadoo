@@ -11,7 +11,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
 import { QrSecretService } from '../auth/qr-secret.service';
@@ -1105,6 +1105,7 @@ export class CheckoutController {
       'que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. `aplicarSeleccion: false`: 1 almuerzo por ' +
       'miembro como antes, sin cuentas. Repetir sobre una mesa validada no descuenta: `yaValidada: true` con sus `cuentas`.',
   })
+  @ApiBody({ type: ValidarMesaDto, required: false })
   @ApiOkResponse({ type: MesaValidadaResponse })
   @ApiProblems({ 409: ['IDEMPOTENCY_KEY_REUTILIZADA', 'ALMUERZO_SIN_PRECIO'] })
   validateTable(@Param('id', UuidPipe) id: string, @Body() dto: ValidarMesaDto, @IdempotencyKey() key: string) {
