@@ -758,7 +758,8 @@ Constantes de todos los casos: **P = 350**, **R = 25**, **C = 600** (Churrasco, 
 
 Columnas de salida: **Sub** = `subtotalCentavos`, **Rec** = `recargoCentavos`, **Tot** = `totalCentavos`, **Cub** =
 `cubiertoPorPlanCentavos`, **Saldo** = `saldoPorCobrarCentavos`. Los casos 1–36 y 49 son de la función pura `cotizar`;
-37–48 necesitan base (integración).
+37–48 necesitan base (integración). Estado: 43 y 45 cubiertos en 5a (44, 46 y 48 adaptados a pedidos); **44 y 48 cubiertos
+literal en 5b; 46 pendiente de PR 6** (es de mesa). En 5b también 17, 18a/b, 20, 21, 22, 23 y 45 con QR (19 en unitarios).
 
 | #   | Flujo              | Entrada                                                                                                               | Líneas esperadas (fuente)                             | Sub     | Rec    | Tot     | Cub     | Saldo  | Otros                                                                                                                                                                                      |
 | --- | ------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------- | ------ | ------- | ------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -847,8 +848,11 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
      `POST /v1/caja/pedidos/{id}/canjear` (con snapshot de P), confirmar/rechazar pagos de cuenta y `CUENTA_COBRADA` en
      deshacer (se adelantó del 5b: sin esto, deshacer un pedido cobrado devolvía el almuerzo y dejaba el pago).
      Integración: 43, 45 y, adaptados a cuentas de pedido, 44, 46 y 48.
-   - **5b:** `cobro`/`items` en `POST /v1/caja/validar`, `GET /v1/caja/cuentas` (lista), `items` y `quitar` de E.11,
-     `cuentasAbiertas` en el cierre. Integración: casos 17–23, 37 y 44, 46, 48 con QR.
+   - **5b (hecho):** `cobro`/`items` en `POST /v1/caja/validar`, `GET /v1/caja/cuentas` (lista del día local,
+     paginada), `items` y `quitar` de E.11, `cuentasAbiertas` en el cierre y `uq_pago_referencia_externa` por
+     restaurante (migración `20261121160000`). Integración: casos 17, 18, 20–23 y 44, 48 literales con QR; 37 queda
+     para PR 7 (ofertas en pedidos) y 46 para PR 6 (mesa). La cuenta automática del QR sin `items` ni `cobro` (H.2,
+     casos 18 y 20) **no** entra: sin ellos `validar` responde como antes (decisión pendiente).
 6. **feat(tables): selection becomes charge** — `aplicarSeleccion` (**`true` por defecto, etiqueta
    `cambio-incompatible`**, I-4), cuentas por pagador, `salir`, ofertas en la selección. Integración: casos 28–36, 38, 39, 47.
    Junto con el endpoint `salir` debe cerrar por RLS el acceso de los miembros con `salio_en`: que no vuelvan a escribir

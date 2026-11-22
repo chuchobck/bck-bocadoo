@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (cuentas de cobro en caja para pedidos, entrega D PR 5a). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (cuentas del QR en caja, lista del día y líneas, entrega D PR 5b). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,7 +17,42 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes) y PR 5a (cuentas de pedidos en caja, abajo) hechos; siguen 5b (QR: `items`/`cobro` en validar, `cuentasAbiertas` en el cierre) y PR 6 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; **su migración aún no está en Neon**) hechos; siguen PR 6 (mesa: la selección pasa a cobro, `salir`) en adelante (H.1).
+
+## Cuentas del QR en caja, lista del día y líneas (entrega D, PR 5b; rama `feat/cuentas-caja-5b`)
+
+**Una migración** (`20261121160000_referencia_pago_por_restaurante`, **pendiente de aplicar en Neon**: la aplica el responsable antes del merge; probada solo en `bocadoo-test-pg`) **y sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores). Cierra INC-04 para el QR (validar con `cobro` deja cuenta y pago registrados). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] Migración: `uq_pago_referencia_externa` pasa de `(metodo_pago_id, referencia_externa)` a `(restaurante_id, metodo_pago_id, referencia_externa)`, mismo nombre (lo usan `pos.ts`, `sales.ts` y `aplicar.ts` para traducir el 23505) y mismo predicado (`referencia_externa IS NOT NULL AND revierte_a_pago_id IS NULL`). El up comprueba en `pg_indexes` que la definición de partida es la esperada (si no, falla sin tocar nada) y es idempotente. Sin cambios de GRANT, RLS ni políticas (un índice no tiene permisos propios; verificado comparando `relacl`, `relrowsecurity` y `pg_policies` antes y después). El down vuelve al índice global y falla (23505) si ya hay referencias repetidas entre locales.
+- [x] `POST /v1/caja/validar` con `items` y `cobro` opcionales: con plan, cuenta del consumo; sin plan (incluido quien no es cliente del local), cuenta del intento de escaneo con el almuerzo a P. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. `SALDO_CAMBIO` sin descontar ni cobrar. Pago en el mismo paso con `cobro.metodoPago`. Sin `items` ni `cobro`, lo de siempre más `cotizacion` informativa. Reutiliza `descontarYRecotizar`, `persistirCuenta` y `registrarPago` de `aplicar.ts`.
+- [x] `GET /v1/caja/cuentas`: día local del restaurante (`HOY_TENANT`), filtros `estado` y `origen`, cursor `(creada_en, public_id)` como el resto de la API; render por lote (3 consultas para toda la página).
+- [x] `POST /v1/caja/cuentas/{id}/items` y `…/lineas/{ref}/quitar` (E.11): `FOR UPDATE` de la cuenta (como cobrar y anular), recotizan **toda** la cuenta con `cotizar` y los precios guardados, revierten lo que cambia con líneas nuevas y nunca editan montos. Idempotencia por las llaves derivadas de las líneas (`deriveKey`), sin tabla nueva.
+- [x] `cuentasAbiertas { cantidad, saldoCentavos }` en `GET /v1/caja/cierre/{fecha}`; los totales de siempre no cambian. Los pagos de cuentas ya estaban en `porMetodo[].posCentavos` (5a) y cada pago tiene un solo origen (`ck_pago_origen_unico`), así que no se cuentan dos veces.
+- [x] Reglas de plato suelto compartidas (`src/cobro/platos.ts`): la selección de mesa y la caja validan igual (activo, menú o carta, precio, agotado).
+- [x] Funciones puras nuevas en `src/cobro/adaptador.ts`: `entradaQr`, `entradaDeCuenta` (reconstruye la entrada de una cuenta con precios congelados) y `diferenciaLineas` (qué revertir e insertar; nunca toca una unidad del plan).
+
+### Verificación
+
+- [x] `test/integration/cuentas-qr.int.ts` (25, probe): G-44 y G-48 **literales con QR**; G-17, 18a, 18b, 20, 21, 22 (y la regla de 60 s), 23 y 45 con QR; `LIMITE_SAAS`; `SALDO_CAMBIO`; `ALMUERZO_SIN_PRECIO`; QR sin plan (cuenta del intento, a nombre del comensal) y `MANUAL`; lista del día con una zona horaria cuya fecha local no es la UTC, filtros, cursor y sin N+1; agregar (fusión), quitar, `LINEA_DE_PLAN`, `CUENTA_CERRADA`, `SALDO_NEGATIVO`, anulación al quitar todo, idempotencia; cierre con cuentas abiertas y sin doble conteo entre efectivo, transferencia y Deuna; roles (cajero, otro local 404, comensal 403, sin sesión 401); RLS como `bck_api` y `bck_servicio`; referencia externa por local (misma en dos locales sí, repetida en el mismo → 409).
+- [x] `test/integration/cuentas-qr-concurrency.int.ts` (5, clon descartable): agregar contra cobrar y quitar contra un pago parcial (nunca queda pagado > por cobrar); la misma llave de agregar 5 veces a la vez; agregar y quitar a la vez; validar con la misma llave 4 veces a la vez (un consumo, una cuenta, un pago).
+- [x] Unitarios: `test/unit/cobro-cuenta-qr.spec.ts` (15: G 17–22 con `entradaQr`, recotización sin cambios, precios congelados, fusión, quitar, PLAN emparejadas por orden, ofertas).
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (913), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (0 errores). Integración contra Postgres 16 local (`bocadoo-test-pg`, nunca Neon): **47 de 47 suites, 386 de 386 pruebas** (las 45 de antes y las 2 nuevas). De las inestables conocidas no falló ninguna en la corrida completa; en una corrida suelta de `cuentas-qr.int.ts` un QR salió `QR_INVALIDO` una vez y no se repitió en 9 corridas (parece la misma inestabilidad del QR de checkout).
+
+### Decisiones y límites
+
+- **La spec choca con lo pedido para este PR** en la cuenta automática: E.4 y H.2 (casos 18 y 20) dicen que un QR con saldo crea la cuenta aunque no lleguen `items` ni `cobro`. Se siguió lo pedido (sin `items` ni `cobro`, sin cambios). **Decisión pendiente**; activarla después es un cambio de comportamiento que hay que anunciar (H.2).
+- **El índice nuevo conserva `metodo_pago_id`**: lo pedido era `(restaurante, referencia_externa)`. Quitar el método endurecería la regla (hoy la misma referencia en dos métodos del mismo local se acepta) y podría fallar con datos existentes en Neon. Si se quiere sin método, es otra migración.
+- **La lista devuelve `{ fecha, items, nextCursor }`** y no `Cuenta[]` como dice E.11: se pidió paginación por cursor como el resto. Solo el día de hoy; `estado` por defecto `TODAS`.
+- **Códigos nuevos que la spec no listaba:** 404 `LINEA_NO_ENCONTRADA`, 409 `SALDO_NEGATIVO`, 422 `CANTIDAD_INVALIDA` (un plato pasaría de 100 unidades). `CUENTA_CERRADA` también para agregar platos en `ANTES_DE_SERVIR` con pagos (B.5).
+- **Quitar quita la línea entera** (no unidades). Una cuenta sin pagos que queda sin líneas pasa a `ANULADA` ("Se quitaron todas las líneas").
+- **Agregar un plato que ya está** suma cantidad al precio guardado de esa línea, no al de hoy.
+- **Idempotencia de agregar/quitar**: se reconoce por las llaves derivadas de las líneas, que llevan el id de la cuenta; la misma llave usada en **otra** cuenta no se detecta como reutilizada (cada cuenta la trata como nueva).
+- **Cuentas de mesa** en agregar/quitar: no soportadas hasta PR 6 (hoy no existen).
+- **QR de quien no es cliente sin `items` ni `cobro`:** `cotizacion: null`, como antes.
+- **`almuerzosSueltos` del cierre** no cuenta los almuerzos cobrados en cuentas del QR sin plan (solo POS); es el PR 8 de H.1.
+- **No entra en 5b:** la selección de mesa como cobro, `salir` y las cuentas de mesa (PR 6); ofertas y carta en pedidos y recargo por unidad (PR 7); reportes (PR 8).
 
 ## Cuentas de cobro en caja para pedidos (entrega D, PR 5a; rama `feat/cuentas-caja-5a`)
 
@@ -46,7 +81,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 - **`ALMUERZO_SIN_PRECIO`** (P = 0 y sin plan, I-12): solo con `cobro`. Sin cuerpo, el canje sigue como antes.
 - **Misma llave sin `cobro` y luego con `cobro`:** el primer canje no deja cuenta ni huella, así que el segundo responde `yaCanjeado: true` con `cuenta: null` en vez de 409. La huella solo existe cuando hay cuenta.
 - **`MONTO_EXCEDE_SALDO` (422)** es un código nuevo que la spec no listaba: un pago parcial mayor que el saldo.
-- **`REFERENCIA_PAGO_REPETIDA`** es global (el índice `uq_pago_referencia_externa` no lleva restaurante): la misma referencia de transferencia en dos locales también choca.
+- **`REFERENCIA_PAGO_REPETIDA`** era global (el índice `uq_pago_referencia_externa` no llevaba restaurante): la misma referencia de transferencia en dos locales también chocaba. **Resuelto en 5b** (por local).
 - **No entra en 5a:** `GET /v1/caja/cuentas` (lista del día), `POST …/items` y `…/lineas/{ref}/quitar` (E.11), `items`/`cobro` en `POST /v1/caja/validar`, `cuentasAbiertas` en el cierre.
 
 ## Cuentas de cobro en la base (entrega D, PR 4; rama `feat/db-cuentas-cobro`)
