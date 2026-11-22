@@ -750,7 +750,7 @@ class PedidoCanjeResponse {
   @ApiProperty({
     description:
       'Lo que la caja cobra aparte: extras, recargo y el almuerzo si ningún plan lo cubrió (al precio guardado en el pedido). ' +
-      'Con cuenta vale `cuenta.cotizacion.saldoPorCobrarCentavos`.',
+      'Vale `cotizacion.saldoPorCobrarCentavos` (desde el PR 6c también sin cuenta: 0 si el almuerzo quedó omitido por `DUPLICADO` o `LIMITE_SAAS`).',
   })
   porCobrarCentavos!: number;
   @ApiProperty({
@@ -1009,7 +1009,9 @@ export class StaffOrdersService {
       platoNombre,
       yaCanjeado: false,
       almuerzo,
-      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(descontado),
+      // E.3: con cotización final vale su saldo (también sin cuenta: un almuerzo omitido por DUPLICADO o LIMITE_SAAS no
+      // se cobra, I-10). La fórmula de antes solo queda sin cotización (P = 0 sin plan, I-12).
+      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : cot ? cot.saldoPorCobrarCentavos : due(descontado),
       cotizacion: cuenta ? cuenta.cotizacion : cot ? aRespuesta(cot, rest.moneda) : null,
       cuenta,
       avisos: cot?.avisos ?? [],
