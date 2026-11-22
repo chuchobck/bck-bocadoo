@@ -347,7 +347,7 @@ Notas de la matriz:
 | Plan sin saldo a mitad de mesa (`CADA_UNO`)                 | Solo afecta a ese miembro: su almuerzo va `CAJA · P` a su propia cuenta. Prueba G-28 (miembro C).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Saldo gastado entre la vista previa y la validación         | Manda el resultado real de `fn_descontar_almuerzo` (paso 5 de B.3), dentro de la misma transacción. La vista previa es estimada. Prueba G-36.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Plan vencido / día no válido                                | `CAJA · P` (+R). La razón exacta queda en `resultados[].resultado` (`VENCIDO`, `DIA_NO_VALIDO`). Pruebas G-19, G-20.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `DUPLICADO` (validado hace < 60 s)                          | La unidad de almuerzo queda omitida: no se descuenta ni se cobra (ya se registró hace segundos). Lo demás de la cuenta sí. Pruebas G-22, G-30.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `DUPLICADO` (validado hace < 60 s)                          | La unidad de almuerzo queda omitida: no se descuenta ni se cobra (ya se registró hace segundos). Lo demás de la cuenta sí. Pruebas G-22, G-30. En el QR, quien no tiene plan cae en la misma regla sobre su cuenta del escaneo (E.4, PR 6b).                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `LIMITE_SAAS`                                               | Igual que `DUPLICADO`: omitida con aviso; no se cobra al comensal lo que ya pagó en su plan (decisión I-10).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Oferta agotada, vencida, cerrada o no iniciada al **pedir** | Preorden y selección de mesa responden 409 con el código de hoy (`OFERTA_AGOTADA`, `OFERTA_EXPIRADA`, `OFERTA_CERRADA`, `OFERTA_NO_INICIADA`, `STOCK_INSUFICIENTE`, `src/offers/offers.ts:382-396`). No se reserva stock (I-7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Oferta que deja de valer entre pedir y **canjear**          | La línea se recotiza como si no tuviera `ofertaId` (D4): almuerzo → plan si es válido, si no `CAJA · P`; plato → `CAJA` a su precio normal. Aviso `OFERTA_AGOTADA` (o el que corresponda). **Regla de confirmación:** la referencia estimada es `orden_cabecera.total_centavos` (sin columna nueva, F.2). Si el saldo final difiere de ese total por cualquier causa (oferta caída, plan sin saldo, día no válido), el canje responde 409 `SALDO_CAMBIO` y **no descuenta el plan ni cobra nada**, hasta que la caja reenvíe con `cobro.saldoEsperadoCentavos` igual al saldo nuevo (confirmación explícita; basta `cobro` sin `metodoPago` si el saldo nuevo es 0). Prueba G-37. Decisión I-6. |
@@ -512,7 +512,14 @@ Campos nuevos opcionales:
 
 Se crea cuenta si hay `items`, `cobro`, o el saldo es > 0 (por ejemplo, recargo con plan, o almuerzo sin plan). Sin
 cuenta cuando el saldo es 0 (G-17) o la unidad quedó omitida (G-22). La respuesta suma `cotizacion` y `cuenta`; el
-`resultado` y el 200 de siempre no cambian.
+`resultado` y el 200 de siempre no cambian. (Hecho en el PR 6b: hasta el 5b, sin `items` ni `cobro` no había cuenta.)
+
+**Decisiones del PR 6b:** (1) quien **no tiene plan** no deja consumo, así que la regla de 60 s de `fn_descontar_almuerzo`
+no lo alcanza; para que dos cajas (o dos toques) no abran dos cuentas del mismo almuerzo, si esa persona (misma ficha o
+mismo usuario) ya abrió una cuenta QR sin consumo hace < 60 s y no está `ANULADA`, el segundo escaneo responde
+`DUPLICADO` sin cuenta (I-10), con un candado por persona. La regla del plan no cambia. (2) Con P = 0 y sin `items` ni
+`cobro`, el QR sin plan responde como antes (`SIN_PLAN` sin cotización ni cuenta); con ellos, 409 `ALMUERZO_SIN_PRECIO`
+(I-12).
 
 **Cambio de comportamiento en QR:** hoy `paraLlevar` solo se guarda y el recargo no se cobra nunca (INC-03). Con esta
 entrega el recargo de llevar **pasa a cobrarse** y, cuando el saldo resultante es > 0, la cuenta `ABIERTA` se crea
@@ -760,7 +767,8 @@ Columnas de salida: **Sub** = `subtotalCentavos`, **Rec** = `recargoCentavos`, *
 `cubiertoPorPlanCentavos`, **Saldo** = `saldoPorCobrarCentavos`. Los casos 1–36 y 49 son de la función pura `cotizar`;
 37–48 necesitan base (integración). Estado: 43 y 45 cubiertos en 5a (44, 46 y 48 adaptados a pedidos); **44 y 48 cubiertos
 literal en 5b; 46 cubierto literal en 6a** (la cuenta `INVITO_YO` del caso 31). En 5b también 17, 18a/b, 20, 21, 22, 23 y 45 con QR (19 en unitarios).
-En 6a, con mesas reales (`test/integration/mesa-cobro.int.ts`): 28, 30, 31, 32, 34, 35, 36, 38, 39, 46 y 47. **29 y 33
+En 6a, con mesas reales (`test/integration/mesa-cobro.int.ts`): 28, 30, 31, 32, 34, 35, 36, 38, 39, 46 y 47. En 6b, 17, 18a/b,
+20, 21, 22 y 23 con QR **sin `items` ni `cobro`** (21 sin `cobro`). **29 y 33
 (ofertas en la selección) quedan para el PR 7**: hoy solo los cubren los unitarios de `cotizar`.
 
 | #   | Flujo              | Entrada                                                                                                               | Líneas esperadas (fuente)                             | Sub     | Rec    | Tot     | Cub     | Saldo  | Otros                                                                                                                                                                                      |
@@ -854,7 +862,7 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
      paginada), `items` y `quitar` de E.11, `cuentasAbiertas` en el cierre y `uq_pago_referencia_externa` por
      restaurante (migración `20261121160000`). Integración: casos 17, 18, 20–23 y 44, 48 literales con QR; 37 queda
      para PR 7 (ofertas en pedidos) y 46 para PR 6 (mesa). La cuenta automática del QR sin `items` ni `cobro` (H.2,
-     casos 18 y 20) **no** entra: sin ellos `validar` responde como antes (decisión pendiente).
+     casos 18 y 20) **no** entra: sin ellos `validar` responde como antes (se activa en el 6b).
 6. **feat(tables): selection becomes charge** — `aplicarSeleccion` (**`true` por defecto, etiqueta
    `cambio-incompatible`**, I-4), cuentas por pagador, `salir`, ofertas en la selección. Integración: casos 28–36, 38, 39, 47.
    Junto con el endpoint `salir` debe cerrar por RLS el acceso de los miembros con `salio_en`: que no vuelvan a escribir
@@ -872,7 +880,11 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
      409 `CUENTA_DE_MESA` (recotizar una cuenta de varios comensales queda para después). Integración: 28, 30–32, 34–36,
      38, 39, 46 y 47, más concurrencia (validar contra salir, dos validar, la misma llave repetida a la vez).
      `pnpm openapi:breaking` no lo detecta (el cuerpo es opcional): el cambio es de comportamiento.
-   - **6b (pendiente):** la cuenta automática del QR con saldo y sin `items` ni `cobro`.
+   - **6b (hecho):** la cuenta automática del QR con saldo y sin `items` ni `cobro` (E.4): con saldo > 0 `validar` abre la
+     cuenta `ABIERTA` (origen consumo, o intento sin plan) y la devuelve; con saldo 0, sin cuenta. Sin migración. Decisiones
+     (E.4): `DUPLICADO` también sin plan (otra cuenta QR de la misma persona hace < 60 s, candado por persona) y P = 0 sin
+     `items` ni `cobro` como antes. Integración: 17, 18a/b, 20–23 sin `items` ni `cobro`, idempotencia, dos cajas a la
+     vez, roles y RLS. Cambio de comportamiento (H.2): `pnpm openapi:breaking` no lo detecta.
    - **Ofertas en la selección** (casos 29 y 33) pasan al **PR 7**, con las ofertas de pedidos.
 7. **feat(orders,pos,offers): carta, offers and per-unit surcharge** — carta y ofertas en pedidos (E.2), `paraLlevar`
    por línea en POS (E.9), `paraLlevar` en el canje de oferta (E.10). Es el PR con cambios de comportamiento (recargo a
@@ -897,13 +909,14 @@ INC-04 (el canje de preorden no registra pago) e INC-01 (validar mesa descuenta 
   que desde el PR 6 es `true` por defecto (I-4).
 - Los **cambios de comportamiento** se anuncian con al menos un PR de anticipación. Casos de G con "antes / después":
 
-  | Caso | Flujo  | Antes                                                              | Después                                                                         |
-  | ---- | ------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-  | 13   | POS    | Plato a la carta con `paraLlevar`: total 600, sin recargo          | Total 625: recargo 25 por D2 (PR 7)                                             |
-  | 18   | QR     | Llevar con plan OK: recargo solo guardado, no se cobra, sin cuenta | Cuenta `ABIERTA` automática con saldo 25 (o `COBRADA` si mandan `cobro`) (PR 5) |
-  | 20   | QR     | Llevar, `DIA_NO_VALIDO`: almuerzo y recargo sin cobro registrado   | Cuenta `ABIERTA` con saldo 375 (almuerzo 350 + recargo 25) (PR 5)               |
-  | 21   | QR     | `items` no existe; recargo no se cobra                             | Cuenta con B, C, E y recargo 50: saldo 825 (PR 5)                               |
-  | 49   | Pedido | Total 625 (recargo solo al almuerzo)                               | Total 1000 en el ejemplo: +25 por D2 al plato a la carta (PR 7)                 |
+  | Caso | Flujo  | Antes                                                                                                                | Después                                                                                              |
+  | ---- | ------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+  | 13   | POS    | Plato a la carta con `paraLlevar`: total 600, sin recargo                                                            | Total 625: recargo 25 por D2 (PR 7)                                                                  |
+  | 18   | QR     | Llevar con plan OK: recargo solo guardado, no se cobra, sin cuenta                                                   | Cuenta `ABIERTA` automática con saldo 25 (o `COBRADA` si mandan `cobro`) (PR 6b)                     |
+  | 20   | QR     | Llevar, `DIA_NO_VALIDO`: almuerzo y recargo sin cobro registrado                                                     | Cuenta `ABIERTA` con saldo 375 (almuerzo 350 + recargo 25) (PR 6b)                                   |
+  | —    | QR     | Sin plan (no es cliente, o `SIN_PLAN`/`SIN_SALDO`/`VENCIDO`): `cuenta: null`, el almuerzo se cobra fuera del sistema | Cuenta `ABIERTA` con saldo 350 (+25 si es para llevar); segundo escaneo < 60 s → `DUPLICADO` (PR 6b) |
+  | 21   | QR     | `items` no existe; recargo no se cobra                                                                               | Cuenta con B, C, E y recargo 50: saldo 825 (PR 5)                                                    |
+  | 49   | Pedido | Total 625 (recargo solo al almuerzo)                                                                                 | Total 1000 en el ejemplo: +25 por D2 al plato a la carta (PR 7)                                      |
 
   También cambian: pedido solo de carta sin menú publicado y agotados de carta en pedidos (si se acepta I-9).
 
