@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiProblems } from '../common/errors';
 import { IdPipe } from '../common/pipes';
 import { Roles } from '../authz/roles.decorator';
 import { ActualizarMesaDto, CrearMesaDto, LlenoDto, ReemplazarHorariosDto, UpdateRestauranteDto } from './dto';
@@ -23,9 +24,12 @@ export class RestaurantController {
   @Patch()
   @ApiOperation({
     summary: 'Editar el perfil: nombre, contacto, puestos, precios, zona…',
-    description: 'No cambia estado, slug, moneda ni país.',
+    description:
+      'No cambia estado, slug, moneda ni país. En un local `ACTIVO` el precio del almuerzo (`precioAlmuerzoCentavos` o ' +
+      '`precioSueltoCentavos`) no puede quedar en 0: 422 `PRECIO_ALMUERZO_REQUERIDO` (pausa el local antes). `null` o vacío → 400 en cualquier estado.',
   })
   @ApiOkResponse({ type: RestauranteResponse })
+  @ApiProblems({ 422: ['PRECIO_ALMUERZO_REQUERIDO'] })
   update(@Body() dto: UpdateRestauranteDto) {
     return this.service.update(dto);
   }
