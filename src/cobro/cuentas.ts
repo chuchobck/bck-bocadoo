@@ -1,12 +1,17 @@
-import { Body, Controller, Get, HttpCode, Injectable, Param, Post } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Get, HttpCode, Injectable, Param, Post, Query } from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../authz/roles.decorator';
 import { ApiProblems, notFound } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
+import { HOY_TENANT } from '../common/sql';
 import { DbService, Queryable } from '../db/db.service';
-import { anularCuenta, errorDePago, registrarPago, renderCuenta } from './aplicar';
-import { AnularCuentaDto, CobrarCuentaDto, CuentaResponse } from './cuenta.dto';
+import { CURSOR_TS, decodeCursor, encodeCursor } from '../diner/common';
+import { type Modificacion, anularCuenta, errorDePago, modificarCuenta, registrarPago, renderCuenta, renderCuentas } from './aplicar';
+import { AgregarItemsDto, AnularCuentaDto, CobrarCuentaDto, CuentaResponse, CuentasDelDiaResponse, CuentasQuery } from './cuenta.dto';
+
+/** Ref de una línea de la cotización (`almuerzo`, `almuerzo#1`, `extra:0`, `item:<uuid>`…): nunca llega a SQL sin validar. */
+const REF_LINEA = /^[A-Za-z0-9:#_-]{1,120}$/;
 
 /**
  * Cuentas de cobro desde la caja (docs/spec-cobros.md, E.11). Dueño y cajero, con tenant (RLS `tenant_total`). Las
@@ -28,6 +33,54 @@ export class CuentasService {
 
   one(publicId: string) {
     return this.db.forRequest(async (q) => renderCuenta(q, await this.id(q, publicId)), { readOnly: true });
+  }
+
+  /**
+   * Cuentas del día local del restaurante (`fecha_local`, la zona horaria del local; no el día UTC), de la más reciente
+   * a la más antigua, por páginas (cursor opaco: creada_en + public_id). Una página son cuatro consultas, sin N+1.
+   */
+  list(f: CuentasQuery): Promise<CuentasDelDiaResponse> {
+    const limit = f.limit ?? 20;
+    const cur = f.cursor ? decodeCursor(f.cursor) : null;
+    return this.db.forRequest(
+      async (q) => {
+        const r = await q.query<{ cuenta_id: string; public_id: string; cursor_t: string; hoy: string }>(
+          `SELECT c.cuenta_id, c.public_id, ${CURSOR_TS('c.creada_en')} AS cursor_t, ${HOY_TENANT}::text AS hoy
+             FROM cuenta_cobro c
+            WHERE c.restaurante_id = app_tenant_id() AND c.fecha_local = ${HOY_TENANT}
+              AND ($1 = 'TODAS' OR c.estado::text = $1)
+              AND ($2::text IS NULL
+                   OR ($2 = 'PEDIDO' AND c.orden_id IS NOT NULL)
+                   OR ($2 = 'QR' AND (c.consumo_id IS NOT NULL OR c.intento_id IS NOT NULL))
+                   OR ($2 = 'MESA' AND c.mesa_compartida_id IS NOT NULL))
+              AND ($3::timestamptz IS NULL OR (c.creada_en, c.public_id) < ($3::timestamptz, $4::uuid))
+            ORDER BY c.creada_en DESC, c.public_id DESC
+            LIMIT $5`,
+          [f.estado ?? 'TODAS', f.origen ?? null, cur?.t ?? null, cur?.p ?? null, limit + 1],
+        );
+        const pagina = r.rows.slice(0, limit);
+        const last = pagina.at(-1);
+        const fecha = r.rows[0]?.hoy ?? (await q.query<{ hoy: string }>(`SELECT ${HOY_TENANT}::text AS hoy`)).rows[0]!.hoy;
+        return {
+          fecha,
+          items: await renderCuentas(
+            q,
+            pagina.map((x) => String(x.cuenta_id)),
+          ),
+          nextCursor: r.rows.length > limit && last ? encodeCursor(last.cursor_t, last.public_id) : null,
+        };
+      },
+      { readOnly: true },
+    );
+  }
+
+  /** Agregar platos o quitar una línea (E.11): recotiza todo con la misma regla y responde la cuenta. */
+  modificar(publicId: string, m: Modificacion, key: string) {
+    return this.db.forRequest(async (q) => {
+      const id = await this.id(q, publicId);
+      await modificarCuenta(q, id, key, m);
+      return renderCuenta(q, id);
+    });
   }
 
   async cobrar(publicId: string, dto: CobrarCuentaDto, key: string) {
@@ -56,6 +109,21 @@ export class CuentasService {
 @Controller('v1/caja/cuentas')
 export class CuentasController {
   constructor(private readonly svc: CuentasService) {}
+
+  @Roles('DUENO', 'CAJERO')
+  @Get()
+  @ApiOperation({
+    summary: 'Cuentas de cobro del día',
+    description:
+      'Las cuentas del día local del restaurante (su zona horaria), de la más reciente a la más antigua, con paginación por cursor ' +
+      '(máximo 50 por página). Filtros: `estado` (por defecto TODAS) y `origen` (PEDIDO, QR, MESA). Cada cuenta viene completa ' +
+      '(líneas, pagos y saldo), como en `GET /v1/caja/cuentas/{id}`.',
+  })
+  @ApiOkResponse({ type: CuentasDelDiaResponse })
+  @ApiProblems({ 400: ['CURSOR_INVALIDO'] })
+  list(@Query() q: CuentasQuery) {
+    return this.svc.list(q);
+  }
 
   @Roles('DUENO', 'CAJERO')
   @Get(':id')
@@ -90,6 +158,55 @@ export class CuentasController {
   })
   cobrar(@Param('id', UuidPipe) id: string, @Body() dto: CobrarCuentaDto, @IdempotencyKey() key: string) {
     return this.svc.cobrar(id, dto, key);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Post(':id/items')
+  @HttpCode(200)
+  @ApiIdempotent()
+  @ApiOperation({
+    summary: 'Agregar platos a una cuenta abierta',
+    description:
+      'Carta, extras y bebidas (con las reglas de los platos sueltos: activo, de la carta o del menú de hoy, con precio, no agotado). Se ' +
+      'recotiza toda la cuenta con la misma regla y los precios congelados de sus líneas: lo que cambia (p. ej. un plato que ya estaba y suma ' +
+      'cantidad) se revierte con una línea inversa y entra de nuevo con el mismo `ref`; nunca se edita un monto. Para llevar hereda el de la ' +
+      'cuenta. COBRADA o ANULADA → 409 `CUENTA_CERRADA`; en un local ANTES_DE_SERVIR, también si la cuenta ya tiene pagos (lo de después va ' +
+      'por una venta nueva). Repetir con la misma llave devuelve la cuenta sin agregar otra vez; la misma llave con otros platos → 409.',
+  })
+  @ApiOkResponse({ type: CuentaResponse })
+  @ApiProblems({
+    404: ['CUENTA_NO_ENCONTRADA'],
+    409: ['CUENTA_CERRADA', 'PLATO_AGOTADO', 'MENU_NO_PUBLICADO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'CANTIDAD_INVALIDA'],
+  })
+  items(@Param('id', UuidPipe) id: string, @Body() dto: AgregarItemsDto, @IdempotencyKey() key: string) {
+    return this.svc.modificar(id, { tipo: 'AGREGAR', items: dto.items }, key);
+  }
+
+  @Roles('DUENO', 'CAJERO')
+  @Post(':id/lineas/:ref/quitar')
+  @HttpCode(200)
+  @ApiIdempotent()
+  @ApiParam({
+    name: 'ref',
+    description: '`ref` de la línea en `cotizacion.lineas` (p. ej. `item:<uuid>`; `#` va como `%23`)',
+    example: 'item:6a0e1c52-2b8e-4b51-9d0e-3a1c6f0d2e11',
+  })
+  @ApiOperation({
+    summary: 'Quitar una línea de una cuenta abierta',
+    description:
+      'Quita la línea completa (todas sus unidades) con una línea inversa y recotiza el resto. Un almuerzo del plan no se quita aquí ' +
+      '(409 `LINEA_DE_PLAN`: se deshace el consumo). Si lo ya pagado superaría lo que queda por cobrar → 409 `SALDO_NEGATIVO` (se anula la ' +
+      'cuenta). Una cuenta que se queda sin líneas y sin pagos pasa a ANULADA. Repetir con la misma llave no quita nada más.',
+  })
+  @ApiOkResponse({ type: CuentaResponse })
+  @ApiProblems({
+    404: ['CUENTA_NO_ENCONTRADA', 'LINEA_NO_ENCONTRADA'],
+    409: ['CUENTA_CERRADA', 'LINEA_DE_PLAN', 'SALDO_NEGATIVO', 'IDEMPOTENCY_KEY_REUTILIZADA'],
+  })
+  quitar(@Param('id', UuidPipe) id: string, @Param('ref') ref: string, @IdempotencyKey() key: string) {
+    if (!REF_LINEA.test(ref)) throw new BadRequestException('ref inválido.');
+    return this.svc.modificar(id, { tipo: 'QUITAR', ref }, key);
   }
 
   @Roles('DUENO', 'CAJERO')
