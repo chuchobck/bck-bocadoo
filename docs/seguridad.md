@@ -122,6 +122,17 @@ En producción `JWT_PRIVATE_KEY` es obligatoria (la app no arranca sin ella). En
 
 Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierra sesiones.
 
+## Hallazgo abierto: invitar cajero / vincular cliente filtran si un correo existe (auditoría OWASP, 22 nov 2026)
+
+**MEDIO, sin arreglar a propósito: necesita una decisión de producto, no solo de seguridad.**
+
+- **Dónde:** `POST /v1/restaurante/personal/cajeros` (`src/staff/staff.service.ts`, `inviteCashier`) y `POST /v1/clientes/{id}/vincular` (`src/customers/customers.ts`, `link`). Las dos usan `UsersLookupService` (BYPASSRLS) para buscar la cuenta por correo.
+- **El problema real no es solo el oráculo:** cualquiera puede registrarse como dueño gratis (`POST /v1/auth/register-owner`, 10 por hora por IP) y usar su restaurante falso para sondear correos ajenos. `inviteCashier` responde 201 con el **nombre real** de la cuenta si existe, 404 si no. Peor: si existe, **la asocia de inmediato** como cajero de ese restaurante falso (o como cliente vinculado, en el caso de `link`), sin que la persona dueña de la cuenta lo sepa ni lo acepte. Esa persona la ve aparecer en su propio `GET /v1/auth/me`.
+- **Por qué no lo arreglé ya:** la causa de fondo es que hoy no existe un paso de aceptación — es, por diseño actual, "agregar y ya queda" (documentado como aceptado en `ESTADO_BACKEND.md`: "invitación sin correo, para después"). Las dos correcciones posibles cambian ese comportamiento:
+  1. **Invitación pendiente con aceptación:** el cajero/cliente queda en un estado "pendiente" hasta que la persona invitada lo acepta desde su propia sesión. Cierra el problema de raíz (ya no hay asociación sin consentimiento, y se puede hacer la respuesta genérica sin romper la UX legítima). Necesita una tabla y migración nuevas, 2-3 endpoints nuevos (listar, aceptar, rechazar invitaciones propias) y que el frontend (Flutter) construya la pantalla correspondiente.
+  2. **Mitigación parcial sin cambiar el flujo:** limitar también por cuenta de dueño (no solo por IP) y endurecer el límite de `invite`; no cierra el oráculo ni la asociación sin consentimiento, solo lo encarece.
+- **Queda para que lo decida Oe** (dueño del proyecto): si el piloto puede convivir con esto un tiempo más, o si vale la pena construir la opción 1 antes del piloto con locales reales.
+
 ## Límites conocidos (a revisar)
 
 - El rate limit es **en memoria**: vale para una sola instancia. Si la API escala a varias, hay que moverlo a un almacén compartido.
