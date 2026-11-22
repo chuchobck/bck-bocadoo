@@ -43,6 +43,17 @@ Después de crear una migración nueva, aplícala aquí (comando de migraciones 
 
 Las suites de concurrencia clonan la base (`CREATE DATABASE … TEMPLATE`, ver `test/integration/scratch-db.ts`): mientras corren, no dejes un `psql` ni un IDE conectado a `bocadoo`.
 
+### Si las suites de QR fallan al azar
+
+Comprueba primero el reloj. Síntoma: `QR_INVALIDO` o `QR_EXPIRADO` sueltos (o cuentas que "faltan" porque su validación no pasó), y la hora de `date -u` distinta de la real. El código del pase cambia cada 30 s y el servidor solo acepta ±1 paso: un salto de reloj de minutos invalida el código entre emitirlo y validarlo.
+
+```bash
+date -u +%T; powershell.exe -NoProfile -c "[DateTime]::UtcNow.ToString('HH:mm:ss')"    # deben coincidir con la hora real
+journalctl -b | grep -c "Clock change detected"                                       # debe quedarse quieto
+```
+
+Visto en WSL (2026-11-22): el reloj de Windows iba 6 min 10 s adelantado (servicio `w32time` detenido); Hyper-V empujaba esa hora a WSL y `systemd-timesyncd` la devolvía a la de NTP cada 5 s. Se arregla en Windows (PowerShell como administrador): `Set-Service w32time -StartupType Automatic; Start-Service w32time; w32tm /resync /force`, y luego `wsl --shutdown`.
+
 ## Qué hace `pnpm test:db:local`
 
 `scripts/test-db-local.sh`:

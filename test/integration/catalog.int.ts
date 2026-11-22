@@ -226,7 +226,9 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     const other = await activeLocal(`Concurrido ${unique()} B`, { puestos: 10 });
     const set = (who: Actor, payload: object) => own(who).post('/v1/restaurante/lleno', payload);
     const list = async (who: Actor) => {
-      const r = await pub(`/v1/restaurantes?q=${encodeURIComponent(who.slug.split('-')[0]!)}&limit=50`);
+      // Se busca por la parte única del nombre (`unique()`), no por "concurrido": esta suite no usa probe y los locales
+      // de corridas anteriores se acumulan; con más de 50 el nuevo quedaba fuera de la primera página.
+      const r = await pub(`/v1/restaurantes?q=${encodeURIComponent(who.slug.split('-')[1]!)}&limit=50`);
       return (r.json().items as { slug: string; ocupacion: unknown }[]).find((i) => i.slug === who.slug)?.ocupacion;
     };
     const detail = async (who: Actor) => (await pub(`/v1/restaurantes/${who.slug}`)).json().ocupacion;
@@ -243,9 +245,15 @@ describe('Vitrina pública: búsqueda, detalle, menú de hoy, planes y ocupació
     const c = await set(o, { nivel: 'CONCURRIDO' });
     expect(c.statusCode).toBe(200);
     expect(c.json()).toMatchObject({ lleno: false, nivel: 'CONCURRIDO', llenoManualHasta: null });
+    // Los 20 minutos se miden contra el reloj de la misma transacción (el trigger pone actualizado_en =
+    // CURRENT_TIMESTAMP): exacto, sin depender de cuánto tarda la suite ni del reloj de Node.
+    const yo = (await h.call('GET', '/v1/restaurante', { token: o.token, restaurante: o.restaurante })).json();
+    expect(yo.concurridoManualHasta).toBe(c.json().concurridoManualHasta);
+    expect(new Date(yo.concurridoManualHasta).getTime() - new Date(yo.actualizadoEn).getTime()).toBe(20 * 60_000);
+    // Cordura gruesa contra Node (zona horaria o unidades mal): entre 0 y 60 min por delante.
     const mins = (new Date(c.json().concurridoManualHasta).getTime() - Date.now()) / 60000;
-    expect(mins).toBeGreaterThan(19);
-    expect(mins).toBeLessThanOrEqual(20.1);
+    expect(mins).toBeGreaterThan(0);
+    expect(mins).toBeLessThan(60);
     await expectAll(o, { nivel: 'MODERADO', porcentaje: 0, lleno: false });
     // Aislamiento: el otro local sigue LIBRE.
     await expectAll(other, { nivel: 'LIBRE', porcentaje: 0, lleno: false });
