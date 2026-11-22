@@ -1,19 +1,32 @@
 // Prepara datos para la prueba de carga de la caja: un restaurante con su dueño y N clientes con plan.
-// Uso: LOAD_PASSWORD='clave-de-10+' node scripts/load-seed.mjs [N=4000]
-// Usa DATABASE_SERVICE_URL. SOLO contra una base de pruebas: crea miles de filas. Se niega a correr en producción.
+// Uso: LOAD_PASSWORD='clave-de-10+' node scripts/load-seed.mjs [N=4000] [--remoto]
+// Usa DATABASE_SERVICE_URL. SOLO contra una base de pruebas: crea miles de filas. Se niega a correr en producción y,
+// si el host no es local, exige --remoto y escribir el host (p. ej. una rama de Neon de prueba; nunca la de la demo).
 import 'dotenv/config';
 import { Algorithm, hash } from '@node-rs/argon2';
 import { writeFileSync } from 'node:fs';
 import pg from 'pg';
+import { askHost, describeTarget, hostsOf, isLocalHost } from './db-guard.mjs';
 
 if (process.env.NODE_ENV === 'production') throw new Error('No se ejecuta con NODE_ENV=production.');
 const password = process.env.LOAD_PASSWORD;
 if (!password || password.length < 10) throw new Error('Define LOAD_PASSWORD (mínimo 10 caracteres).');
-const n = Number(process.argv[2] ?? 4000);
+const args = process.argv.slice(2);
+const n = Number(args.find((a) => a !== '--remoto') ?? 4000);
+const url = process.env.DATABASE_SERVICE_URL;
+if (!url) throw new Error('Falta DATABASE_SERVICE_URL.');
+const hosts = hostsOf(url);
+const remoteHost = hosts.length === 0 ? '(sin host)' : hosts.find((h) => !isLocalHost(h));
+console.log(`Destino: ${describeTarget(url)} (${remoteHost ? 'REMOTO' : 'local'})`);
+if (remoteHost) {
+  if (!args.includes('--remoto')) throw new Error(`${remoteHost} no es local: repite con --remoto si de verdad es una base de pruebas.`);
+  const typed = await askHost(`Vas a crear ${n} clientes de carga en ${remoteHost}. Escribe el host para confirmar: `);
+  if (typed !== remoteHost) throw new Error('El host escrito no coincide. No se hizo nada.');
+}
 const tag = Date.now().toString(36);
 const correo = `carga_${tag}@carga.bocadoo.test`;
 
-const c = new pg.Client({ connectionString: process.env.DATABASE_SERVICE_URL });
+const c = new pg.Client({ connectionString: url });
 await c.connect();
 try {
   await c.query('BEGIN');
