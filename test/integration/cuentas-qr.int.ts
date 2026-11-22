@@ -411,6 +411,29 @@ describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
       // Ninguno de los dos rechazos abrió cuenta.
       expect((await k.as(l.o).get('/v1/caja/cuentas')).json().items.map((x: { id: string }) => x.id)).toEqual([c.id]);
     });
+
+    it('pagoConfirmado lo puede marcar el dueño, pero un cajero no se autoconfirma una transferencia al cobrar una cuenta', async () => {
+      const l = await local();
+      const cajero = await k.h.cashier(l.o.restaurante);
+      const d1 = await k.diner();
+      const c1 = (await validar(cajero, { codigoQr: await codigo(d1, l) })).json().cuenta;
+      const porCajero = await cobrar(cajero, c1.id, {
+        metodoPago: 'TRANSFERENCIA',
+        pagoConfirmado: true,
+        saldoEsperadoCentavos: P,
+        referenciaExterna: `T-${randomUUID()}`,
+      });
+      expect(porCajero.json().pagos.at(-1)).toMatchObject({ estado: 'PENDIENTE' });
+      const d2 = await k.diner();
+      const c2 = (await validar(l.o, { codigoQr: await codigo(d2, l) })).json().cuenta;
+      const porDueno = await cobrar(l.o, c2.id, {
+        metodoPago: 'TRANSFERENCIA',
+        pagoConfirmado: true,
+        saldoEsperadoCentavos: P,
+        referenciaExterna: `T-${randomUUID()}`,
+      });
+      expect(porDueno.json().pagos.at(-1)).toMatchObject({ estado: 'CONFIRMADO' });
+    });
   });
 
   describe('POST /v1/caja/validar con items y cobro', () => {

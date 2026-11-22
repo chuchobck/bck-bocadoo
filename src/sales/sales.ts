@@ -34,6 +34,7 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { IdPipe, UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
+import { estadoPagoInicial } from '../common/estado-pago';
 import { RequestContextStore } from '../tenancy/request-context';
 import { SUBS_SELECT, SubRow, toSub } from './subscriptions';
 import { PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
@@ -187,7 +188,7 @@ export class SalesService {
     );
     const metodo = m.rows[0];
     if (!metodo) throw new BadRequestException('Método de pago no disponible.');
-    const estadoPago = metodo.es_efectivo || input.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE';
+    const estadoPago = estadoPagoInicial(metodo.es_efectivo, input.pagoConfirmado);
 
     // Cada plan vence por su cuenta (desde hoy + vigencia): dos planes del mismo cliente NO suman vencimientos.
     const s = await q.query<{ suscripcion_id: string }>(

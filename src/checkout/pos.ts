@@ -35,6 +35,7 @@ import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
+import { estadoPagoInicial } from '../common/estado-pago';
 import { RequestContextStore } from '../tenancy/request-context';
 import { PERSONAL_ACTUAL } from './checkout';
 import { VentaResponse } from './responses';
@@ -176,7 +177,7 @@ export class PosService {
           [
             m.metodo_pago_id,
             total,
-            m.es_efectivo || dto.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE',
+            estadoPagoInicial(m.es_efectivo, dto.pagoConfirmado),
             ventaId,
             dto.comprobanteUrl ?? null,
             dto.referenciaExterna ?? null,

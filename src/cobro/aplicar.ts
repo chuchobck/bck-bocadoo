@@ -20,6 +20,7 @@ import { deriveKey } from '../common/derive-key';
 import { conflict, forbidden, notFound, unprocessable } from '../common/errors';
 import { HOY_TENANT, PERSONAL_ACTUAL } from '../common/sql';
 import type { Queryable } from '../db/db.service';
+import { estadoPagoInicial } from '../common/estado-pago';
 import { RequestContextStore } from '../tenancy/request-context';
 import { type LineaViva, aRespuesta, diferenciaLineas, entradaDeCuenta, refItem } from './adaptador';
 import type { CuentaResponse, MetodoPago } from './cuenta.dto';
@@ -353,7 +354,7 @@ export async function registrarPago(q: Queryable, cuentaId: string, p: PagoCuent
     [
       m.metodo_pago_id,
       monto,
-      m.es_efectivo || p.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE',
+      estadoPagoInicial(m.es_efectivo, p.pagoConfirmado),
       p.comprobanteUrl ?? null,
       p.referenciaExterna ?? null,
       clave,

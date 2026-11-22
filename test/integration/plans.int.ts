@@ -373,6 +373,9 @@ describe('Fase 6: plantillas, clientes, venta de planes, pagos, solicitudes y de
       const pre = (await sell(o, c, p, randomUUID(), 'TRANSFERENCIA', { pagoConfirmado: true })).json();
       expect(pre.pago.estado).toBe('CONFIRMADO');
       expect((await as(o).post(`/v1/pagos/${randomUUID()}/confirmar`)).statusCode).toBe(404);
+      // Un cajero no se autoconfirma una transferencia: pagoConfirmado solo lo puede marcar el dueño.
+      const porCajero = (await sell(cashier, c, p, randomUUID(), 'TRANSFERENCIA', { pagoConfirmado: true })).json();
+      expect(porCajero.pago.estado).toBe('PENDIENTE');
     });
   });
 

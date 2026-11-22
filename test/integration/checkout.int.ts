@@ -528,6 +528,18 @@ describe('Fase 7: caja', () => {
       );
     });
 
+    it('pagoConfirmado lo puede marcar el dueño, pero un cajero no se autoconfirma una transferencia', async () => {
+      const o = await posLocal('POS PagoConfirmado');
+      const cashier = await h.cashier(o.restaurante);
+      const item = { tipo: 'ALMUERZO' as const, cantidad: 1 };
+      const porCajero = await vender(cashier, { metodoPago: 'TRANSFERENCIA', pagoConfirmado: true, items: [item] });
+      expect(porCajero.json().pago.estado).toBe('PENDIENTE');
+      const porDueno = await vender(o, { metodoPago: 'TRANSFERENCIA', pagoConfirmado: true, items: [item] });
+      expect(porDueno.json().pago.estado).toBe('CONFIRMADO');
+      // El efectivo siempre queda confirmado, sin importar el rol.
+      expect((await vender(cashier, { metodoPago: 'EFECTIVO', items: [item] })).json().pago.estado).toBe('CONFIRMADO');
+    });
+
     it('tickets consecutivos sin huecos ni repetidos con 10 ventas simultáneas; idempotencia', async () => {
       const o = await posLocal('POS Tickets');
       const cashier = await h.cashier(o.restaurante);

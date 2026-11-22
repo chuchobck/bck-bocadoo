@@ -122,6 +122,12 @@ En producción `JWT_PRIVATE_KEY` es obligatoria (la app no arranca sin ella). En
 
 Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierra sesiones.
 
+## Confirmar un pago es trabajo del dueño (auditoría OWASP, 22 nov 2026)
+
+Hallazgo MEDIO cerrado: `pagoConfirmado: true` en la venta de un plan (`POST /v1/clientes/{id}/planes`), una venta suelta (`POST /v1/caja/ventas`) o el cobro de una cuenta (`POST /v1/caja/cuentas/{id}/cobrar`) marcaba una transferencia o Deuna como `CONFIRMADO` de entrada sin importar quién hiciera la petición. Un cajero podía autoconfirmarse un pago inventado, saltándose por completo la revisión del dueño (`GET /v1/pagos/pendientes`, `POST /v1/pagos/{id}/confirmar`), y el cierre de caja lo contaba como dinero real.
+
+Arreglo: `estadoPagoInicial()` (`src/common/estado-pago.ts`), usado en los tres sitios que deciden el estado de un pago (`src/sales/sales.ts`, `src/checkout/pos.ts`, `src/cobro/aplicar.ts`). Solo cuenta `pagoConfirmado` cuando `RequestContextStore.get()?.role !== 'CAJERO'`; con un cajero, el pago siempre nace `PENDIENTE` salvo que el método sea efectivo (que siempre se confirma solo, sin depender de `pagoConfirmado`). El dueño conserva el comportamiento de siempre.
+
 ## Límites conocidos (a revisar)
 
 - El rate limit es **en memoria**: vale para una sola instancia. Si la API escala a varias, hay que moverlo a un almacén compartido.
