@@ -129,15 +129,15 @@ describe.skipIf(!probe)('Mesa compartida: fn_salir_mesa y fn_plan_pagador_mesa',
     it('CADA_UNO: el anfitrión ve el de cada miembro; el invitado solo el suyo; no miembros y otras mesas no obtienen nada', async () => {
       const o = await k.activeOwner();
       const host = await plan(o, 5);
-      const guest = await plan(o, 3);
+      const guest = await plan(o, 7);
       const sinPlan = await k.diner();
       const m = await mesa(o, host, [guest, sinPlan]);
       const [mHost, mGuest, mSinPlan] = [await m.miembro(host), await m.miembro(guest), await m.miembro(sinPlan)];
 
       expect(await disponibles(host, m.interna, mHost)).toBe(5);
-      expect(await disponibles(host, m.interna, mGuest)).toBe(3);
+      expect(await disponibles(host, m.interna, mGuest)).toBe(3); // 7 reales, acotado a los 3 miembros: no es su plan
       expect(await disponibles(host, m.interna, mSinPlan)).toBe(0);
-      expect(await disponibles(guest, m.interna, mGuest)).toBe(3);
+      expect(await disponibles(guest, m.interna, mGuest)).toBe(7); // el propio pagador ve el valor real
       expect(await disponibles(guest, m.interna, mHost)).toBeNull(); // misma visibilidad que la selección (E.6)
       expect(await disponibles(guest, m.interna, mSinPlan)).toBeNull();
       expect(await disponibles(await k.diner(), m.interna, mHost)).toBeNull();
@@ -159,14 +159,29 @@ describe.skipIf(!probe)('Mesa compartida: fn_salir_mesa y fn_plan_pagador_mesa',
       expect(await disponibles(host, m.interna, mGuest)).toBeNull();
     });
 
-    it('INVITO_YO: el pagador es el anfitrión, también para los invitados', async () => {
+    it('INVITO_YO: el pagador es el anfitrión; el invitado recibe el saldo acotado a los miembros de la mesa, el anfitrión el real', async () => {
       const o = await k.activeOwner();
-      const host = await plan(o, 5);
-      const guest = await plan(o, 2);
-      const m = await mesa(o, host, [guest], 'INVITO_YO');
-      expect(await disponibles(guest, m.interna, await m.miembro(guest))).toBe(5);
-      expect(await disponibles(host, m.interna, await m.miembro(guest))).toBe(5);
+      const host = await plan(o, 20);
+      const guest = await plan(o, 2); // su propio plan no cuenta: paga el anfitrión
+      const otro = await k.diner();
+      const m = await mesa(o, host, [guest, otro], 'INVITO_YO');
+      expect(await disponibles(guest, m.interna, await m.miembro(guest))).toBe(3); // LEAST(20, 3 miembros)
+      expect(await disponibles(otro, m.interna, await m.miembro(otro))).toBe(3);
+      expect(await disponibles(host, m.interna, await m.miembro(guest))).toBe(20);
+      expect(await disponibles(host, m.interna, await m.miembro(host))).toBe(20);
       expect(await disponibles(guest, m.interna, await m.miembro(host))).toBeNull();
+      // Quien sale ya no cuenta en el tope.
+      expect(await salir(otro, m.id)).toBe('SALIO');
+      expect(await disponibles(guest, m.interna, await m.miembro(guest))).toBe(2);
+
+      // Plan del anfitrión con 1 almuerzo en una mesa de 3: el invitado recibe 1 (el tope nunca sube el valor).
+      const o2 = await k.activeOwner();
+      const host2 = await plan(o2, 1);
+      const g1 = await k.diner();
+      const g2 = await k.diner();
+      const m2 = await mesa(o2, host2, [g1, g2], 'INVITO_YO');
+      expect(await disponibles(g1, m2.interna, await m2.miembro(g1))).toBe(1);
+      expect(await disponibles(host2, m2.interna, await m2.miembro(g2))).toBe(1);
     });
 
     it('cuenta como fn_descontar_almuerzo: solo planes que valen hoy (dias_validos) y del local de la mesa', async () => {

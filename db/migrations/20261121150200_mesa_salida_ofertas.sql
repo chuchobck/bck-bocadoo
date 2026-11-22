@@ -74,6 +74,9 @@ GRANT EXECUTE ON FUNCTION fn_salir_mesa(UUID) TO bocadoo_app;
 --    Quién pregunta (app_user_id()) debe ser miembro de la mesa y no haber salido. El anfitrión puede preguntar por
 --    cualquier miembro; un invitado solo por sí mismo (misma visibilidad que la selección, E.6). Devuelve NULL si no
 --    puede preguntar o si el miembro no es de esa mesa (o salió); 0 si el pagador no tiene plan que valga hoy.
+--    Acotado: a quien NO es el pagador se le devuelve LEAST(disponibles, miembros de la mesa sin salio_en), así no
+--    conoce el saldo exacto de un plan ajeno. Alcanza para cotizar: cada miembro pide como mucho un almuerzo. Al propio
+--    pagador (el anfitrión en INVITO_YO, cada uno por sí mismo en CADA_UNO) se le devuelve el valor real.
 --    La condición es la de fn_descontar_almuerzo (20261116000000_descontar_almuerzo_mesa.sql, paso 4): ACTIVA,
 --    vence_el >= hoy y hoy en dias_validos, con hoy en la zona horaria del local.
 CREATE OR REPLACE FUNCTION fn_plan_pagador_mesa(p_mesa_compartida_id BIGINT, p_miembro_id BIGINT) RETURNS INTEGER
@@ -115,7 +118,13 @@ BEGIN
      WHERE c.restaurante_id = v_mesa.restaurante_id AND c.usuario_id = v_pagador AND c.activo
        AND s.estado = 'ACTIVA' AND s.vence_el >= v_hoy
        AND EXTRACT(ISODOW FROM v_hoy)::SMALLINT = ANY (s.dias_validos);
-    RETURN v_disponibles;   -- 0 también si el pagador no tiene cuenta (usuario_id NULL) o ficha en el local
+    -- 0 también si el pagador no tiene cuenta (usuario_id NULL) o ficha en el local.
+    IF v_pagador IS DISTINCT FROM v_usuario THEN
+        SELECT LEAST(v_disponibles, count(*)::INTEGER) INTO v_disponibles
+          FROM public.mesa_compartida_miembro x
+         WHERE x.mesa_compartida_id = v_mesa.mesa_compartida_id AND x.salio_en IS NULL;
+    END IF;
+    RETURN v_disponibles;
 END $$;
 REVOKE ALL ON FUNCTION fn_plan_pagador_mesa(BIGINT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION fn_plan_pagador_mesa(BIGINT, BIGINT) TO bocadoo_app;
