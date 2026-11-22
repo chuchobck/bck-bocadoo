@@ -296,6 +296,188 @@ export function cotizacionesDeMesa(mesa: MesaParaCobro): CotizacionesMesa {
   return { porMiembro, mesa: completa ? todo : null };
 }
 
+// --- QR en caja (POST /v1/caja/validar, E.4) ---------------------------------------------------------------------
+
+/** Ref del almuerzo de un pedido o de un QR; sus unidades del plan salen como `almuerzo#1`, … (B.3 paso 6). */
+export const REF_ALMUERZO = 'almuerzo';
+/** Ref de un plato agregado en caja (`items` de validar o de una cuenta): uno por plato, así repetirlo suma cantidad. */
+export const refItem = (platoPublicId: string) => `item:${platoPublicId.toLowerCase()}`;
+
+export interface QrParaCobro extends Precios {
+  paraLlevar: boolean;
+  plan: PlanPersona;
+  /** Carta, extras y bebidas en la misma cuenta (sin `paraLlevar` por ítem, D3: heredan el de la cabecera). */
+  items: PlatoSuelto[];
+}
+
+/** Flujo QR: una persona ("0"), un almuerzo y los platos de `items`. */
+export function entradaQr(p: QrParaCobro): EntradaCobro {
+  const persona: PersonaCobro = { ref: '0', orden: 0, esAnfitrion: true, paraLlevar: false, plan: p.plan };
+  return {
+    flujo: 'QR',
+    modoMesa: null,
+    momentoCobro: p.momentoCobro,
+    precioAlmuerzo: p.precioAlmuerzo,
+    recargoLlevar: p.recargoLlevar,
+    paraLlevarCabecera: p.paraLlevar,
+    personas: [persona],
+    items: [lineaAlmuerzo('0', REF_ALMUERZO, p.precioAlmuerzo), ...p.items.map((e) => lineaPlato('0', refItem(e.platoId), e, false))],
+  };
+}
+
+// --- Cuenta existente (POST /v1/caja/cuentas/{id}/items y …/lineas/{ref}/quitar, E.11) ----------------------------
+
+/** Una línea guardada que sigue viva (cantidad > 0 y sin reverso). Montos en centavos. */
+export interface LineaViva {
+  /** linea_id interno (solo para enlazar el reverso). */
+  lineaId: string;
+  ref: string;
+  personaRef: string;
+  tipo: TipoItem;
+  fuente: LineaCotizada['fuente'];
+  pagador: LineaCotizada['pagador'];
+  omitida: LineaCotizada['omitida'];
+  platoId: string | null;
+  ofertaId: string | null;
+  nombre: string;
+  cantidad: number;
+  precioUnitario: number;
+  recargoUnitario: number;
+  subtotal: number;
+  recargo: number;
+  cubierto: number;
+}
+
+export interface CuentaParaCobro {
+  /** PREORDEN (cuenta de un pedido) o QR (de un consumo o un intento de escaneo). Las de mesa llegan con el PR 6. */
+  flujo: 'PREORDEN' | 'QR';
+  momentoCobro: MomentoCobro;
+  /** `cuenta_cobro.para_llevar` (copia de la cabecera al crearla). */
+  paraLlevar: boolean;
+  /** Precios de hoy del local: solo se usan si ninguna línea viva trae el suyo. */
+  precioAlmuerzoActual: number;
+  recargoLlevarActual: number;
+  vivas: LineaViva[];
+  /** Platos que se agregan (ya resueltos con su precio de hoy). */
+  agregar: PlatoSuelto[];
+}
+
+/**
+ * Reconstruye la entrada de la cotización desde las líneas vivas de la cuenta, más lo que se agrega, para recotizar
+ * todo con la misma regla (B.3). Los precios quedan congelados (B.5): cada línea viva conserva su precio unitario, el
+ * almuerzo su P y el recargo su R (el de las líneas que ya lo cobran; el del local solo si ninguna lo cobra). Un plato
+ * que ya está en la cuenta con `refItem` suma cantidad a su línea, al precio de esa línea.
+ * - Las unidades del plan (líneas PLAN) se reconstruyen como plan OK con exactamente esas unidades; el resto del
+ *   almuerzo (CAJA u omitida) conserva su motivo. Así la recotización no descuenta ni devuelve almuerzos.
+ * - Una OFERTA guardada no dice su categoría base: se deduce de su recargo (con recargo → base que lo paga).
+ */
+export function entradaDeCuenta(c: CuentaParaCobro): EntradaCobro {
+  const conRecargo = c.vivas.find((l) => l.recargoUnitario > 0);
+  const recargo = conRecargo ? conRecargo.recargoUnitario : c.recargoLlevarActual;
+  const almuerzoViva = c.vivas.find((l) => l.tipo === 'ALMUERZO');
+  const precioAlmuerzo = almuerzoViva ? almuerzoViva.precioUnitario : c.precioAlmuerzoActual;
+
+  const items: ItemCobro[] = [];
+  const almuerzos = new Map<string, ItemCobro>();
+  let unidadesPlan = 0;
+  let omision: LineaCotizada['omitida'] = null;
+  for (const l of c.vivas) {
+    if (l.tipo === 'ALMUERZO') {
+      const base = l.ref.split('#')[0]!;
+      if (l.fuente === 'PLAN') unidadesPlan += l.cantidad;
+      if (l.omitida) omision = l.omitida;
+      const previo = almuerzos.get(base);
+      if (previo) previo.cantidad += l.cantidad;
+      else {
+        const nuevo = { ...lineaAlmuerzo(l.personaRef, base, precioAlmuerzo), cantidad: l.cantidad };
+        almuerzos.set(base, nuevo);
+        items.push(nuevo);
+      }
+      continue;
+    }
+    if (l.omitida) throw new Error(`entradaDeCuenta: línea omitida ${l.omitida} fuera del almuerzo (solo existe en mesa)`);
+    items.push({
+      ref: l.ref,
+      personaRef: l.personaRef,
+      tipo: l.tipo,
+      cantidad: l.cantidad,
+      precioUnitario: l.precioUnitario,
+      paraLlevar: null,
+      ofertaId: l.ofertaId,
+      categoriaBase: l.tipo === 'OFERTA' ? (l.recargoUnitario > 0 || !c.paraLlevar ? null : 'BEBIDA') : null,
+      disponible: true,
+      nombre: l.nombre,
+      platoId: l.platoId,
+    });
+  }
+  for (const e of c.agregar) {
+    const ref = refItem(e.platoId);
+    const previo = items.find((i) => i.ref === ref);
+    if (previo) previo.cantidad += e.cantidad;
+    else items.push(lineaPlato('0', ref, e, false));
+  }
+  const plan: PlanPersona =
+    unidadesPlan > 0
+      ? { estado: 'OK', disponibles: unidadesPlan }
+      : omision === 'DUPLICADO' || omision === 'LIMITE_SAAS'
+        ? { estado: omision, disponibles: 0 }
+        : SIN_PLAN;
+  return {
+    flujo: c.flujo,
+    modoMesa: null,
+    momentoCobro: c.momentoCobro,
+    precioAlmuerzo,
+    recargoLlevar: recargo,
+    paraLlevarCabecera: c.paraLlevar,
+    personas: [{ ref: '0', orden: 0, esAnfitrion: true, paraLlevar: false, plan }],
+    items,
+  };
+}
+
+const mismaLinea = (v: LineaViva, o: LineaCotizada) =>
+  v.tipo === o.tipo &&
+  v.fuente === o.fuente &&
+  v.pagador === o.pagador &&
+  v.omitida === o.omitida &&
+  v.platoId === o.platoId &&
+  v.ofertaId === o.ofertaId &&
+  v.cantidad === o.cantidad &&
+  v.precioUnitario === o.precioUnitarioCentavos &&
+  v.recargoUnitario === o.recargoUnitarioCentavos &&
+  v.subtotal === o.subtotalCentavos &&
+  v.recargo === o.recargoCentavos &&
+  v.cubierto === o.cubiertoPorPlanCentavos;
+
+/**
+ * Qué cambia entre las líneas vivas y la cotización nueva (F.4: nunca UPDATE de un monto). Una línea igual se queda;
+ * una que cambia (p. ej. más cantidad) se revierte y entra de nuevo con el mismo ref; una que ya no está se revierte;
+ * una nueva se inserta. Las líneas PLAN nunca cambian (cada una tiene su consumo): si la recotización las tocara, es un
+ * error de programación y se lanza.
+ */
+export function diferenciaLineas(vivas: LineaViva[], cot: Cotizacion): { revertir: LineaViva[]; insertar: LineaCotizada[] } {
+  // Las unidades del plan se emparejan por orden (sus refs `#k` vienen de cuántas se descontaron antes).
+  const planVivas = vivas.filter((l) => l.fuente === 'PLAN').sort((a, b) => Number(a.lineaId) - Number(b.lineaId));
+  const planNuevas = cot.lineas.filter((l) => l.fuente === 'PLAN');
+  if (planVivas.length !== planNuevas.length)
+    throw new Error(`diferenciaLineas: ${planVivas.length} unidades del plan vivas y ${planNuevas.length} en la cotización`);
+  let k = 0;
+  const salida = cot.lineas.map((l) => (l.fuente === 'PLAN' ? { ...l, ref: planVivas[k++]!.ref } : l));
+  const porRef = new Map(vivas.map((v) => [v.ref, v]));
+  const refsSalida = new Set(salida.map((l) => l.ref));
+  const revertir: LineaViva[] = [];
+  const insertar: LineaCotizada[] = [];
+  for (const o of salida) {
+    const v = porRef.get(o.ref);
+    if (v && mismaLinea(v, o)) continue;
+    if (v) revertir.push(v);
+    insertar.push(o);
+  }
+  for (const v of vivas) if (!refsSalida.has(v.ref)) revertir.push(v);
+  if (revertir.some((l) => l.fuente === 'PLAN') || insertar.some((l) => l.fuente === 'PLAN'))
+    throw new Error('diferenciaLineas: la recotización no puede cambiar una unidad del plan');
+  return { revertir, insertar };
+}
+
 // --- Respuesta ---------------------------------------------------------------------------------------------------
 
 /** Lo que va a la API: la cotización sin `unidadesPlan` (lo que `aplicar` descuenta es interno) y con la moneda. */

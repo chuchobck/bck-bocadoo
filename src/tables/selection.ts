@@ -6,7 +6,8 @@ import type { AuthUser } from '../authz/current-user';
 import { badRequest, conflict, notFound, unprocessable } from '../common/errors';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, HOY_LOCAL, restaurantePausado } from '../diner/common';
-import { CATEGORIAS_CARTA, platoAgotadoSql } from '../menu/carta';
+import { platoAgotadoSql } from '../menu/carta';
+import { validarPlatoSuelto } from '../cobro/platos';
 
 /** Secciones que forman el almuerzo (igual que en los pedidos); lo demás va como plato suelto con cantidad. */
 export const SECCIONES_ALMUERZO = ['JUGO', 'SOPA', 'FUERTE', 'POSTRE'] as const;
@@ -201,14 +202,8 @@ export class TableSelectionService {
       if (sections.some((s) => !(SECCIONES_ALMUERZO as readonly string[]).includes(s)) || new Set(sections).size !== sections.length)
         throw badRequest('ALMUERZO_INVALIDO', `El almuerzo lleva a lo sumo un plato por sección (${SECCIONES_ALMUERZO.join(', ')}).`);
       for (const e of extras) {
-        const p = get(e.plato);
-        const deCarta = (CATEGORIAS_CARTA as readonly string[]).includes(p.categoria);
-        if (!p.en_menu && !deCarta) {
-          if (!menuId) throw conflict('MENU_NO_PUBLICADO', 'El restaurante aún no publicó el menú de hoy.');
-          throw unprocessable('PLATO_NO_DISPONIBLE', 'Algún plato no está en el menú de hoy.');
-        }
-        if (p.precio === null) throw unprocessable('PLATO_SIN_PRECIO', `"${p.nombre}" solo se sirve dentro del almuerzo.`);
-        if (p.agotado) throw conflict('PLATO_AGOTADO', `"${p.nombre}" se agotó.`);
+        // Mismas reglas que los platos sueltos de la caja (src/cobro/platos.ts).
+        const p = validarPlatoSuelto(get(e.plato), menuId !== undefined);
         rows.push({ plato_id: p.plato_id, seccion: null, cantidad: e.cantidad });
       }
 
