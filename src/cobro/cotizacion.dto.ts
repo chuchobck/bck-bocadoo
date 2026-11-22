@@ -36,7 +36,7 @@ class TotalPagadorResponse {
   @ApiProperty() saldo!: number;
 }
 
-class AvisoCotizacionResponse {
+export class AvisoCotizacionResponse {
   @ApiProperty({ enum: ['OFERTA_AGOTADA', 'OFERTA_EXPIRADA', 'PLATO_AGOTADO', 'DUPLICADO', 'LIMITE_SAAS', 'PLAN_NO_ALCANZA'] })
   codigo!: string;
   @ApiProperty({ type: String, nullable: true }) lineaRef!: string | null;
