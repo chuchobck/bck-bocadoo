@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
 import { loadEnv } from '../config/env';
 import { DbService } from '../db/db.service';
 import { DEFAULT_MONTHS_AHEAD, JOBS, MAX_MONTHS_AHEAD, runJob, type JobName, type JobResult } from './jobs';
@@ -61,6 +61,8 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv, io: Io): Pr
 }
 
 if (require.main === module) {
+  // Solo al lanzarlo como proceso: importado desde las pruebas no debe leer .env (podría traer las URLs de Neon).
+  loadDotenv();
   runCli(process.argv.slice(2), process.env, { out: (l) => console.log(l), err: (l) => console.error(l) }).then(
     (code) => process.exit(code),
     (err: unknown) => {
