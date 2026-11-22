@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-21 (cuentas de cobro en la base, entrega D PR 4). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-21 (cuentas de cobro en caja para pedidos, entrega D PR 5a). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -17,11 +17,41 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas) y PR 4 (migraciones de cuentas, abajo; sin aplicar en Neon) hechos; siguen PR 5 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes) y PR 5a (cuentas de pedidos en caja, abajo) hechos; siguen 5b (QR: `items`/`cobro` en validar, `cuentasAbiertas` en el cierre) y PR 6 en adelante (H.1).
+
+## Cuentas de cobro en caja para pedidos (entrega D, PR 5a; rama `feat/cuentas-caja-5a`)
+
+**Sin migración** (las columnas del snapshot ya estaban en `20261121150100`) **y sin cambios incompatibles** (`pnpm openapi:breaking`: 0 errores; 2 avisos por el `oneOf` de confirmar/rechazar pago). Cierra INC-04 para pedidos (canjear con `cobro` deja la cuenta y su pago registrados) e INC-06 (precio del almuerzo guardado al pedir). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] `src/cobro/aplicar.ts` (fuera de `src/billing`, que sigue puro): descuenta las unidades PLAN, recotiza con lo que respondió la base y guarda cuenta + líneas de solo-inserción; pagos (parciales, varios métodos), anular (líneas y pagos inversos, pendientes a `RECHAZADO`, almuerzo de vuelta), confirmar/rechazar y deshacer. Un solo punto de entrada que reutilizarán QR (5b) y mesa (PR 6).
+- [x] `GET /v1/caja/cuentas/{id}`, `POST …/cobrar`, `POST …/anular` (dueño y cajero; el cajero solo anula cuentas del día local). `FOR UPDATE` de la cuenta en cobrar, anular, confirmar/rechazar y deshacer.
+- [x] `POST /v1/caja/pedidos/{id}/canjear` con `cobro` opcional; sin cuerpo, como antes (más `cotizacion`, `cuenta: null`, `avisos`). 409 `SALDO_CAMBIO` contra `saldoEsperadoCentavos` o, sin él, `orden_cabecera.total_centavos`, sin descontar ni cobrar.
+- [x] Snapshot `orden_cabecera.precio_almuerzo_centavos` al crear el pedido; la cotización del pedido y el canje lo usan (pedidos viejos: `subtotal − extras` o el precio actual).
+- [x] `POST /v1/pagos/{id}/confirmar|rechazar` con pagos de cuenta: actualiza el estado de la cuenta y responde la `Cuenta`.
+- [x] Deshacer un consumo con cuenta `ABIERTA` sin pagos: línea inversa (almuerzo y su recargo) y `ANULADA` si queda en 0 (G-43); con cuenta `COBRADA` o con pagos → 409 `CUENTA_COBRADA` (G-45). Se trajo del 5b porque sin esto deshacer un pedido cobrado devolvía el almuerzo y dejaba el pago.
+- [x] `deriveKey` y `huella` en `src/common/derive-key.ts` (checkout los reutiliza).
+
+### Verificación
+
+- [x] `test/integration/cuentas-caja.int.ts` (17, probe): G-43, G-45 y G-44, G-46, G-48 adaptados a pedidos (en la spec son de QR y mesa); `SALDO_CAMBIO` con el plan intacto; plan gastado entre pedir y canjear (I-6); INC-06; `ANTES_DE_SERVIR`; validación; confirmar/rechazar; referencia repetida; roles (cajero del día, otro local 404, comensal 403); RLS como `bck_api` y `bck_servicio`.
+- [x] `test/integration/cuentas-concurrency.int.ts` (6, clon descartable): pagos simultáneos nunca superan el saldo; misma llave = un pago; doble canje (otras llaves o la misma) = un consumo, una cuenta, un pago; anular y cobrar a la vez.
+- [x] Unitarios: `test/unit/cobro-aplicar.spec.ts` (`deriveKey`, `huella`, `estadoPlanDe`, `descontarYRecotizar`) y snapshot en `test/unit/cobro-adaptador.spec.ts`.
+- [x] Resultados: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (883), `pnpm openapi:lint` limpio y `pnpm openapi:breaking` (0 errores, 2 avisos). Integración contra Postgres 16 local (`bocadoo-test-pg`, nunca Neon): **45 de 45 suites, 356 de 356 pruebas** (las 43 de antes y las 2 nuevas); ninguna de las inestables conocidas (tiempos de auth, `offers-concurrency`, QR de checkout) falló.
+
+### Decisiones y límites
+
+- **`porCobrarCentavos` sin `cobro`** sigue con la fórmula de siempre (extras + recargo guardado + P si el plan no cubrió), ahora con el P guardado. Solo difiere de `cotizacion.saldoPorCobrarCentavos` en la diferencia conocida de platos `A_LA_CARTA` para llevar (PR 7). Con `cobro`, vale `cotizacion.saldoPorCobrarCentavos` (E.3).
+- **`ALMUERZO_SIN_PRECIO`** (P = 0 y sin plan, I-12): solo con `cobro`. Sin cuerpo, el canje sigue como antes.
+- **Misma llave sin `cobro` y luego con `cobro`:** el primer canje no deja cuenta ni huella, así que el segundo responde `yaCanjeado: true` con `cuenta: null` en vez de 409. La huella solo existe cuando hay cuenta.
+- **`MONTO_EXCEDE_SALDO` (422)** es un código nuevo que la spec no listaba: un pago parcial mayor que el saldo.
+- **`REFERENCIA_PAGO_REPETIDA`** es global (el índice `uq_pago_referencia_externa` no lleva restaurante): la misma referencia de transferencia en dos locales también choca.
+- **No entra en 5a:** `GET /v1/caja/cuentas` (lista del día), `POST …/items` y `…/lineas/{ref}/quitar` (E.11), `items`/`cobro` en `POST /v1/caja/validar`, `cuentasAbiertas` en el cierre.
 
 ## Cuentas de cobro en la base (entrega D, PR 4; rama `feat/db-cuentas-cobro`)
 
-**Solo migraciones y pruebas.** Ningún endpoint ni archivo de `src/` cambia; todo lo nuevo es una tabla nueva, una columna nullable o con default, o una política de solo lectura, así que el código de hoy sigue igual. **No están aplicadas en Neon** (aplicar con revisión, H.1).
+**Solo migraciones y pruebas.** Ningún endpoint ni archivo de `src/` cambia; todo lo nuevo es una tabla nueva, una columna nullable o con default, o una política de solo lectura, así que el código de hoy sigue igual. **Aplicadas en Neon** (22 aplicadas, 0 pendientes, 2026-11-21).
 
 ### Migraciones
 
