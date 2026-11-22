@@ -1086,9 +1086,10 @@ export class CheckoutController {
       Object.entries(RESULTADOS)
         .map(([k, v]) => `**${k}**: ${v}`)
         .join(' · ') +
-      '. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del ' +
-      'intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. ' +
-      'Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.',
+      '. Si queda algo por cobrar (almuerzo suelto sin plan, recargo para llevar o `items`) crea además la cuenta de cobro `ABIERTA`, ' +
+      'aunque no lleguen `items` ni `cobro` (PR 6b): con plan, la del consumo; sin él, la del intento de escaneo (el almuerzo va a caja a P). ' +
+      'Se cobra con `POST /v1/caja/cuentas/{id}/cobrar`, o en el mismo paso con `cobro.metodoPago`. Sin nada por cobrar ni platos, no hay ' +
+      'cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada; quien no tiene plan y ya abrió una cuenta QR hace menos de 60 s también recibe `DUPLICADO`.',
   })
   @ApiOkResponse({ type: ValidacionResponse })
   @ApiProblems({

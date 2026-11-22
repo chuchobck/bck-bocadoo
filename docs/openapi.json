@@ -9111,7 +9111,7 @@
     },
     "/v1/caja/validar": {
       "post": {
-        "description": "Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.. Con `items` (platos de caja) o `cobro` (aunque sea `{}`) crea además la cuenta de cobro: con plan, la del consumo; sin él, la del intento de escaneo (el almuerzo va a caja a P). Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada. Con `cobro.metodoPago` registra el pago en el mismo paso. Sin `items` ni `cobro`, la validación de siempre más la cotización informativa.",
+        "description": "Siempre responde 200 con un `resultado`, salvo 409 `MENU_NO_PUBLICADO` si el local no publicó el menú de hoy (fecha local del local). Descuenta del plan que vence primero (FIFO). Resultados: **OK**: Almuerzo descontado. · **OK_ADVERTENCIA**: Almuerzo descontado. Es el último o el plan vence pronto: ofrece renovar. · **DUPLICADO**: Este comensal ya fue validado hace menos de un minuto. No se descontó otra vez. · **SIN_PLAN**: No tiene un plan en este restaurante. · **SIN_SALDO**: Su plan ya no tiene almuerzos. · **VENCIDO**: Su plan está vencido. · **DIA_NO_VALIDO**: Su plan no vale hoy. · **OTRO_LOCAL**: Ese código es de otro restaurante. · **QR_EXPIRADO**: El código venció. Pídele que actualice su pase. · **QR_INVALIDO**: Código no válido. · **LIMITE_SAAS**: El restaurante alcanzó el límite de validaciones de su plan Bocadoo.. Si queda algo por cobrar (almuerzo suelto sin plan, recargo para llevar o `items`) crea además la cuenta de cobro `ABIERTA`, aunque no lleguen `items` ni `cobro` (PR 6b): con plan, la del consumo; sin él, la del intento de escaneo (el almuerzo va a caja a P). Se cobra con `POST /v1/caja/cuentas/{id}/cobrar`, o en el mismo paso con `cobro.metodoPago`. Sin nada por cobrar ni platos, no hay cuenta. `DUPLICADO` y `LIMITE_SAAS` no cobran nada; quien no tiene plan y ya abrió una cuenta QR hace menos de 60 s también recibe `DUPLICADO`.",
         "operationId": "CheckoutController_validate",
         "parameters": [
           {
@@ -26289,14 +26289,14 @@
             "description": "Mesa del local donde se sirve"
           },
           "items": {
-            "description": "Carta, extras y bebidas en la misma cuenta (hasta 10 platos distintos). Heredan `paraLlevar`. Con `items` o `cobro` se abre la cuenta del QR si hay platos o algo por cobrar.",
+            "description": "Carta, extras y bebidas en la misma cuenta (hasta 10 platos distintos). Heredan `paraLlevar`. La cuenta del QR se abre si hay platos o algo por cobrar (desde el PR 6b también sin `items` ni `cobro`).",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ItemCajaDto"
             }
           },
           "cobro": {
-            "description": "Opcional (como en canjear un pedido). Sin `items` ni `cobro` la validación es la de siempre (no crea cuenta). Con `metodoPago`, paga la cuenta en la misma transacción. Si `saldoEsperadoCentavos` no es el saldo real → 409 `SALDO_CAMBIO` sin descontar ni cobrar.",
+            "description": "Opcional (como en canjear un pedido). Sin `cobro`, si queda algo por cobrar la cuenta se abre ABIERTA igual (PR 6b) y se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Con `metodoPago`, la paga en la misma transacción. Si `saldoEsperadoCentavos` no es el saldo real → 409 `SALDO_CAMBIO` sin descontar ni cobrar.",
             "allOf": [
               {
                 "$ref": "#/components/schemas/CobroDto"
@@ -26373,7 +26373,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización final (`estimada: false`) del almuerzo (y de `items`) con lo que de verdad pasó con el plan. Con cuenta, la de la cuenta. null si el código no identificó a nadie (QR inválido, vencido u otro local), si el comensal no es cliente y no se mandó `items` ni `cobro`, o si el almuerzo no tiene precio y ningún plan lo cubrió.",
+            "description": "Cotización final (`estimada: false`) del almuerzo (y de `items`) con lo que de verdad pasó con el plan. Con cuenta, la de la cuenta. null si el código no identificó a nadie (QR inválido, vencido u otro local) o si el almuerzo no tiene precio (P = 0), ningún plan lo cubrió y no se mandó `items` ni `cobro`.",
             "type": "object",
             "allOf": [
               {
@@ -26383,7 +26383,7 @@
           },
           "cuenta": {
             "nullable": true,
-            "description": "La cuenta del QR. null sin `items` ni `cobro`, si el plan cubrió todo sin platos (nada por cobrar) o con DUPLICADO / LIMITE_SAAS.",
+            "description": "La cuenta del QR. Se abre siempre que quede algo por cobrar (almuerzo suelto sin plan, recargo para llevar, platos), aunque no lleguen `items` ni `cobro` (PR 6b): ABIERTA, o COBRADA si `cobro.metodoPago` la saldó. null si el plan cubrió todo sin platos (nada por cobrar), con DUPLICADO / LIMITE_SAAS (también DUPLICADO sin plan: otra cuenta QR de la misma persona hace < 60 s), o sin cotización.",
             "type": "object",
             "allOf": [
               {
