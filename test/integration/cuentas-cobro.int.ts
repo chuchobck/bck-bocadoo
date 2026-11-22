@@ -43,20 +43,30 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
   }
   type Escenario = Awaited<ReturnType<typeof escenario>>;
 
-  /** Crea una cuenta como el personal del local (tenant_total). Origen: el consumo del escenario. */
-  async function cuenta(e: Escenario, origen: { consumo_id?: string } = { consumo_id: e.consumo_id }) {
+  /** Crea una cuenta como el personal del local (tenant_total). Origen por defecto: el consumo del escenario. */
+  async function cuenta(e: Escenario, origen: { consumo_id?: string; intento_id?: string } = { consumo_id: e.consumo_id }) {
     const r = await k.rls<{ cuenta_id: string }>(
       e.personal,
-      `INSERT INTO cuenta_cobro (restaurante_id, consumo_id, cliente_id, usuario_id, nombre_pagador, momento_cobro, moneda_codigo,
+      `INSERT INTO cuenta_cobro (restaurante_id, consumo_id, intento_id, cliente_id, usuario_id, nombre_pagador, momento_cobro, moneda_codigo,
                                  clave_idempotencia, huella, personal_id, fecha_local)
-       SELECT r.restaurante_id, $2, $3, $4, 'Ana', r.momento_cobro, r.moneda_codigo,
+       SELECT r.restaurante_id, $2, $6, $3, $4, 'Ana', r.momento_cobro, r.moneda_codigo,
               gen_random_uuid(), encode(sha256(gen_random_uuid()::text::bytea), 'hex'), $5, CURRENT_DATE
          FROM restaurante r WHERE r.restaurante_id = $1
        RETURNING cuenta_id`,
-      [e.restauranteId, origen.consumo_id ?? null, e.cliente_id, e.usuario, e.personal_id],
+      [e.restauranteId, origen.consumo_id ?? null, e.cliente_id, e.usuario, e.personal_id, origen.intento_id ?? null],
     );
     return r[0]!.cuenta_id;
   }
+
+  /** Último intento de escaneo del local (lo registra fn_descontar_almuerzo en cada validación, también las rechazadas). */
+  const ultimoIntento = async (restauranteId: string, resultado?: string) =>
+    (
+      await one<{ intento_id: string }>(
+        `SELECT intento_id FROM intento_escaneo WHERE restaurante_id = $1 AND ($2::text IS NULL OR resultado::text = $2)
+          ORDER BY intento_id DESC LIMIT 1`,
+        [restauranteId, resultado ?? null],
+      )
+    ).intento_id;
 
   /** Inserta una línea; por defecto una bebida de 100 cobrada en caja. */
   function linea(ctx: Ctx, e: Escenario, cuentaId: string, valores: Record<string, unknown> = {}) {
@@ -205,18 +215,31 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
     await expect(k.h.db.service((q) => q.query('DELETE FROM cuenta_cobro WHERE cuenta_id = $1', [c]))).rejects.toThrow(/no admite DELETE/);
   });
 
-  it('origen de la cuenta: exactamente uno; una mesa exige el miembro pagador', async () => {
+  it('origen de la cuenta: exactamente uno de cuatro (pedido, consumo, intento de escaneo, mesa); una mesa exige el miembro pagador', async () => {
     const a = await escenario();
+    const b = await escenario();
+
+    // QR de un almuerzo sin plan: no hay consumo, pero sí el intento de escaneo (SIN_PLAN). Ese es el origen.
+    const sinPlan = (await k.as(a.o).post('/v1/clientes', { nombre: 'Sin plan' })).json().id as string;
+    const v = await k.as(a.o).post('/v1/caja/validar', { clienteId: sinPlan }, randomUUID());
+    expect(v.json().resultado, v.body).toBe('SIN_PLAN');
+    const intento = await ultimoIntento(a.restauranteId, 'SIN_PLAN');
+    expect(
+      (await one<{ consumo_id: string | null }>('SELECT consumo_id FROM intento_escaneo WHERE intento_id = $1', [intento])).consumo_id,
+    ).toBeNull();
+    const c = await cuenta(a, { intento_id: intento });
+    expect(await k.rls(a.personal, 'SELECT intento_id, consumo_id FROM cuenta_cobro WHERE cuenta_id = $1', [c])).toEqual([
+      { intento_id: intento, consumo_id: null },
+    ]);
+    // Una cuenta no anulada por intento; el intento de otro local no sirve (FK compuesta por restaurante).
+    await expect(cuenta(a, { intento_id: intento })).rejects.toThrow(/uq_cuenta_por_intento/);
+    await expect(cuenta(a, { intento_id: await ultimoIntento(b.restauranteId) })).rejects.toThrow(/fk_cuenta_intento/);
+
+    // Cero orígenes o dos a la vez: no.
     await expect(cuenta(a, {})).rejects.toThrow(/ck_cuenta_origen_unico/);
-    await expect(
-      k.rls(
-        a.personal,
-        `INSERT INTO cuenta_cobro (restaurante_id, consumo_id, orden_id, nombre_pagador, momento_cobro, moneda_codigo, clave_idempotencia, huella,
-                                   personal_id, fecha_local)
-         VALUES ($1, $2, NULL, 'Ana', 'ANTES_DE_SERVIR', $4, gen_random_uuid(), repeat('a', 64), $3, CURRENT_DATE)`,
-        [a.restauranteId, a.consumo_id, a.personal_id, a.moneda],
-      ),
-    ).resolves.toEqual([]);
+    await expect(cuenta(a, { consumo_id: a.consumo_id, intento_id: await ultimoIntento(a.restauranteId, 'OK') })).rejects.toThrow(
+      /ck_cuenta_origen_unico/,
+    );
     await expect(
       k.rls(
         a.personal,
@@ -281,14 +304,19 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
       recargo_unitario_centavos: 25,
       recargo_centavos: 50,
     });
-    const pago = (origen: string, monto: number, estadoPago = 'CONFIRMADO') =>
+    const pago = (
+      origen: string,
+      monto: number,
+      estadoPago = 'CONFIRMADO',
+      id: string = origen === 'cuenta_cobro_id' ? c : a.suscripcion_id,
+    ) =>
       k.rls<{ pago_id: string }>(
         a.personal,
         `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, ${origen}, cobrado_por_personal_id,
                                        fecha_local, clave_idempotencia)
          SELECT $1, (SELECT metodo_pago_id FROM metodo_pago WHERE codigo = 'EFECTIVO' LIMIT 1), $2, $6, $3::estado_pago_enum, $4, $5, CURRENT_DATE, gen_random_uuid()
          RETURNING pago_id`,
-        [a.restauranteId, monto, estadoPago, origen === 'cuenta_cobro_id' ? c : a.suscripcion_id, a.personal_id, a.moneda],
+        [a.restauranteId, monto, estadoPago, id, a.personal_id, a.moneda],
       );
 
     // Con cuenta y otro origen a la vez: falla la CHECK nueva (ya no la de la baseline).
@@ -312,8 +340,55 @@ describe.skipIf(!probe)('Cuentas de cobro: tablas, libro de líneas, transicione
     await k.rls(a.personal, `UPDATE transaccion_pago SET estado = 'RECHAZADO' WHERE pago_id = $1`, [pendiente]);
     expect(await saldo(a.personal)).toEqual({ por_cobrar_centavos: '1050', pagado_centavos: '600', saldo_centavos: '450' });
 
-    // security_invoker: el comensal ve su cuenta en la vista, pero no los pagos (transaccion_pago no tiene política de
-    // comensal), así que su "saldo" no descuenta lo pagado. Hallazgo para el PR 5 (docs/estado.md).
-    expect(await saldo(a.comensal)).toEqual({ por_cobrar_centavos: '1050', pagado_centavos: '0', saldo_centavos: '1050' });
+    // El comensal pagador ve los pagos de su cuenta (política comensal_lee_pagos_cuenta), así que su saldo con pagos
+    // parciales es el mismo que ve la caja.
+    expect(await saldo(a.comensal)).toEqual({ por_cobrar_centavos: '1050', pagado_centavos: '600', saldo_centavos: '450' });
+  });
+
+  it('pagos para el comensal: solo los de sus cuentas; ni pagos sin cuenta ni de cuentas ajenas; nunca escribe', async () => {
+    const a = await escenario();
+    const otro = await k.internalUser((await k.diner()).usuarioId);
+    const mia = await cuenta(a);
+    const ajena = await cuenta({ ...a, usuario: otro }, { intento_id: await ultimoIntento(a.restauranteId) });
+    const pagar = (cuentaId: string | null, monto: number) =>
+      k.rls(
+        a.personal,
+        `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, cuenta_cobro_id, suscripcion_id,
+                                       cobrado_por_personal_id, fecha_local, clave_idempotencia)
+         SELECT $1, metodo_pago_id, $3, $5, $2, $4, $6, CURRENT_DATE, gen_random_uuid() FROM metodo_pago WHERE codigo = 'EFECTIVO' LIMIT 1`,
+        [a.restauranteId, cuentaId, monto, cuentaId ? null : a.suscripcion_id, a.moneda, a.personal_id],
+      );
+    await pagar(mia, 300);
+    await pagar(mia, 200);
+    await pagar(ajena, 999);
+    await pagar(null, 1500); // pago sin cuenta (un plan del mismo comensal): no se ve por esta política
+    const visibles = (ctx: Ctx) =>
+      k.rls<{ cuenta_cobro_id: string | null; monto_centavos: string }>(
+        ctx,
+        'SELECT cuenta_cobro_id, monto_centavos FROM transaccion_pago ORDER BY monto_centavos',
+      );
+
+    expect(await visibles(a.comensal)).toEqual([
+      { cuenta_cobro_id: mia, monto_centavos: '200' },
+      { cuenta_cobro_id: mia, monto_centavos: '300' },
+    ]);
+    expect(await visibles({ userId: otro })).toEqual([{ cuenta_cobro_id: ajena, monto_centavos: '999' }]);
+    expect(await visibles({ userId: await k.internalUser((await k.diner()).usuarioId) })).toEqual([]);
+    expect((await visibles(a.personal)).length).toBeGreaterThanOrEqual(4); // la caja ve todo lo de su local
+
+    // Solo lectura: el comensal no inserta, no actualiza ni borra pagos, ni de su propia cuenta.
+    await expect(
+      k.rls(
+        a.comensal,
+        `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, cuenta_cobro_id, cobrado_por_personal_id,
+                                       fecha_local, clave_idempotencia)
+         SELECT $1, metodo_pago_id, 1, $3, $2, $4, CURRENT_DATE, gen_random_uuid() FROM metodo_pago WHERE codigo = 'EFECTIVO' LIMIT 1`,
+        [a.restauranteId, mia, a.moneda, a.personal_id],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    expect(
+      await k.rls(a.comensal, `UPDATE transaccion_pago SET comprobante_url = 'x' WHERE cuenta_cobro_id = $1 RETURNING pago_id`, [mia]),
+    ).toEqual([]);
+    await expect(k.rls(a.comensal, 'DELETE FROM transaccion_pago WHERE cuenta_cobro_id = $1', [mia])).rejects.toThrow(/permission denied/);
   });
 });
