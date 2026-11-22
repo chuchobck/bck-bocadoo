@@ -104,9 +104,10 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       expect(real.json()).toMatchObject({ numero: 1, totalCentavos: 150 + R });
       expect(real.json().cotizacion.saldoPorCobrarCentavos).toBe(r.json().saldoPorCobrarCentavos);
       expect(real.json().cotizacion.recargoCentavos).toBe(r.json().recargoCentavos);
-      // Diferencia documentada: el pedido guarda el almuerzo cubierto en 0 (aún no hay snapshot de P), así que su cotización
-      // muestra el almuerzo a 0 y `cubierto` 0; el saldo por cobrar es el mismo. Se corrige con el snapshot (PR 4/5).
-      expect(real.json().cotizacion).toMatchObject({ subtotalCentavos: 150, cubiertoPorPlanCentavos: 0 });
+      // Con el snapshot de P (PR 5a, INC-06) la cotización del pedido creado es la misma que la de cotizar: el almuerzo
+      // vale P y lo cubre el plan (antes salía a 0 con `cubierto` 0).
+      expect(real.json().cotizacion).toMatchObject({ subtotalCentavos: P + 150, cubiertoPorPlanCentavos: P });
+      expect(real.json().cotizacion.lineas).toEqual(r.json().lineas);
     });
 
     it('mismos errores de validación que crear pedido', async () => {
@@ -264,12 +265,16 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       const canje = await k.as(o).post(`/v1/caja/pedidos/${p.id}/canjear`, undefined, randomUUID());
       expect(canje.statusCode, canje.body).toBe(200);
       expect(canje.json()).toMatchObject({ porCobrarCentavos: 100, almuerzo: { descontado: true } });
-      // El plan se gastó, pero el pedido se guardó cubierto: la cotización sigue diciendo 100.
+      // El plan se gastó en el canje; la cotización del pedido mira el consumo del pedido (no el plan de hoy, que ya está
+      // en 0): sigue cubierto, ahora con el precio guardado (snapshot de P).
       expect(canje.json().pedido.cotizacion).toMatchObject({
         saldoPorCobrarCentavos: 100,
-        cubiertoPorPlanCentavos: 0,
-        subtotalCentavos: 100,
+        cubiertoPorPlanCentavos: 350,
+        subtotalCentavos: 450,
       });
+      // La cotización final del canje dice lo mismo.
+      expect(canje.json().cotizacion).toMatchObject({ estimada: false, saldoPorCobrarCentavos: 100, cubiertoPorPlanCentavos: 350 });
+      expect(canje.json().cuenta).toBeNull();
       expect(canje.json().pedido.totalCentavos).toBe(100);
     });
 
