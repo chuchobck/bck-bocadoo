@@ -7286,7 +7286,7 @@
     },
     "/v1/clientes/{id}/planes": {
       "post": {
-        "description": "Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.",
+        "description": "Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado (el cajero, solo con `referenciaExterna`).",
         "operationId": "SalesController_sell",
         "parameters": [
           {
@@ -7428,6 +7428,44 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -8473,6 +8511,44 @@
               }
             }
           },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: application/problem+json con `code`: `TOO_MANY_REQUESTS`",
             "content": {
@@ -9457,7 +9533,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -10504,7 +10580,7 @@
         "x-dominio": "caja"
       },
       "post": {
-        "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.",
+        "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado (el cajero, solo con `referenciaExterna`).",
         "operationId": "PosController_sell",
         "parameters": [
           {
@@ -10640,6 +10716,44 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -10914,6 +11028,9 @@
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
                       "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11106,6 +11223,9 @@
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
                       "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11286,6 +11406,9 @@
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
                       "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -12643,7 +12766,7 @@
     },
     "/v1/caja/cuentas/{id}/cobrar": {
       "post": {
-        "description": "`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. `montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en `POST /v1/pagos/{id}/confirmar|rechazar`). Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.",
+        "description": "`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. `montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en `POST /v1/pagos/{id}/confirmar|rechazar`). Con `pagoConfirmado`, el cajero debe dar `referenciaExterna` (si no, 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.",
         "operationId": "CuentasController_cobrar",
         "parameters": [
           {
@@ -12870,7 +12993,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -16692,7 +16815,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -21545,7 +21668,7 @@
     },
     "/v1/ofertas/{id}/canjear": {
       "post": {
-        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.",
+        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez. Con TRANSFERENCIA o DEUNA, el cajero debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.",
         "operationId": "OffersController_redeem",
         "parameters": [
           {
@@ -21585,7 +21708,8 @@
               "example": {
                 "cantidad": 1,
                 "metodoPago": "EFECTIVO",
-                "comensalId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                "comensalId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                "referenciaExterna": "texto"
               }
             }
           }
@@ -21706,7 +21830,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`, `REFERENCIA_PAGO_REPETIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -21725,7 +21849,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -25974,7 +26098,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -25982,7 +26106,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Número de la transferencia o id de Deuna"
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           },
           "planId": {
             "type": "string",
@@ -26501,7 +26625,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -26509,7 +26633,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Número de la transferencia o id de Deuna"
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["metodoPago"]
@@ -27102,13 +27226,14 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada; si no, queda pendiente"
+            "description": "Transferencia o Deuna ya verificada; si no, queda pendiente. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string"
           },
           "referenciaExterna": {
-            "type": "string"
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["items", "metodoPago"]
@@ -27142,12 +27267,38 @@
             "example": 500,
             "description": "De `posCentavos`, lo cobrado en cuentas de cobro (QR, pedido, mesa) con este método, neto de reversos. No suma aparte."
           },
+          "confirmadoPorCajeroCentavos": {
+            "type": "number",
+            "example": 1400,
+            "description": "De `totalCentavos`, lo que dejó CONFIRMADO un cajero (al cobrar o al confirmar), neto de reversos: un reverso resta del grupo de quien confirmó el pago original. No suma aparte."
+          },
+          "confirmadoPorDuenoCentavos": {
+            "type": "number",
+            "example": 3000,
+            "description": "De `totalCentavos`, lo que dejó CONFIRMADO el dueño, neto de reversos. No suma aparte."
+          },
+          "confirmadoSinRegistroCentavos": {
+            "type": "number",
+            "example": 0,
+            "description": "De `totalCentavos`, pagos de antes de registrar quién confirma (sin dato), netos de reversos. Cajero + dueño + sin registro = `totalCentavos`."
+          },
           "totalCentavos": {
             "type": "number",
             "example": 4400
           }
         },
-        "required": ["metodo", "nombre", "esEfectivo", "planesCentavos", "posCentavos", "cuentasCentavos", "totalCentavos"]
+        "required": [
+          "metodo",
+          "nombre",
+          "esEfectivo",
+          "planesCentavos",
+          "posCentavos",
+          "cuentasCentavos",
+          "confirmadoPorCajeroCentavos",
+          "confirmadoPorDuenoCentavos",
+          "confirmadoSinRegistroCentavos",
+          "totalCentavos"
+        ]
       },
       "CuentasAbiertasResponse": {
         "type": "object",
@@ -27636,7 +27787,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -27644,7 +27795,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Id del depósito o de Deuna. Repetida → 409 `REFERENCIA_PAGO_REPETIDA`"
+            "description": "Id del depósito o de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           },
           "metodoPago": {
             "type": "string",
@@ -29143,6 +29294,10 @@
           "comensalId": {
             "type": "string",
             "description": "Comensal con cuenta (public_id), si lo identifican. Sin él, es un canje de mostrador."
+          },
+          "referenciaExterna": {
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna. El cobro queda confirmado, así que el cajero que cobra con TRANSFERENCIA o DEUNA debe darla (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["metodoPago"]
