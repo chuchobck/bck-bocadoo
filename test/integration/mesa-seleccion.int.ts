@@ -58,11 +58,13 @@ describe.skipIf(!probe)('Mesa compartida: selección de cada comensal', () => {
           { id: ids['Sopa de quinua'], nombre: 'Sopa de quinua', seccion: 'SOPA' },
           { id: ids['Seco de pollo'], nombre: 'Seco de pollo', seccion: 'FUERTE' },
         ],
+        ofertaId: null,
       },
       extras: [
         { id: ids['Huevo frito'], nombre: 'Huevo frito', categoria: 'EXTRA', cantidad: 2 },
         { id: ceviche.id, nombre: 'Ceviche', categoria: 'A_LA_CARTA', cantidad: 1 },
       ],
+      ofertas: [],
     });
     expectOnlyPublicIds(r.json());
 
@@ -74,11 +76,13 @@ describe.skipIf(!probe)('Mesa compartida: selección de cada comensal', () => {
     expect(solo.json().miembros.find((m: { soyYo: boolean }) => m.soyYo).seleccion).toEqual({
       almuerzo: null,
       extras: [{ id: ids['Cola'], nombre: 'Cola', categoria: 'BEBIDA', cantidad: 3 }],
+      ofertas: [],
     });
     // Un cuerpo vacío la borra.
     expect((await put(guest, id, {})).json().miembros.find((m: { soyYo: boolean }) => m.soyYo).seleccion).toEqual({
       almuerzo: null,
       extras: [],
+      ofertas: [],
     });
   });
 
@@ -190,7 +194,7 @@ describe.skipIf(!probe)('Mesa compartida: selección de cada comensal', () => {
       expect((await put(guest, id, bad)).statusCode, JSON.stringify(bad)).toBe(400);
 
     // Nada de lo anterior dejó huella.
-    expect((await miembros(guest, id)).find((m) => m.soyYo)!.seleccion).toEqual({ almuerzo: null, extras: [] });
+    expect((await miembros(guest, id)).find((m) => m.soyYo)!.seleccion).toEqual({ almuerzo: null, extras: [], ofertas: [] });
   });
 
   it('una selección rechazada no borra la anterior', async () => {

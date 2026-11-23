@@ -900,6 +900,17 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
      (3) `PATCH /v1/restaurante` rechaza P = 0 en un local `ACTIVO` (422 `PRECIO_ALMUERZO_REQUERIDO`, I-12) y `activar`
      bloquea la fila. Cambios de comportamiento (H.2): `pnpm openapi:breaking` no los detecta.
    - **Ofertas en la selección** (casos 29 y 33) pasan al **PR 7**, con las ofertas de pedidos.
+   - **7b (hecho):** ofertas flash en pedidos y mesas, y la regla completa de `SALDO_CAMBIO`. `almuerzo.ofertaId` y `ofertas[]` en
+     `POST /v1/mis/pedidos` (+ `/cotizar`) y en `PUT /v1/mis/mesas/{id}/seleccion`; el plato de la oferta del almuerzo (categoría
+     `ALMUERZO`) debe estar entre los `platos` elegidos (si no, 422 `OFERTA_NO_APLICA_ALMUERZO`). Elegir o pedir **no reserva stock** (I-7):
+     el stock se toma al canjear el pedido y al validar la mesa (`UPDATE` condicional, en orden de id; `src/cobro/ofertas.ts`), y cada
+     oferta cobrada deja un `canje_oferta_flash` con `cuenta_cobro_id` (sin pago propio: paga la cuenta) enlazado desde su línea. Una oferta
+     que ya no vale al canjear se recotiza como el plato suelto a su precio normal (el del plato; si no tiene, `precio_original` de la
+     oferta) y avisa (`OFERTA_AGOTADA` u `OFERTA_EXPIRADA`). `SALDO_CAMBIO` (I-6, G-37): **con o sin `cobro`**, si el saldo final difiere de
+     `cobro.saldoEsperadoCentavos` o, sin él, de `orden_cabecera.total_centavos`, 409 y la transacción se deshace (plan, stock y cobro).
+     `paraLlevar` por línea solo en el POS (`items[].paraLlevar`; el recargo del POS sigue siendo solo del almuerzo). Migración
+     `20261123120000_mesa_oferta_almuerzo`: función `fn_fijar_oferta_almuerzo` (SECURITY DEFINER); sin cambios de GRANT de tabla ni de RLS.
+     Integración: `ofertas-pedidos-mesas.int.ts` (casos 8, 29, 33, 37).
 7. **feat(orders,pos,offers): carta, offers and per-unit surcharge** — carta y ofertas en pedidos (E.2), `paraLlevar`
    por línea en POS (E.9), `paraLlevar` en el canje de oferta (E.10). Es el PR con cambios de comportamiento (recargo a
    la carta): se anuncia antes (H.2). Integración: casos 1–16, 24–27, 40–42, 49.

@@ -196,7 +196,7 @@ describe.skipIf(!probe)('PR 6c: huecos de cobro', () => {
       expect(despues.consumos).toBe(antes.consumos);
     });
 
-    it('sin SALDO_CAMBIO: el plan se agotó entre pedir y canjear → sin cobro abre la cuenta con el saldo nuevo; con cobro {} → 409', async () => {
+    it('SALDO_CAMBIO (PR 7b): el plan se agotó entre pedir y canjear → 409 con y sin cobro; confirmando el saldo nuevo abre la cuenta', async () => {
       const { o, d, p } = await pedido();
       await probe!.sql(`UPDATE suscripcion_plan SET almuerzos_restantes = 0, estado = 'AGOTADA' WHERE cliente_id = $1`, [d.clienteId]);
       const antes = await filas();
@@ -205,7 +205,12 @@ describe.skipIf(!probe)('PR 6c: huecos de cobro', () => {
       expect(x.json()).toMatchObject({ code: 'SALDO_CAMBIO', saldoCentavos: P + B + R });
       expect(await filas()).toEqual(antes);
 
-      const r = await canjear(o, p.id);
+      const sin = await canjear(o, p.id);
+      expect(sin.statusCode, sin.body).toBe(409);
+      expect(sin.json()).toMatchObject({ code: 'SALDO_CAMBIO', saldoCentavos: P + B + R });
+      expect(await filas()).toEqual(antes);
+
+      const r = await canjear(o, p.id, { cobro: { saldoEsperadoCentavos: P + B + R } });
       expect(r.statusCode, r.body).toBe(200);
       expect(r.json()).toMatchObject({
         almuerzo: { resultado: 'SIN_SALDO', descontado: false },
@@ -254,7 +259,10 @@ describe.skipIf(!probe)('PR 6c: huecos de cobro', () => {
     it('LIMITE_SAAS con plan: el almuerzo queda omitido (I-10) y la cuenta solo lleva la Cola; sin extras, sin cuenta', async () => {
       const a = await pedido();
       await suspender(a.o);
-      const r = await canjear(a.o, a.p.id);
+      // El saldo final (solo la Cola) difiere de lo estimado al pedir (almuerzo cubierto + Cola): 409 hasta confirmarlo.
+      const sin = await canjear(a.o, a.p.id);
+      expect(sin.json()).toMatchObject({ status: 409, code: 'SALDO_CAMBIO', saldoCentavos: B });
+      const r = await canjear(a.o, a.p.id, { cobro: { saldoEsperadoCentavos: B } });
       expect(r.json()).toMatchObject({
         almuerzo: { resultado: 'LIMITE_SAAS', descontado: false },
         avisos: [{ codigo: 'LIMITE_SAAS' }],
@@ -262,9 +270,9 @@ describe.skipIf(!probe)('PR 6c: huecos de cobro', () => {
       });
       expect(await saldoPlan(a.o, a.d.clienteId!)).toBe(5);
       const b = await pedido({ o: a.o, cola: false });
-      expect((await canjear(b.o, b.p.id)).json()).toMatchObject({
+      expect((await canjear(b.o, b.p.id, { cobro: { saldoEsperadoCentavos: 0 } })).json()).toMatchObject({
         almuerzo: { resultado: 'LIMITE_SAAS' },
-        cuenta: null,
+        cuenta: { estado: 'COBRADA', saldoCentavos: 0 }, // con `cobro` siempre hay cuenta (nace COBRADA con saldo 0)
         porCobrarCentavos: 0,
       });
     });
