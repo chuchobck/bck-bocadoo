@@ -131,6 +131,34 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
       expect((await k.as(o).get(`/v1/caja/cuentas/${r.json().cuenta.id}`)).json()).toMatchObject({ estado: 'COBRADA', saldoCentavos: 0 });
     });
 
+    it('reclamo aceptado (devolver) sobre un almuerzo de cuenta COBRADA → 409 CUENTA_COBRADA sin cambios; con cuenta ABIERTA la anula', async () => {
+      const { o, d, p } = await pedido({ cola: false });
+      const r = await canjear(o, p.id, { cobro: { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: R } });
+      const consumo = r.json().almuerzo.consumoId as string;
+      const rec = await k.as(d).post(`/v1/mis/consumos/${consumo}/reclamo`, { mensaje: 'Ese día no almorcé en el local.' }, randomUUID());
+      expect(rec.statusCode, rec.body).toBe(201);
+      const reclamoId = (await k.as(o).get('/v1/reclamos')).json()[0].id as string;
+      const dev = await k.as(o).post(`/v1/reclamos/${reclamoId}/devolver`, { respuesta: 'Sí.' });
+      expect(dev.statusCode, dev.body).toBe(409);
+      expect(dev.json().code).toBe('CUENTA_COBRADA');
+      expect(await saldoPlan(o, d.clienteId!)).toBe(4);
+      expect((await k.as(o).get(`/v1/caja/cuentas/${r.json().cuenta.id}`)).json()).toMatchObject({ estado: 'COBRADA', saldoCentavos: 0 });
+      expect((await k.as(o).get('/v1/reclamos')).json()).toEqual([expect.objectContaining({ estado: 'PENDIENTE' })]);
+
+      // Cuenta ABIERTA sin pagos: el reclamo aceptado revierte la línea y anula la cuenta (igual que deshacer).
+      const b = await pedido({ cola: false });
+      const r2 = await canjear(b.o, b.p.id, { cobro: {} });
+      const consumo2 = r2.json().almuerzo.consumoId as string;
+      await k.as(b.d).post(`/v1/mis/consumos/${consumo2}/reclamo`, { mensaje: 'Ese día no almorcé en el local.' }, randomUUID());
+      const reclamo2 = (await k.as(b.o).get('/v1/reclamos')).json()[0].id as string;
+      expect((await k.as(b.o).post(`/v1/reclamos/${reclamo2}/devolver`, {})).statusCode).toBe(200);
+      expect(await saldoPlan(b.o, b.d.clienteId!)).toBe(5);
+      expect((await k.as(b.o).get(`/v1/caja/cuentas/${r2.json().cuenta.id}`)).json()).toMatchObject({
+        estado: 'ANULADA',
+        saldoCentavos: 0,
+      });
+    });
+
     it('G-44 (pedido): cobrado en EFECTIVO y anulado → pago inverso, plan +1 y efectivo del día neto 0', async () => {
       const { o, d, p } = await pedido();
       const efectivo0 = await efectivoDelDia(o);
