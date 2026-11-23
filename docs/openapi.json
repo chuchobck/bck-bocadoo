@@ -5395,6 +5395,7 @@
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "categoria": "A_LA_CARTA",
+                      "seccion": "JUGO",
                       "nombre": "Encebollado",
                       "descripcion": "texto",
                       "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
@@ -25665,6 +25666,12 @@
             "type": "string",
             "enum": ["A_LA_CARTA", "EXTRA", "BEBIDA"]
           },
+          "seccion": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE", "ADICIONAL", null],
+            "description": "Sección habitual dentro del almuerzo; casi siempre null fuera de ese contexto."
+          },
           "nombre": {
             "type": "string",
             "example": "Encebollado"
@@ -25699,7 +25706,7 @@
             "description": "Orden de aparición dentro de su categoría"
           }
         },
-        "required": ["id", "categoria", "nombre", "descripcion", "fotoUrl", "etiquetas", "precioCentavos", "agotado", "orden"]
+        "required": ["id", "categoria", "seccion", "nombre", "descripcion", "fotoUrl", "etiquetas", "precioCentavos", "agotado", "orden"]
       },
       "CartaResponse": {
         "type": "object",
@@ -27527,7 +27534,7 @@
           },
           "paraLlevar": {
             "type": "boolean",
-            "description": "Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Solo el almuerzo paga recargo."
+            "description": "Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Paga recargo el almuerzo y el plato A_LA_CARTA (por su categoría o, suelto, por su sección); EXTRA y BEBIDA no."
           }
         },
         "required": ["tipo", "cantidad"]

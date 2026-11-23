@@ -125,6 +125,7 @@ describe.skipIf(!probe)('Carta fija: platos de carta, agotado por plato y lectur
     expect(body.items.map((i: { nombre: string }) => i.nombre)).toEqual(['Ceviche', 'Zarzuela', 'Aguacate', 'Cola']);
     expect(body.items[1]).toMatchObject({
       categoria: 'A_LA_CARTA',
+      seccion: null,
       descripcion: 'Mixta',
       fotoUrl: 'https://cdn.test/z.png',
       precioCentavos: 900,
