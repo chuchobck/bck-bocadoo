@@ -1966,6 +1966,8 @@ Response `200`:
 
 `agotado` es "agotado hoy" (lo marcan dueño o cajero) y vuelve solo a medianoche en la zona horaria del local.
 
+**Sin caché.** La respuesta (200 y también el 404) lleva siempre `Cache-Control: no-store, no-cache, must-revalidate`: ni la app ni un proxy guardan la carta, así que un cambio del dueño o del cajero (precio, plato nuevo, `agotado`) se ve en la siguiente lectura. El cliente no debe cachearla por su cuenta; para refrescarla, vuelve a pedirla.
+
 #### `POST /v1/restaurantes/{slug}/solicitudes-plan`
 
 **Pedir un plan a un restaurante (comensal con sesión)**
@@ -6305,6 +6307,12 @@ Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles). Migraciones n
 - `PUT /v1/mis/mesas/{id}/seleccion` y `miembros[].seleccion` en `GET /v1/mis/mesas`, `GET /v1/mis/mesas/{id}`, `GET /v1/caja/mesas/{id}` y `POST /v1/caja/mesas/{id}/validar`.
 - Códigos nuevos: `PLATO_NO_ENCONTRADO`, `PLATO_NO_ES_DE_CARTA`, `SELECCION_INVALIDA`. Se reutilizan `MENU_NO_PUBLICADO`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MESA_CERRADA`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO` y `ALMUERZO_INVALIDO`.
 - Cambio de comportamiento sin cambio de esquema: `GET /v1/menu/platos` ordena por categoría, `orden` y nombre (antes, categoría y nombre).
+
+### Carta sin caché (rama `feat/carta-sin-cache`)
+
+Solo adiciones al contrato (`oasdiff`: sin cambios incompatibles). Sin migración.
+
+- `GET /v1/restaurantes/{slug}/carta` responde siempre con `Cache-Control: no-store, no-cache, must-revalidate`, en el 200 y en el 404 `RESTAURANTE_NO_ENCONTRADO`; documentada como cabecera de respuesta en `docs/openapi.json`. El cuerpo y las categorías no cambian.
 
 ## 5. Mantenimiento de este contrato
 
