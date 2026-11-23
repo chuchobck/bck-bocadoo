@@ -60,3 +60,23 @@ export class SolicitudRechazadaResponse {
   @ApiProperty({ example: '7' }) id!: string;
   @ApiProperty({ enum: ['RECHAZADA'] }) estado!: string;
 }
+
+/** Transferencia/Deuna pendiente, de cualquier origen (plan, venta suelta o cuenta de cobro), para un solo listado del dueño. */
+export class PagoPendienteResponse {
+  @ApiProperty({ enum: ['PLAN', 'POS', 'CUENTA'], description: 'De dónde salió el cobro' }) origen!: string;
+  @ApiProperty({ format: 'uuid', description: 'public_id del pago; úsalo en /v1/pagos/{id}/confirmar o /rechazar' }) pagoId!: string;
+  @ApiProperty({
+    format: 'uuid',
+    description: 'public_id del plan vendido, la venta suelta o la cuenta de cobro, según `origen`',
+  })
+  origenId!: string;
+  @ApiProperty({ example: 1500, description: 'Centavos' }) montoCentavos!: number;
+  @ApiProperty({ example: 'TRANSFERENCIA' }) metodo!: string;
+  @ApiProperty({ example: '2026-11-23' }) fecha!: string;
+  @ApiProperty({ type: String, nullable: true }) comprobanteUrl!: string | null;
+  @ApiProperty() creadoEn!: Date;
+  @ApiProperty({ type: String, nullable: true, description: 'Nombre del cliente; null si el origen no tiene uno (venta POS sin cliente)' })
+  clienteNombre!: string | null;
+  @ApiProperty({ example: 'Plan semanal', description: 'Nombre del plan, mesa/ticket de la venta, o nombre del pagador de la cuenta' })
+  referencia!: string;
+}

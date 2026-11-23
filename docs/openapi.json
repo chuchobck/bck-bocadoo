@@ -7749,6 +7749,7 @@
     },
     "/v1/pagos/pendientes": {
       "get": {
+        "description": "De plan, venta suelta (POS) y cuenta de cobro, en un solo listado (`origen`).",
         "operationId": "SalesController_pending",
         "parameters": [
           {
@@ -7769,42 +7770,21 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PlanVendidoResponse"
+                    "$ref": "#/components/schemas/PagoPendienteResponse"
                   }
                 },
                 "example": [
                   {
-                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                    "cliente": {
-                      "id": "12",
-                      "nombre": "Ana Pérez"
-                    },
-                    "planId": "3",
-                    "origen": "VENTA",
-                    "nombrePlan": "Plan semanal",
-                    "almuerzosTotales": 5,
-                    "almuerzosRestantes": 5,
-                    "precioPagadoCentavos": 1500,
-                    "precioUnitarioCentavos": 300,
-                    "monedaCodigo": "USD",
-                    "diasValidos": [1, 2, 3, 4, 5],
-                    "compradaEn": "2026-11-13T17:00:00.000Z",
-                    "venceEl": "2026-11-27",
-                    "estado": "ACTIVA",
-                    "anuladaEn": "2026-11-13T17:00:00.000Z",
-                    "anotacion": "texto",
-                    "pago": {
-                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                      "estado": "CONFIRMADO",
-                      "metodo": "EFECTIVO",
-                      "montoCentavos": 1500,
-                      "fecha": "2026-11-13",
-                      "comprobanteUrl": "https://cdn.ejemplo.com/imagen.png",
-                      "reverso": {
-                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                        "montoCentavos": -1500
-                      }
-                    }
+                    "origen": "PLAN",
+                    "pagoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "origenId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "montoCentavos": 1500,
+                    "metodo": "TRANSFERENCIA",
+                    "fecha": "2026-11-23",
+                    "comprobanteUrl": "https://cdn.ejemplo.com/imagen.png",
+                    "creadoEn": "2026-11-13T17:00:00.000Z",
+                    "clienteNombre": "María Guamán",
+                    "referencia": "Plan semanal"
                   }
                 ]
               }
@@ -26355,6 +26335,69 @@
             "example": "Se cobró al cliente equivocado"
           }
         }
+      },
+      "PagoPendienteResponse": {
+        "type": "object",
+        "properties": {
+          "origen": {
+            "type": "string",
+            "enum": ["PLAN", "POS", "CUENTA"],
+            "description": "De dónde salió el cobro"
+          },
+          "pagoId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del pago; úsalo en /v1/pagos/{id}/confirmar o /rechazar"
+          },
+          "origenId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del plan vendido, la venta suelta o la cuenta de cobro, según `origen`"
+          },
+          "montoCentavos": {
+            "type": "number",
+            "example": 1500,
+            "description": "Centavos"
+          },
+          "metodo": {
+            "type": "string",
+            "example": "TRANSFERENCIA"
+          },
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-23"
+          },
+          "comprobanteUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "clienteNombre": {
+            "type": "string",
+            "nullable": true,
+            "description": "Nombre del cliente; null si el origen no tiene uno (venta POS sin cliente)"
+          },
+          "referencia": {
+            "type": "string",
+            "example": "Plan semanal",
+            "description": "Nombre del plan, mesa/ticket de la venta, o nombre del pagador de la cuenta"
+          }
+        },
+        "required": [
+          "origen",
+          "pagoId",
+          "origenId",
+          "montoCentavos",
+          "metodo",
+          "fecha",
+          "comprobanteUrl",
+          "creadoEn",
+          "clienteNombre",
+          "referencia"
+        ]
       },
       "PagadorCuentaResponse": {
         "type": "object",

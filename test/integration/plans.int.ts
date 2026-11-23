@@ -359,7 +359,7 @@ describe('Fase 6: plantillas, clientes, venta de planes, pagos, solicitudes y de
       const twice = await sell(o, c, p, randomUUID(), 'TRANSFERENCIA', { referenciaExterna: ref });
       expect(twice.statusCode).toBe(409);
       expect(twice.json().detail).toContain('mismo depósito');
-      expect((await as(o).get('/v1/pagos/pendientes')).json().map((x: { id: string }) => x.id)).toEqual([t.id]);
+      expect((await as(o).get('/v1/pagos/pendientes')).json()).toMatchObject([{ origen: 'PLAN', origenId: t.id, pagoId: t.pago.id }]);
       expect((await as(cashier).post(`/v1/pagos/${t.pago.id}/confirmar`)).statusCode).toBe(403);
       const ok = await as(o).post(`/v1/pagos/${t.pago.id}/confirmar`);
       expect(ok.json().pago.estado).toBe('CONFIRMADO');
