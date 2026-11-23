@@ -17,6 +17,7 @@ import { FechaOHoyPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
+import { resumenCuentasDia } from '../cobro/resumen-dia';
 import { PERSONAL_ACTUAL } from './checkout';
 import { CierreCajaResponse } from './responses';
 
@@ -38,6 +39,7 @@ interface MethodRow {
   es_efectivo: boolean;
   planes: string;
   pos: string;
+  cuentas: string;
 }
 
 @Injectable()
@@ -108,14 +110,16 @@ export class CashService {
 
   /**
    * Lo que debería haber según el sistema. Solo cuentan pagos CONFIRMADOS; los reversos restan el día en que se hacen.
-   * `planes` = cobros de planes; `pos` = todo lo demás (ventas sueltas, pedidos, ofertas y pagos de cuentas de cobro). Cada pago
+   * `planes` = cobros de planes; `pos` = todo lo demás (ventas sueltas, pedidos, ofertas y pagos de cuentas de cobro; `cuentas` es
+   * la parte de `pos` que viene de cuentas). Los almuerzos de cuentas COBRADAS suman a los sueltos (`resumen-dia.ts`). Cada pago
    * tiene un solo origen (`ck_pago_origen_unico`): el pago de una cuenta nunca es también el de su pedido, así que no se cuenta dos veces.
    */
   private async summary(q: Queryable, date: string) {
     const pay = await q.query<MethodRow>(
       `SELECT m.metodo_pago_id, m.codigo, m.nombre, m.es_efectivo,
               COALESCE(sum(p.monto_centavos) FILTER (WHERE p.suscripcion_id IS NOT NULL), 0) AS planes,
-              COALESCE(sum(p.monto_centavos) FILTER (WHERE p.suscripcion_id IS NULL), 0) AS pos
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE p.suscripcion_id IS NULL), 0) AS pos,
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE p.cuenta_cobro_id IS NOT NULL), 0) AS cuentas
          FROM transaccion_pago p JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
         WHERE p.restaurante_id = app_tenant_id() AND p.fecha_local = $1 AND p.estado = 'CONFIRMADO'
         GROUP BY m.metodo_pago_id, m.codigo, m.nombre, m.es_efectivo ORDER BY m.metodo_pago_id`,
@@ -133,29 +137,19 @@ export class CashService {
         [date],
       )
     ).rows[0]!;
+    const cuentas = await resumenCuentasDia(q, date);
     return {
       rows: pay.rows,
+      cuentasCobradas: { cantidad: cuentas.cobradas, totalCentavos: pay.rows.reduce((s, m) => s + Number(m.cuentas), 0) },
+      cuentasAbiertas: { cantidad: cuentas.abiertas, saldoCentavos: cuentas.saldoAbiertasCentavos },
       efectivoEsperadoCentavos: pay.rows.filter((m) => m.es_efectivo).reduce((s, m) => s + Number(m.planes) + Number(m.pos), 0),
       totalCentavos: pay.rows.reduce((s, m) => s + Number(m.planes) + Number(m.pos), 0),
       almuerzosConPlan: n.plan,
-      almuerzosSueltos: n.pos,
-      almuerzosServidos: n.plan + n.pos,
-      almuerzosParaLlevar: n.plan_llevar + n.pos_llevar,
+      almuerzosSueltos: n.pos + cuentas.almuerzosSueltos,
+      almuerzosServidos: n.plan + n.pos + cuentas.almuerzosSueltos,
+      almuerzosParaLlevar: n.plan_llevar + n.pos_llevar + cuentas.almuerzosSueltosParaLlevar,
       pagosPendientes: n.pendientes,
     };
-  }
-
-  /** Cuentas ABIERTAS del día y su saldo pendiente (I-15: se informan, no bloquean el cierre). */
-  private async cuentasAbiertas(q: Queryable, date: string) {
-    const r = (
-      await q.query<{ cantidad: number; saldo: string }>(
-        `SELECT count(*)::int AS cantidad, COALESCE(sum(s.saldo_centavos), 0) AS saldo
-           FROM cuenta_cobro c JOIN v_cuenta_saldo s ON s.cuenta_id = c.cuenta_id
-          WHERE c.restaurante_id = app_tenant_id() AND c.fecha_local = $1 AND c.estado = 'ABIERTA'`,
-        [date],
-      )
-    ).rows[0]!;
-    return { cantidad: r.cantidad, saldoCentavos: Number(r.saldo) };
   }
 
   private async view(q: Queryable, date: string) {
@@ -185,6 +179,7 @@ export class CashService {
         esEfectivo: m.es_efectivo,
         planesCentavos: Number(m.planes),
         posCentavos: Number(m.pos),
+        cuentasCentavos: Number(m.cuentas),
         totalCentavos: Number(m.planes) + Number(m.pos),
       })),
       almuerzosServidos: s.almuerzosServidos,
@@ -192,7 +187,8 @@ export class CashService {
       almuerzosSueltos: s.almuerzosSueltos,
       almuerzosParaLlevar: s.almuerzosParaLlevar,
       pagosPendientes: s.pagosPendientes,
-      cuentasAbiertas: await this.cuentasAbiertas(q, date),
+      cuentasAbiertas: s.cuentasAbiertas,
+      cuentasCobradas: s.cuentasCobradas,
       cierre: c
         ? {
             efectivoEsperadoCentavos: Number(c.efectivo_esperado_centavos),

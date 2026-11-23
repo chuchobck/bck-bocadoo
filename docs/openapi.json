@@ -10913,6 +10913,7 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
                       "totalCentavos": 4400
                     }
                   ],
@@ -10924,6 +10925,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -11100,6 +11105,7 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11111,6 +11117,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -11275,6 +11285,7 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11286,6 +11297,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -21960,7 +21975,8 @@
                       "planes": 1500,
                       "ventas": 700,
                       "ofertas": 900,
-                      "pedidos": 0
+                      "pedidos": 0,
+                      "cuentas": 450
                     },
                     "porMetodo": [
                       {
@@ -21978,6 +21994,12 @@
                     "reversos": 1,
                     "totalCentavos": 650,
                     "almuerzos": 5
+                  },
+                  "cuentas": {
+                    "cobradas": 1,
+                    "abiertas": 1,
+                    "saldoAbiertasCentavos": 650,
+                    "almuerzosSueltos": 5
                   },
                   "planesVendidos": {
                     "cantidad": 5,
@@ -22334,12 +22356,14 @@
                       "hora": 1,
                       "almuerzos": 5,
                       "ventas": 1,
+                      "cuentas": 1,
                       "total": 1
                     }
                   ],
                   "horaPico": 1,
                   "totalAlmuerzos": 5,
-                  "totalVentas": 1
+                  "totalVentas": 1,
+                  "totalCuentas": 1
                 }
               }
             }
@@ -22520,6 +22544,7 @@
                       "unidades": 1,
                       "unidadesVentas": 1,
                       "unidadesPedidos": 1,
+                      "unidadesCuentas": 1,
                       "ingresoCentavos": 650
                     }
                   ]
@@ -27110,14 +27135,19 @@
           "posCentavos": {
             "type": "number",
             "example": 1400,
-            "description": "Ventas sueltas, pedidos y ofertas, centavos"
+            "description": "Ventas sueltas, pedidos, ofertas y cuentas de cobro, centavos"
+          },
+          "cuentasCentavos": {
+            "type": "number",
+            "example": 500,
+            "description": "De `posCentavos`, lo cobrado en cuentas de cobro (QR, pedido, mesa) con este método, neto de reversos. No suma aparte."
           },
           "totalCentavos": {
             "type": "number",
             "example": 4400
           }
         },
-        "required": ["metodo", "nombre", "esEfectivo", "planesCentavos", "posCentavos", "totalCentavos"]
+        "required": ["metodo", "nombre", "esEfectivo", "planesCentavos", "posCentavos", "cuentasCentavos", "totalCentavos"]
       },
       "CuentasAbiertasResponse": {
         "type": "object",
@@ -27134,6 +27164,22 @@
           }
         },
         "required": ["cantidad", "saldoCentavos"]
+      },
+      "CuentasCobradasResponse": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 3,
+            "description": "Cuentas de cobro COBRADAS de ese día local"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "example": 1200,
+            "description": "Cobrado en cuentas ese día (pagos CONFIRMADOS netos de reversos, todos los métodos), centavos. Ya está en `totalCentavos`."
+          }
+        },
+        "required": ["cantidad", "totalCentavos"]
       },
       "CierreRegistradoResponse": {
         "type": "object",
@@ -27208,11 +27254,13 @@
           },
           "almuerzosSueltos": {
             "type": "number",
-            "example": 6
+            "example": 6,
+            "description": "Almuerzos vendidos a precio suelto: POS más líneas de almuerzo de cuentas COBRADAS (QR sin plan o con recargo, pedidos y mesas). Los de cuentas ABIERTAS o ANULADAS no cuentan; los del plan van en `almuerzosConPlan`."
           },
           "almuerzosParaLlevar": {
             "type": "number",
-            "example": 3
+            "example": 3,
+            "description": "Para llevar: planes, POS y cuentas COBRADAS"
           },
           "pagosPendientes": {
             "type": "number",
@@ -27224,6 +27272,14 @@
             "allOf": [
               {
                 "$ref": "#/components/schemas/CuentasAbiertasResponse"
+              }
+            ]
+          },
+          "cuentasCobradas": {
+            "description": "Lo cobrado en cuentas de cobro ese día. Informativo: ya está en `efectivoEsperadoCentavos` (la parte en efectivo) y en `totalCentavos`.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CuentasCobradasResponse"
               }
             ]
           },
@@ -27249,6 +27305,7 @@
           "almuerzosParaLlevar",
           "pagosPendientes",
           "cuentasAbiertas",
+          "cuentasCobradas",
           "cierre"
         ]
       },
@@ -29180,8 +29237,10 @@
               "planes": 1500,
               "ventas": 700,
               "ofertas": 900,
-              "pedidos": 0
-            }
+              "pedidos": 0,
+              "cuentas": 450
+            },
+            "description": "`cuentas` = pagos de cuentas de cobro (QR, pedido, mesa); `pedidos` = solo pagos antiguos ligados directo a un pedido. Cada pago cuenta en un solo origen."
           },
           "porMetodo": {
             "example": [
@@ -29227,6 +29286,28 @@
         },
         "required": ["tickets", "reversos", "totalCentavos", "almuerzos"]
       },
+      "CuentasDia": {
+        "type": "object",
+        "properties": {
+          "cobradas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS del día local"
+          },
+          "abiertas": {
+            "type": "number",
+            "description": "Cuentas que siguen ABIERTAS (no suman a ingresos)"
+          },
+          "saldoAbiertasCentavos": {
+            "type": "number",
+            "description": "Saldo pendiente de las ABIERTAS (centavos)"
+          },
+          "almuerzosSueltos": {
+            "type": "number",
+            "description": "Almuerzos a precio suelto en cuentas COBRADAS (los del plan van en `almuerzos`)"
+          }
+        },
+        "required": ["cobradas", "abiertas", "saldoAbiertasCentavos", "almuerzosSueltos"]
+      },
       "CantidadMonto": {
         "type": "object",
         "properties": {
@@ -29264,6 +29345,14 @@
           "ventasPos": {
             "$ref": "#/components/schemas/VentasPosDia"
           },
+          "cuentas": {
+            "description": "Cuentas de cobro del día; lo cobrado ya está en `ingresos`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CuentasDia"
+              }
+            ]
+          },
           "planesVendidos": {
             "description": "Planes vendidos ese día, sin los anulados ni las cartulinas migradas",
             "allOf": [
@@ -29290,7 +29379,18 @@
             "description": "Escaneos en caja"
           }
         },
-        "required": ["fecha", "zonaHoraria", "moneda", "almuerzos", "ingresos", "ventasPos", "planesVendidos", "ofertas", "escaneos"]
+        "required": [
+          "fecha",
+          "zonaHoraria",
+          "moneda",
+          "almuerzos",
+          "ingresos",
+          "ventasPos",
+          "cuentas",
+          "planesVendidos",
+          "ofertas",
+          "escaneos"
+        ]
       },
       "PlanVentas": {
         "type": "object",
@@ -29385,12 +29485,16 @@
             "type": "number",
             "description": "Tickets de ventas sueltas de esa hora (los deshechos no cuentan)"
           },
+          "cuentas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS creadas esa hora. Informativo: no entra en `total` (una cuenta con plan ya tiene su almuerzo en `almuerzos`)"
+          },
           "total": {
             "type": "number",
             "description": "almuerzos + ventas"
           }
         },
-        "required": ["hora", "almuerzos", "ventas", "total"]
+        "required": ["hora", "almuerzos", "ventas", "cuentas", "total"]
       },
       "HorasPicoResponse": {
         "type": "object",
@@ -29421,9 +29525,13 @@
           },
           "totalVentas": {
             "type": "number"
+          },
+          "totalCuentas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS del rango (informativo)"
           }
         },
-        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas"]
+        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas", "totalCuentas"]
       },
       "PlatoRanking": {
         "type": "object",
@@ -29442,7 +29550,7 @@
           },
           "unidades": {
             "type": "number",
-            "description": "unidadesVentas + unidadesPedidos"
+            "description": "unidadesVentas + unidadesPedidos + unidadesCuentas"
           },
           "unidadesVentas": {
             "type": "number",
@@ -29452,12 +29560,16 @@
             "type": "number",
             "description": "Incluidas en pedidos de comensales ya canjeados"
           },
+          "unidadesCuentas": {
+            "type": "number",
+            "description": "Cobradas en cuentas de cobro del QR y de mesa (las cuentas de pedido no cuentan aquí: sus platos ya están en `unidadesPedidos`)"
+          },
           "ingresoCentavos": {
             "type": "number",
             "description": "Lo cobrado por ese plato (centavos); los platos dentro del almuerzo cuestan 0"
           }
         },
-        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "ingresoCentavos"]
+        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "unidadesCuentas", "ingresoCentavos"]
       },
       "RankingResponse": {
         "type": "object",
