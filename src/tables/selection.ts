@@ -8,6 +8,8 @@ import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, HOY_LOCAL, restaurantePausado } from '../diner/common';
 import { platoAgotadoSql } from '../menu/carta';
 import { validarPlatoSuelto } from '../cobro/platos';
+import { cargarOfertas, validarOfertaDeAlmuerzo, validarOfertaParaPedir } from '../cobro/ofertas';
+import { OfertaItemDto, OfertaPedidaResponse } from '../cobro/ofertas.dto';
 
 /** Secciones que forman el almuerzo (igual que en los pedidos); lo demás va como plato suelto con cantidad. */
 export const SECCIONES_ALMUERZO = ['JUGO', 'SOPA', 'FUERTE', 'POSTRE'] as const;
@@ -23,6 +25,15 @@ class SeleccionAlmuerzoDto {
   @ArrayUnique()
   @Matches(UUID_RE, { each: true, message: 'cada plato debe ser un UUID' })
   platos!: string[];
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Oferta flash del almuerzo de este comensal: se cobra el precio de la oferta y no consume plan. Su plato (categoría ALMUERZO) debe ser uno de `platos`; ' +
+      'si no, 422 `OFERTA_NO_APLICA_ALMUERZO`. No reserva stock: se toma al validar la mesa en caja.',
+  })
+  @IsOptional()
+  @Matches(UUID_RE, { message: 'ofertaId debe ser un UUID' })
+  ofertaId?: string;
 }
 
 class SeleccionExtraDto {
@@ -46,6 +57,20 @@ export class SeleccionDto {
   @ValidateNested({ each: true })
   @Type(() => SeleccionExtraDto)
   extras?: SeleccionExtraDto[];
+  @ApiPropertyOptional({
+    type: [OfertaItemDto],
+    maxItems: 5,
+    description:
+      'Ofertas flash de este comensal como ítems (su plato, al precio de la oferta; no consumen plan). Solo ofertas con plato. ' +
+      'El plato de una oferta no puede repetirse en `almuerzo` ni en `extras`.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ArrayUnique((o: OfertaItemDto) => String(o?.oferta).toLowerCase())
+  @ValidateNested({ each: true })
+  @Type(() => OfertaItemDto)
+  ofertas?: OfertaItemDto[];
 }
 
 class PlatoAlmuerzoSeleccion {
@@ -55,6 +80,8 @@ class PlatoAlmuerzoSeleccion {
 }
 class AlmuerzoSeleccion {
   @ApiProperty({ type: [PlatoAlmuerzoSeleccion] }) platos!: PlatoAlmuerzoSeleccion[];
+  @ApiProperty({ type: String, format: 'uuid', nullable: true, description: 'Oferta flash del almuerzo; null si no hay' })
+  ofertaId!: string | null;
 }
 class ExtraSeleccion {
   @ApiProperty({ format: 'uuid' }) id!: string;
@@ -66,9 +93,15 @@ export class SeleccionMiembroResponse {
   @ApiPropertyOptional({ type: AlmuerzoSeleccion, nullable: true, description: 'null = no eligió almuerzo' })
   almuerzo!: AlmuerzoSeleccion | null;
   @ApiProperty({ type: [ExtraSeleccion] }) extras!: ExtraSeleccion[];
+  @ApiProperty({ type: [OfertaPedidaResponse], description: 'Ofertas flash elegidas como ítems (vacío si no eligió ninguna)' })
+  ofertas!: OfertaPedidaResponse[];
 }
 
-type Seleccion = { almuerzo: { platos: { id: string; nombre: string; seccion: string }[] } | null; extras: ExtraSeleccion[] };
+type Seleccion = {
+  almuerzo: { platos: { id: string; nombre: string; seccion: string }[]; ofertaId: string | null } | null;
+  extras: ExtraSeleccion[];
+  ofertas: OfertaPedidaResponse[];
+};
 const ORDEN_SECCION: Record<string, number> = { JUGO: 1, SOPA: 2, FUERTE: 3, POSTRE: 4 };
 
 /**
@@ -83,29 +116,54 @@ export async function loadSelections(q: Queryable, mesaId: string): Promise<Map<
     categoria: string;
     seccion: string | null;
     cantidad: number;
+    oferta_public_id: string | null;
+    oferta_titulo: string | null;
+    oferta_precio: string | null;
   }>(
-    `SELECT i.miembro_id, p.public_id, p.nombre, p.categoria, i.seccion, i.cantidad
+    `SELECT i.miembro_id, p.public_id, p.nombre, p.categoria, i.seccion, i.cantidad,
+            o.public_id AS oferta_public_id, o.titulo AS oferta_titulo, o.precio_centavos AS oferta_precio
        FROM mesa_compartida_miembro_item i JOIN plato p ON p.restaurante_id = i.restaurante_id AND p.plato_id = i.plato_id
+       LEFT JOIN oferta_flash o ON o.restaurante_id = i.restaurante_id AND o.oferta_flash_id = i.oferta_flash_id
       WHERE i.mesa_compartida_id = $1 ORDER BY i.item_id`,
     [mesaId],
   );
   const out = new Map<string, Seleccion>();
   for (const row of r.rows) {
-    const s = out.get(String(row.miembro_id)) ?? { almuerzo: null, extras: [] };
+    const s = out.get(String(row.miembro_id)) ?? { almuerzo: null, extras: [], ofertas: [] };
     if (row.seccion) {
-      s.almuerzo ??= { platos: [] };
+      s.almuerzo ??= { platos: [], ofertaId: null };
       s.almuerzo.platos.push({ id: row.public_id, nombre: row.nombre, seccion: row.seccion });
       s.almuerzo.platos.sort((a, b) => ORDEN_SECCION[a.seccion]! - ORDEN_SECCION[b.seccion]!);
+    } else if (row.oferta_public_id) {
+      const precio = Number(row.oferta_precio);
+      s.ofertas.push({
+        id: row.oferta_public_id,
+        titulo: row.oferta_titulo!,
+        cantidad: row.cantidad,
+        precioUnitarioCentavos: precio,
+        subtotalCentavos: row.cantidad * precio,
+      });
     } else {
       s.extras.push({ id: row.public_id, nombre: row.nombre, categoria: row.categoria, cantidad: row.cantidad });
     }
     out.set(String(row.miembro_id), s);
   }
+  // Oferta del almuerzo de cada miembro (columna de la fila del miembro; la escribe fn_fijar_oferta_almuerzo).
+  const of = await q.query<{ miembro_id: string; oferta_public_id: string }>(
+    `SELECT x.miembro_id, o.public_id AS oferta_public_id
+       FROM mesa_compartida_miembro x JOIN oferta_flash o ON o.restaurante_id = x.restaurante_id AND o.oferta_flash_id = x.almuerzo_oferta_flash_id
+      WHERE x.mesa_compartida_id = $1`,
+    [mesaId],
+  );
+  for (const x of of.rows) {
+    const s = out.get(String(x.miembro_id));
+    if (s?.almuerzo) s.almuerzo.ofertaId = x.oferta_public_id;
+  }
   return out;
 }
 
 export const seleccionDe = (m: Map<string, Seleccion>, miembroId: string): Seleccion =>
-  m.get(String(miembroId)) ?? { almuerzo: null, extras: [] };
+  m.get(String(miembroId)) ?? { almuerzo: null, extras: [], ofertas: [] };
 
 const saliste = () => conflict('SALISTE_DE_LA_MESA', 'Saliste de esta mesa: vuelve a unirte con el link para elegir.');
 
@@ -164,6 +222,32 @@ export class TableSelectionService {
       if (extras.some((e) => lunchIds.includes(e.plato)))
         throw badRequest('SELECCION_INVALIDA', 'Un plato del almuerzo no puede repetirse como plato suelto.');
 
+      // Ofertas (E.8): existen en el local, tienen plato y se pueden elegir ahora; el stock no se reserva (se toma al validar
+      // la mesa en caja, I-7). La del almuerzo es de un plato ALMUERZO de los elegidos; las sueltas no repiten plato.
+      const ofertaAlmuerzoId = dto.almuerzo?.ofertaId?.toLowerCase() ?? null;
+      const ofertasPedidas = (dto.ofertas ?? []).map((o) => ({ oferta: o.oferta.toLowerCase(), cantidad: o.cantidad }));
+      const ofertas = await cargarOfertas(q, m.restaurante_id, [
+        ...(ofertaAlmuerzoId ? [ofertaAlmuerzoId] : []),
+        ...ofertasPedidas.map((o) => o.oferta),
+      ]);
+      const necesita = new Map<string, number>();
+      if (ofertaAlmuerzoId) necesita.set(ofertaAlmuerzoId, 1);
+      for (const o of ofertasPedidas) necesita.set(o.oferta, (necesita.get(o.oferta) ?? 0) + o.cantidad);
+      const ofertaOk = (id: string) => validarOfertaParaPedir(ofertas.get(id), necesita.get(id)!);
+      const ofertaAlmuerzo = ofertaAlmuerzoId ? ofertaOk(ofertaAlmuerzoId) : null;
+      if (ofertaAlmuerzo) validarOfertaDeAlmuerzo(ofertaAlmuerzo, lunchIds);
+      const ofertasSueltas = ofertasPedidas.map((o) => ({ ...o, fila: ofertaOk(o.oferta) }));
+      const platosUsados = new Set([...lunchIds, ...extras.map((e) => e.plato)]);
+      for (const o of ofertasSueltas) {
+        const plato = o.fila.plato_public_id.toLowerCase();
+        if (platosUsados.has(plato))
+          throw badRequest(
+            'SELECCION_INVALIDA',
+            'El plato de una oferta no puede repetirse en el almuerzo, en los platos sueltos ni en otra oferta.',
+          );
+        platosUsados.add(plato);
+      }
+
       // Menú publicado de hoy (fecha local del local), si lo hay.
       const menuId = (
         await q.query<{ menu_diario_id: string }>(
@@ -194,7 +278,7 @@ export class TableSelectionService {
         return p;
       };
 
-      const rows: { plato_id: string; seccion: string | null; cantidad: number }[] = [];
+      const rows: { plato_id: string; seccion: string | null; cantidad: number; oferta_flash_id?: string }[] = [];
       const sections: string[] = [];
       for (const id of lunchIds) {
         const p = get(id);
@@ -211,6 +295,9 @@ export class TableSelectionService {
         rows.push({ plato_id: p.plato_id, seccion: null, cantidad: e.cantidad });
       }
 
+      for (const o of ofertasSueltas)
+        rows.push({ plato_id: o.fila.plato_id!, seccion: null, cantidad: o.cantidad, oferta_flash_id: o.fila.oferta_flash_id });
+
       // Reemplaza la selección completa. El candado evita que dos envíos simultáneos del mismo miembro se pisen, y es el
       // mismo de fn_salir_mesa y de validar la mesa: si el miembro salió (o la caja validó) mientras tanto, se ve aquí.
       await q.query('SELECT pg_advisory_xact_lock($1::bigint)', [m.miembro_id]);
@@ -226,11 +313,13 @@ export class TableSelectionService {
       await q.query('DELETE FROM mesa_compartida_miembro_item WHERE miembro_id = $1', [m.miembro_id]);
       for (const row of rows) {
         await q.query(
-          `INSERT INTO mesa_compartida_miembro_item (miembro_id, mesa_compartida_id, restaurante_id, plato_id, seccion, cantidad)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [m.miembro_id, m.mesa_compartida_id, m.restaurante_id, row.plato_id, row.seccion, row.cantidad],
+          `INSERT INTO mesa_compartida_miembro_item (miembro_id, mesa_compartida_id, restaurante_id, plato_id, seccion, cantidad, oferta_flash_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [m.miembro_id, m.mesa_compartida_id, m.restaurante_id, row.plato_id, row.seccion, row.cantidad, row.oferta_flash_id ?? null],
         );
       }
+      // Oferta del almuerzo: columna de la fila del miembro, que el comensal no puede escribir; la fija (o quita) la función.
+      await q.query('SELECT fn_fijar_oferta_almuerzo($1::bigint, $2::uuid)', [m.miembro_id, ofertaAlmuerzoId]);
     });
   }
 }

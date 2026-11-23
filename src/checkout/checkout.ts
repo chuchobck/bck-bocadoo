@@ -28,6 +28,7 @@ import { assertMenuPublicado } from '../diner/common';
 import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
 import { STEP_SECONDS, issuePassCode, parsePassCode, stepOf, verifyPassCode } from './pass-code';
 import { loadSelections, seleccionDe } from '../tables/selection';
+import { avisoDeCaida, cargarOfertas, lineasDeOferta, registrarCanjes, tomarStocks } from '../cobro/ofertas';
 import { cotizar } from '../billing/cotizar';
 import { type Aviso, CotizarError, type Cotizacion, type MomentoCobro, type PlanPersona } from '../billing/tipos';
 import { type CotizacionesMesa, SIN_PLAN, aRespuesta, cotizacionDePersona, entradaMesa, entradaQr } from '../cobro/adaptador';
@@ -917,6 +918,60 @@ export class CheckoutService {
     const descontados = new Map<string, ResultadoDescuento>(); // personaRef → lo que respondió la base
     const fallas = new Map<string, Resultado>(); // pagadorRef → primer resultado que no descontó
     const consumos = new Map<string, string[]>(); // pagadorRef → consumos internos, en el orden de sus líneas PLAN
+    // Ofertas (I-7): el stock se toma aquí, al validar la mesa en caja, por lo que de verdad se cobra (sin las líneas
+    // omitidas). Una oferta que ya no vale no descuenta nada y su línea se recotiza a precio normal (D4).
+    const avisosOferta: Cotizacion['avisos'] = [];
+    let previa: Cotizacion;
+    try {
+      previa = cotizar(entradaMesa(paraCobro), { estimada: false });
+    } catch (e) {
+      if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')
+        throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y algún plan no lo cubre.');
+      throw e;
+    }
+    // Ofertas que ya no valían al leer la selección (cerradas, vencidas, sin stock): su línea ya va a precio normal; solo falta avisar.
+    const yaCaidas = new Map<string, { refs: string[] }>();
+    for (const m of paraCobro.miembros) {
+      const sel = m.seleccion;
+      if (sel?.almuerzoOferta?.vigente === false)
+        yaCaidas.set(sel.almuerzoOferta.ofertaId, {
+          refs: [...(yaCaidas.get(sel.almuerzoOferta.ofertaId)?.refs ?? []), `${m.ref}:almuerzo`],
+        });
+      for (const o of sel?.ofertas ?? [])
+        if (o.vigente === false)
+          yaCaidas.set(o.ofertaId, { refs: [...(yaCaidas.get(o.ofertaId)?.refs ?? []), `${m.ref}:oferta:${o.ofertaId}`] });
+    }
+    if (yaCaidas.size) {
+      const filas = await cargarOfertas(q, String(mesa.restaurante_id), [...yaCaidas.keys()]);
+      for (const [ofertaId, { refs }] of yaCaidas) {
+        const estado = filas.get(ofertaId.toLowerCase())?.estado;
+        for (const lineaRef of refs)
+          avisosOferta.push({ codigo: avisoDeCaida(estado && estado !== 'VIGENTE' ? estado : 'STOCK_INSUFICIENTE'), lineaRef });
+      }
+    }
+    const necesidades = new Map<string, number>();
+    for (const l of lineasDeOferta(previa.lineas)) necesidades.set(l.ofertaId!, (necesidades.get(l.ofertaId!) ?? 0) + l.cantidad);
+    if (necesidades.size) {
+      const tomas = await tomarStocks(
+        q,
+        [...necesidades].map(([ofertaId, cantidad]) => ({ ofertaId, cantidad })),
+      );
+      for (const [ofertaId, motivo] of tomas) {
+        if (!motivo) continue;
+        for (const m of paraCobro.miembros) {
+          const sel = m.seleccion;
+          if (sel?.almuerzoOferta?.ofertaId === ofertaId) {
+            sel.almuerzoOferta.vigente = false;
+            avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: `${m.ref}:almuerzo` });
+          }
+          for (const o of sel?.ofertas ?? []) {
+            if (o.ofertaId !== ofertaId) continue;
+            o.vigente = false;
+            avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: `${m.ref}:oferta:${o.ofertaId}` });
+          }
+        }
+      }
+    }
     let cot: Cotizacion;
     try {
       ({ cotizacion: cot } = await descontarYRecotizar(entradaMesa(paraCobro), async (u) => {
@@ -937,12 +992,20 @@ export class CheckoutService {
         throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y algún plan no lo cubre.');
       throw e;
     }
+    cot = { ...cot, avisos: [...cot.avisos, ...avisosOferta] };
+    const cotFinal = cot;
 
     // Una cuenta por pagador con algo por cobrar (los de saldo 0 no la tienen: el plan cubrió todo o todo se omitió).
     const cuentaDe = new Map<string, string>(); // pagadorRef → cuenta interna
     for (const t of cot.porPagador) {
-      if (t.saldo <= 0) continue;
       const p = porRef.get(t.pagadorRef)!;
+      const usuarioId = p.usuario_id === null ? null : String(p.usuario_id);
+      if (t.saldo <= 0) {
+        // Sin cuenta (el plan cubrió todo o todo es gratis) las ofertas igual se canjean: el stock ya se tomó.
+        if (lineasDeOferta(cot.lineas, t.pagadorRef).length)
+          await registrarCanjes(q, { key, pagadorRef: t.pagadorRef, cuentaId: null, usuarioId, lineas: cot.lineas });
+        continue;
+      }
       cuentaDe.set(
         t.pagadorRef,
         await persistirCuenta(q, {
@@ -960,6 +1023,9 @@ export class CheckoutService {
           momentoCobro: paraCobro.momentoCobro,
           paraLlevar: p.para_llevar,
           huella: firma,
+          canjear: lineasDeOferta(cot.lineas, t.pagadorRef).length
+            ? (cuentaId) => registrarCanjes(q, { key, pagadorRef: t.pagadorRef, cuentaId, usuarioId, lineas: cotFinal.lineas })
+            : undefined,
         }),
       );
     }
