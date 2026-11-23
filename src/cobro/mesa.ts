@@ -47,13 +47,22 @@ async function cargarSelecciones(q: Queryable, mesaId: string): Promise<Map<stri
     cantidad: number;
     precio: string | null;
     agotado: boolean;
+    oferta_public_id: string | null;
+    oferta_titulo: string | null;
+    oferta_precio: string | null;
+    oferta_precio_original: string | null;
+    oferta_vigente: boolean | null;
   }>(
     `SELECT i.miembro_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, i.seccion, i.cantidad,
             COALESCE(d.precio_centavos, p.precio_centavos) AS precio,
-            (COALESCE(d.agotado, false) OR ${platoAgotadoSql('p', 'r')}) AS agotado
+            (COALESCE(d.agotado, false) OR ${platoAgotadoSql('p', 'r')}) AS agotado,
+            o.public_id AS oferta_public_id, o.titulo AS oferta_titulo, o.precio_centavos AS oferta_precio,
+            COALESCE(p.precio_centavos, o.precio_original_centavos) AS oferta_precio_original,
+            (o.activa AND o.inicia_en <= CURRENT_TIMESTAMP AND o.expira_en > CURRENT_TIMESTAMP AND o.stock_restante >= i.cantidad) AS oferta_vigente
        FROM mesa_compartida_miembro_item i
        JOIN plato p ON p.restaurante_id = i.restaurante_id AND p.plato_id = i.plato_id
        JOIN restaurante r ON r.restaurante_id = i.restaurante_id
+       LEFT JOIN oferta_flash o ON o.restaurante_id = i.restaurante_id AND o.oferta_flash_id = i.oferta_flash_id
        LEFT JOIN menu_diario_cabecera c ON c.restaurante_id = i.restaurante_id AND c.publicado_en IS NOT NULL
             AND c.fecha_local = (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date
        LEFT JOIN menu_diario_detalle d ON d.menu_diario_id = c.menu_diario_id AND d.plato_id = i.plato_id
@@ -66,6 +75,21 @@ async function cargarSelecciones(q: Queryable, mesaId: string): Promise<Map<stri
     if (x.seccion) {
       s.almuerzo = true;
       s.almuerzoAgotado = s.almuerzoAgotado || x.agotado;
+    } else if (x.oferta_public_id) {
+      // Oferta como ítem: al precio de la oferta mientras valga; si no, el plato a su precio normal (se confirma al validar).
+      (s.ofertas ??= []).push({
+        ofertaId: x.oferta_public_id,
+        titulo: x.oferta_titulo!,
+        platoId: x.public_id,
+        platoNombre: x.nombre,
+        categoria: x.categoria,
+        seccion: x.plato_seccion,
+        cantidad: x.cantidad,
+        precioOferta: Number(x.oferta_precio),
+        precioNormal: Number(x.oferta_precio_original),
+        vigente: x.oferta_vigente === true,
+        disponible: !x.agotado,
+      });
     } else if (x.precio !== null) {
       const e: PlatoSuelto = {
         platoId: x.public_id,
@@ -79,6 +103,18 @@ async function cargarSelecciones(q: Queryable, mesaId: string): Promise<Map<stri
       s.extras.push(e);
     }
     out.set(String(x.miembro_id), s);
+  }
+  // Oferta del almuerzo de cada miembro (si eligió almuerzo).
+  const of = await q.query<{ miembro_id: string; oferta_public_id: string; precio: string; vigente: boolean }>(
+    `SELECT x.miembro_id, o.public_id AS oferta_public_id, o.precio_centavos AS precio,
+            (o.activa AND o.inicia_en <= CURRENT_TIMESTAMP AND o.expira_en > CURRENT_TIMESTAMP AND o.stock_restante >= 1) AS vigente
+       FROM mesa_compartida_miembro x JOIN oferta_flash o ON o.restaurante_id = x.restaurante_id AND o.oferta_flash_id = x.almuerzo_oferta_flash_id
+      WHERE x.mesa_compartida_id = $1`,
+    [mesaId],
+  );
+  for (const x of of.rows) {
+    const s = out.get(String(x.miembro_id));
+    if (s?.almuerzo) s.almuerzoOferta = { ofertaId: x.oferta_public_id, precio: Number(x.precio), vigente: x.vigente };
   }
   return out;
 }

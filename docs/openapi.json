@@ -1865,7 +1865,8 @@
                                 "nombre": "Doña Rosa",
                                 "seccion": "JUGO"
                               }
-                            ]
+                            ],
+                            "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                           },
                           "extras": [
                             {
@@ -1873,6 +1874,15 @@
                               "nombre": "Doña Rosa",
                               "categoria": "BEBIDA",
                               "cantidad": 2
+                            }
+                          ],
+                          "ofertas": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "titulo": "texto",
+                              "cantidad": 5,
+                              "precioUnitarioCentavos": 650,
+                              "subtotalCentavos": 650
                             }
                           ]
                         },
@@ -2129,7 +2139,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -2137,6 +2148,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -2422,7 +2442,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -2430,6 +2451,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -9820,7 +9850,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -9828,6 +9859,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -10113,7 +10153,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -10121,6 +10162,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -10619,7 +10669,8 @@
                     "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "precioUnitarioCentavos": 650,
-                    "cantidad": 1
+                    "cantidad": 1,
+                    "paraLlevar": true
                   }
                 ],
                 "metodoPago": "EFECTIVO",
@@ -14665,7 +14716,7 @@
     },
     "/v1/mis/pedidos": {
       "post": {
-        "description": "El pedido vence 30 minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los `extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.",
+        "description": "El pedido vence 30 minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los `extras` sí). `totalCentavos` es el saldo de la cotización. Ofertas flash: `almuerzo.ofertaId` (almuerzo al precio de la oferta, sin plan) y `ofertas` (ítems); no reservan stock, se toma al canjear en caja. Un pedido en camino a la vez por local.",
         "operationId": "DinerOrdersController_create",
         "parameters": [
           {
@@ -14689,7 +14740,8 @@
                 "restaurante": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                 "paraLlevar": true,
                 "almuerzo": {
-                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"]
+                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"],
+                  "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 },
                 "extras": [
                   {
@@ -14700,6 +14752,12 @@
                 "cartaItems": [
                   {
                     "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "cantidad": 1
+                  }
+                ],
+                "ofertas": [
+                  {
+                    "oferta": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "cantidad": 1
                   }
                 ],
@@ -14737,7 +14795,8 @@
                       }
                     ],
                     "precioCentavos": 650,
-                    "cubiertoPorPlan": true
+                    "cubiertoPorPlan": true,
+                    "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                   },
                   "extras": [
                     {
@@ -14753,6 +14812,15 @@
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "categoria": "A_LA_CARTA",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "ofertas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "titulo": "texto",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -14857,7 +14925,7 @@
             }
           },
           "404": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`, `OFERTA_NO_ENCONTRADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14876,7 +14944,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`, `IDEMPOTENCY_KEY_REUTILIZADA`, `OFERTA_AGOTADA`, `OFERTA_EXPIRADA`, `OFERTA_CERRADA`, `OFERTA_NO_INICIADA`, `STOCK_INSUFICIENTE`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14895,7 +14963,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`",
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `OFERTA_NO_APLICA_ALMUERZO`, `OFERTA_SIN_PLATO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15016,7 +15084,8 @@
                           }
                         ],
                         "precioCentavos": 650,
-                        "cubiertoPorPlan": true
+                        "cubiertoPorPlan": true,
+                        "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                       },
                       "extras": [
                         {
@@ -15032,6 +15101,15 @@
                           "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                           "nombre": "Doña Rosa",
                           "categoria": "A_LA_CARTA",
+                          "cantidad": 5,
+                          "precioUnitarioCentavos": 650,
+                          "subtotalCentavos": 650
+                        }
+                      ],
+                      "ofertas": [
+                        {
+                          "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "titulo": "texto",
                           "cantidad": 5,
                           "precioUnitarioCentavos": 650,
                           "subtotalCentavos": 650
@@ -15203,7 +15281,8 @@
                 "restaurante": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                 "paraLlevar": true,
                 "almuerzo": {
-                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"]
+                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"],
+                  "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 },
                 "extras": [
                   {
@@ -15214,6 +15293,12 @@
                 "cartaItems": [
                   {
                     "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "cantidad": 1
+                  }
+                ],
+                "ofertas": [
+                  {
+                    "oferta": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "cantidad": 1
                   }
                 ],
@@ -15319,7 +15404,7 @@
             }
           },
           "404": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`, `OFERTA_NO_ENCONTRADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15338,7 +15423,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`, `OFERTA_AGOTADA`, `OFERTA_EXPIRADA`, `OFERTA_CERRADA`, `OFERTA_NO_INICIADA`, `STOCK_INSUFICIENTE`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15357,7 +15442,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`",
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `OFERTA_NO_APLICA_ALMUERZO`, `OFERTA_SIN_PLATO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15466,7 +15551,8 @@
                       }
                     ],
                     "precioCentavos": 650,
-                    "cubiertoPorPlan": true
+                    "cubiertoPorPlan": true,
+                    "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                   },
                   "extras": [
                     {
@@ -15482,6 +15568,15 @@
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "categoria": "A_LA_CARTA",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "ofertas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "titulo": "texto",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -15695,7 +15790,8 @@
                       }
                     ],
                     "precioCentavos": 650,
-                    "cubiertoPorPlan": true
+                    "cubiertoPorPlan": true,
+                    "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                   },
                   "extras": [
                     {
@@ -15711,6 +15807,15 @@
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "categoria": "A_LA_CARTA",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "ofertas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "titulo": "texto",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -15960,7 +16065,8 @@
                         }
                       ],
                       "precioCentavos": 650,
-                      "cubiertoPorPlan": true
+                      "cubiertoPorPlan": true,
+                      "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                     },
                     "extras": [
                       {
@@ -15976,6 +16082,15 @@
                         "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                         "nombre": "Doña Rosa",
                         "categoria": "A_LA_CARTA",
+                        "cantidad": 5,
+                        "precioUnitarioCentavos": 650,
+                        "subtotalCentavos": 650
+                      }
+                    ],
+                    "ofertas": [
+                      {
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "titulo": "texto",
                         "cantidad": 5,
                         "precioUnitarioCentavos": 650,
                         "subtotalCentavos": 650
@@ -16206,7 +16321,8 @@
                       }
                     ],
                     "precioCentavos": 650,
-                    "cubiertoPorPlan": true
+                    "cubiertoPorPlan": true,
+                    "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                   },
                   "extras": [
                     {
@@ -16222,6 +16338,15 @@
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "categoria": "A_LA_CARTA",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "ofertas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "titulo": "texto",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -16499,7 +16624,8 @@
                         }
                       ],
                       "precioCentavos": 650,
-                      "cubiertoPorPlan": true
+                      "cubiertoPorPlan": true,
+                      "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                     },
                     "extras": [
                       {
@@ -16515,6 +16641,15 @@
                         "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                         "nombre": "Doña Rosa",
                         "categoria": "A_LA_CARTA",
+                        "cantidad": 5,
+                        "precioUnitarioCentavos": 650,
+                        "subtotalCentavos": 650
+                      }
+                    ],
+                    "ofertas": [
+                      {
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "titulo": "texto",
                         "cantidad": 5,
                         "precioUnitarioCentavos": 650,
                         "subtotalCentavos": 650
@@ -16936,7 +17071,8 @@
                       }
                     ],
                     "precioCentavos": 650,
-                    "cubiertoPorPlan": true
+                    "cubiertoPorPlan": true,
+                    "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                   },
                   "extras": [
                     {
@@ -16952,6 +17088,15 @@
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "categoria": "A_LA_CARTA",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "ofertas": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "titulo": "texto",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -17238,7 +17383,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -17246,6 +17392,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -17519,7 +17674,8 @@
                                 "nombre": "Doña Rosa",
                                 "seccion": "JUGO"
                               }
-                            ]
+                            ],
+                            "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                           },
                           "extras": [
                             {
@@ -17527,6 +17683,15 @@
                               "nombre": "Doña Rosa",
                               "categoria": "BEBIDA",
                               "cantidad": 2
+                            }
+                          ],
+                          "ofertas": [
+                            {
+                              "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                              "titulo": "texto",
+                              "cantidad": 5,
+                              "precioUnitarioCentavos": 650,
+                              "subtotalCentavos": 650
                             }
                           ]
                         },
@@ -17751,7 +17916,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -17759,6 +17925,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -17970,7 +18145,7 @@
     },
     "/v1/mis/mesas/{id}/seleccion": {
       "put": {
-        "description": "Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.",
+        "description": "Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Ofertas flash por comensal: `almuerzo.ofertaId` y `ofertas` (no reservan stock; se toma al validar la mesa en caja). Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.",
         "operationId": "TablesController_setSelection",
         "parameters": [
           {
@@ -17991,11 +18166,18 @@
               },
               "example": {
                 "almuerzo": {
-                  "platos": ["uuid-sopa", "uuid-fuerte"]
+                  "platos": ["uuid-sopa", "uuid-fuerte"],
+                  "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 },
                 "extras": [
                   {
                     "plato": "texto",
+                    "cantidad": 1
+                  }
+                ],
+                "ofertas": [
+                  {
+                    "oferta": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "cantidad": 1
                   }
                 ]
@@ -18042,7 +18224,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -18050,6 +18233,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -18192,7 +18384,7 @@
             }
           },
           "404": {
-            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`",
+            "description": "application/problem+json con `code`: `MESA_NO_ENCONTRADA`, `OFERTA_NO_ENCONTRADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18211,7 +18403,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `MESA_CERRADA`, `SALISTE_DE_LA_MESA`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`",
+            "description": "application/problem+json con `code`: `MESA_CERRADA`, `SALISTE_DE_LA_MESA`, `RESTAURANTE_PAUSADO`, `RESTAURANTE_NO_DISPONIBLE`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `OFERTA_AGOTADA`, `OFERTA_EXPIRADA`, `OFERTA_CERRADA`, `OFERTA_NO_INICIADA`, `STOCK_INSUFICIENTE`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18230,7 +18422,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`",
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `OFERTA_NO_APLICA_ALMUERZO`, `OFERTA_SIN_PLATO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18350,7 +18542,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -18358,6 +18551,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -18638,7 +18840,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -18646,6 +18849,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -19117,7 +19329,8 @@
                               "nombre": "Doña Rosa",
                               "seccion": "JUGO"
                             }
-                          ]
+                          ],
+                          "ofertaId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                         },
                         "extras": [
                           {
@@ -19125,6 +19338,15 @@
                             "nombre": "Doña Rosa",
                             "categoria": "BEBIDA",
                             "cantidad": 2
+                          }
+                        ],
+                        "ofertas": [
+                          {
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "titulo": "texto",
+                            "cantidad": 5,
+                            "precioUnitarioCentavos": 650,
+                            "subtotalCentavos": 650
                           }
                         ]
                       },
@@ -26916,9 +27138,15 @@
             "items": {
               "$ref": "#/components/schemas/PlatoAlmuerzoSeleccion"
             }
+          },
+          "ofertaId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Oferta flash del almuerzo; null si no hay"
           }
         },
-        "required": ["platos"]
+        "required": ["platos", "ofertaId"]
       },
       "ExtraSeleccion": {
         "type": "object",
@@ -26942,6 +27170,30 @@
         },
         "required": ["id", "nombre", "categoria", "cantidad"]
       },
+      "OfertaPedidaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de la oferta"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "cantidad": {
+            "type": "integer"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "description": "Precio de la oferta al pedir (centavos, congelado)"
+          },
+          "subtotalCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["id", "titulo", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
+      },
       "SeleccionMiembroResponse": {
         "type": "object",
         "properties": {
@@ -26960,9 +27212,16 @@
             "items": {
               "$ref": "#/components/schemas/ExtraSeleccion"
             }
+          },
+          "ofertas": {
+            "description": "Ofertas flash elegidas como ítems (vacío si no eligió ninguna)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaPedidaResponse"
+            }
           }
         },
-        "required": ["extras"]
+        "required": ["extras", "ofertas"]
       },
       "MiembroMesaResponse": {
         "type": "object",
@@ -27222,6 +27481,10 @@
           "cantidad": {
             "type": "number",
             "example": 1
+          },
+          "paraLlevar": {
+            "type": "boolean",
+            "description": "Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Solo el almuerzo paga recargo."
           }
         },
         "required": ["tipo", "cantidad"]
@@ -27241,7 +27504,7 @@
           },
           "paraLlevar": {
             "type": "boolean",
-            "description": "Suma el recargo para llevar del local por cada almuerzo"
+            "description": "Suma el recargo para llevar del local por cada almuerzo; cada línea puede cambiarlo con su propio `paraLlevar`"
           },
           "mesaTexto": {
             "type": "string",
@@ -28089,6 +28352,11 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "ofertaId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Oferta flash del almuerzo: se cobra el precio de la oferta y no se consume el plan. Su plato (categoría ALMUERZO) debe ser uno de `platos`; si no, 422 `OFERTA_NO_APLICA_ALMUERZO`. No reserva stock: se toma al canjear en caja."
           }
         },
         "required": ["platos"]
@@ -28127,6 +28395,23 @@
         },
         "required": ["platoId", "cantidad"]
       },
+      "OfertaItemDto": {
+        "type": "object",
+        "properties": {
+          "oferta": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de la oferta flash (con plato) del local"
+          },
+          "cantidad": {
+            "type": "integer",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": ["oferta", "cantidad"]
+      },
       "CrearPedidoDto": {
         "type": "object",
         "properties": {
@@ -28155,6 +28440,14 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CartaItemDto"
+            }
+          },
+          "ofertas": {
+            "maxItems": 5,
+            "description": "Ofertas flash pedidas como ítems (su plato, al precio de la oferta; no consumen plan). A lo sumo 5, sin repetir oferta. Solo ofertas con plato (422 `OFERTA_SIN_PLATO`). El stock no se reserva: se toma al canjear en caja.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaItemDto"
             }
           },
           "horaLlegada": {
@@ -28218,9 +28511,15 @@
           "cubiertoPorPlan": {
             "type": "boolean",
             "description": "El plan cubría el almuerzo al pedir (precioCentavos = 0)"
+          },
+          "ofertaId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Oferta flash del almuerzo (precioCentavos es el de la oferta); null si no hay"
           }
         },
-        "required": ["platos", "precioCentavos", "cubiertoPorPlan"]
+        "required": ["platos", "precioCentavos", "cubiertoPorPlan", "ofertaId"]
       },
       "ExtraPedido": {
         "type": "object",
@@ -28328,6 +28627,13 @@
               "$ref": "#/components/schemas/CartaItemPedido"
             }
           },
+          "ofertas": {
+            "description": "Ofertas flash pedidas como ítems (vacío si no pidió ninguna)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaPedidaResponse"
+            }
+          },
           "recargoLlevarCentavos": {
             "type": "number"
           },
@@ -28392,6 +28698,7 @@
           "almuerzo",
           "extras",
           "cartaItems",
+          "ofertas",
           "recargoLlevarCentavos",
           "totalCentavos",
           "monedaCodigo",
@@ -28476,6 +28783,13 @@
               "$ref": "#/components/schemas/CartaItemPedido"
             }
           },
+          "ofertas": {
+            "description": "Ofertas flash pedidas como ítems (vacío si no pidió ninguna)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaPedidaResponse"
+            }
+          },
           "recargoLlevarCentavos": {
             "type": "number"
           },
@@ -28555,6 +28869,7 @@
           "almuerzo",
           "extras",
           "cartaItems",
+          "ofertas",
           "recargoLlevarCentavos",
           "totalCentavos",
           "monedaCodigo",
@@ -28572,7 +28887,7 @@
         "type": "object",
         "properties": {
           "cobro": {
-            "description": "Opcional. Sin `cobro`, si el saldo final es > 0 se abre la cuenta `ABIERTA` del pedido sin pago (desde el PR 6c) y nunca hay `SALDO_CAMBIO`; con saldo 0, sin cuenta. Con `cobro` (aunque sea `{}`) siempre crea la cuenta del pedido; con `metodoPago`, registra el pago en la misma transacción. Con `cobro`, si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` del pedido) → 409 `SALDO_CAMBIO` sin descontar el plan ni cobrar nada.",
+            "description": "Opcional. Sin `cobro`, si el saldo final es > 0 se abre la cuenta `ABIERTA` del pedido sin pago (desde el PR 6c); con saldo 0, sin cuenta. Con `cobro`, la cuenta del pedido se crea también solo si el saldo final es > 0 (saldo 0 = sin cuenta, así el canje se puede deshacer en 10 s); con `metodoPago`, registra el pago en la misma transacción. Con o sin `cobro`, si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` del pedido: la estimación al pedir) → 409 `SALDO_CAMBIO` sin descontar el plan, tomar stock de ofertas ni cobrar nada (oferta caída, plan sin saldo, día no válido). La caja reenvía con `cobro.saldoEsperadoCentavos` igual al saldo nuevo para confirmarlo (basta `cobro` sin `metodoPago` si es 0).",
             "allOf": [
               {
                 "$ref": "#/components/schemas/CobroDto"
@@ -28718,6 +29033,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "ofertaId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Oferta flash del almuerzo de este comensal: se cobra el precio de la oferta y no consume plan. Su plato (categoría ALMUERZO) debe ser uno de `platos`; si no, 422 `OFERTA_NO_APLICA_ALMUERZO`. No reserva stock: se toma al validar la mesa en caja."
           }
         },
         "required": ["platos"]
@@ -28754,6 +29074,14 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SeleccionExtraDto"
+            }
+          },
+          "ofertas": {
+            "maxItems": 5,
+            "description": "Ofertas flash de este comensal como ítems (su plato, al precio de la oferta; no consumen plan). Solo ofertas con plato. El plato de una oferta no puede repetirse en `almuerzo` ni en `extras`.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfertaItemDto"
             }
           }
         }

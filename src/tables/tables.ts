@@ -455,14 +455,26 @@ export class TablesController {
   @ApiOperation({
     summary: 'Elegir mi almuerzo y mis platos en la mesa (reemplaza mi selección completa)',
     description:
-      'Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.',
+      'Cualquier miembro, sobre lo suyo, mientras la mesa esté abierta (antes de que la caja la valide). Se valida contra el menú publicado de hoy y los agotados; los platos sueltos pueden ser de la carta fija. Ofertas flash por comensal: `almuerzo.ofertaId` y `ofertas` (no reservan stock; se toma al validar la mesa en caja). Repetir la misma petición deja el mismo resultado; un cuerpo vacío `{}` borra la selección. El anfitrión ve la de todos en `miembros[].seleccion`; un invitado solo la suya.',
   })
   @ApiOkResponse({ type: MesaResponse })
   @ApiProblems({
     400: ['ALMUERZO_INVALIDO', 'SELECCION_INVALIDA'],
-    404: ['MESA_NO_ENCONTRADA'],
-    409: ['MESA_CERRADA', 'SALISTE_DE_LA_MESA', 'RESTAURANTE_PAUSADO', 'RESTAURANTE_NO_DISPONIBLE', 'MENU_NO_PUBLICADO', 'PLATO_AGOTADO'],
-    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
+    404: ['MESA_NO_ENCONTRADA', 'OFERTA_NO_ENCONTRADA'],
+    409: [
+      'MESA_CERRADA',
+      'SALISTE_DE_LA_MESA',
+      'RESTAURANTE_PAUSADO',
+      'RESTAURANTE_NO_DISPONIBLE',
+      'MENU_NO_PUBLICADO',
+      'PLATO_AGOTADO',
+      'OFERTA_AGOTADA',
+      'OFERTA_EXPIRADA',
+      'OFERTA_CERRADA',
+      'OFERTA_NO_INICIADA',
+      'STOCK_INSUFICIENTE',
+    ],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'OFERTA_NO_APLICA_ALMUERZO', 'OFERTA_SIN_PLATO'],
   })
   async setSelection(@CurrentUser() user: AuthUser, @Param('id', UuidPipe) id: string, @Body() dto: SeleccionDto) {
     await this.selection.set(user, id, dto);

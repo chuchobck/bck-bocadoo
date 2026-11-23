@@ -115,6 +115,11 @@ export interface CuentaNueva {
   paraLlevar: boolean;
   /** sha256 de la entrada normalizada: misma llave con otro cuerpo → 409 (F.3). */
   huella: string;
+  /**
+   * Ofertas de la cuenta: se llama con la cuenta ya creada y antes de sus líneas, y devuelve public_id de oferta → canje
+   * interno, que cada línea OFERTA guarda (`canje_oferta_id`). El stock ya se tomó antes de cotizar (src/cobro/ofertas.ts).
+   */
+  canjear?: (cuentaId: string) => Promise<Map<string, string>>;
 }
 
 export const claveCuenta = (key: string, pagadorRef: string) => deriveKey(key, `cuenta:${pagadorRef}`);
@@ -150,6 +155,7 @@ async function insertarLineas(
   lineas: LineaCotizada[],
   clave: (l: LineaCotizada) => string,
   consumos: string[] = [],
+  canjes: Map<string, string> = new Map(),
 ): Promise<void> {
   const platos = await idsInternos(q, 'plato', [...new Set(lineas.flatMap((l) => (l.platoId ? [l.platoId] : [])))]);
   const ofertas = await idsInternos(q, 'oferta_flash', [...new Set(lineas.flatMap((l) => (l.ofertaId ? [l.ofertaId] : [])))]);
@@ -159,9 +165,9 @@ async function insertarLineas(
     await q.query(
       `INSERT INTO cuenta_cobro_linea (cuenta_id, restaurante_id, ref, persona_ref, tipo, fuente, pagador, omitida, plato_id, oferta_flash_id,
                                        consumo_id, nombre, cantidad, precio_unitario_centavos, recargo_unitario_centavos, subtotal_centavos,
-                                       recargo_centavos, cubierto_centavos, clave_idempotencia)
+                                       recargo_centavos, cubierto_centavos, clave_idempotencia, canje_oferta_id)
        VALUES ($1, app_tenant_id(), $2, $3, $4::tipo_linea_cobro_enum, $5::fuente_cobro_enum, $6::pagador_linea_enum, $7::motivo_omision_enum,
-               $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+               $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
       [
         cuentaId,
         l.ref,
@@ -181,6 +187,7 @@ async function insertarLineas(
         l.recargoCentavos,
         l.cubiertoPorPlanCentavos,
         clave(l),
+        l.fuente === 'OFERTA' && l.ofertaId ? (canjes.get(l.ofertaId.toLowerCase()) ?? null) : null,
       ],
     );
   }
@@ -223,7 +230,8 @@ export async function persistirCuenta(q: Queryable, c: CuentaNueva): Promise<str
       ],
     )
   ).rows[0]!.cuenta_id;
-  await insertarLineas(q, String(cuentaId), lineas, (l) => claveLinea(c.key, c.pagadorRef, l.ref), c.consumos);
+  const canjes = c.canjear ? await c.canjear(String(cuentaId)) : undefined;
+  await insertarLineas(q, String(cuentaId), lineas, (l) => claveLinea(c.key, c.pagadorRef, l.ref), c.consumos, canjes);
   return String(cuentaId);
 }
 

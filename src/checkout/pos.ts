@@ -65,6 +65,13 @@ class ItemVentaDto {
   @Max(10_000_000)
   precioUnitarioCentavos?: number;
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(100) cantidad!: number;
+  @ApiPropertyOptional({
+    description:
+      'Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Solo el almuerzo paga recargo.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  paraLlevar?: boolean;
 }
 
 export class VentaDto {
@@ -76,7 +83,9 @@ export class VentaDto {
   @Type(() => ItemVentaDto)
   items!: ItemVentaDto[];
   @ApiProperty({ enum: METODOS }) @IsIn(METODOS) metodoPago!: (typeof METODOS)[number];
-  @ApiPropertyOptional({ description: 'Suma el recargo para llevar del local por cada almuerzo' })
+  @ApiPropertyOptional({
+    description: 'Suma el recargo para llevar del local por cada almuerzo; cada línea puede cambiarlo con su propio `paraLlevar`',
+  })
   @IsOptional()
   @IsBoolean()
   paraLlevar?: boolean;
@@ -124,12 +133,15 @@ export class PosService {
           )
         ).rows[0]!;
         const lines: Line[] = [];
-        let almuerzos = 0;
+        let almuerzos = 0; // almuerzos para llevar (por línea o heredado de la venta): los que pagan recargo
+        let algunoParaLlevar = false;
         for (const it of dto.items) {
+          const llevar = it.paraLlevar ?? dto.paraLlevar ?? false;
+          algunoParaLlevar ||= llevar;
           if (it.tipo === 'ALMUERZO') {
             if (Number(rest.precio) <= 0) throw new ConflictException('El restaurante no tiene precio de almuerzo suelto.');
             lines.push({ platoId: null, nombre: 'Almuerzo', esAlmuerzo: true, cantidad: it.cantidad, precio: Number(rest.precio) });
-            almuerzos += it.cantidad;
+            if (llevar) almuerzos += it.cantidad;
           } else if (it.tipo === 'PLATO') {
             if (!it.platoId) throw new BadRequestException('Falta platoId en un item de tipo PLATO.');
             const p = (
@@ -153,7 +165,7 @@ export class PosService {
             lines.push({ platoId: null, nombre: it.nombre, esAlmuerzo: false, cantidad: it.cantidad, precio: it.precioUnitarioCentavos });
           }
         }
-        if (dto.paraLlevar && almuerzos > 0 && Number(rest.recargo) > 0) {
+        if (almuerzos > 0 && Number(rest.recargo) > 0) {
           lines.push({
             platoId: null,
             nombre: 'Recargo para llevar',
@@ -179,7 +191,7 @@ export class PosService {
         const ventaId = await this.insertHeader(q, {
           total,
           key,
-          paraLlevar: dto.paraLlevar ?? false,
+          paraLlevar: algunoParaLlevar,
           mesaTexto: dto.mesaTexto ?? null,
           revierteA: null,
         });

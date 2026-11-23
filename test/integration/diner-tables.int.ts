@@ -63,7 +63,7 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
         paraLlevar: true,
         soyYo: true,
         salio: false,
-        seleccion: { almuerzo: null, extras: [] },
+        seleccion: { almuerzo: null, extras: [], ofertas: [] },
         // Sin selección cuenta 1 almuerzo (I-4); sin plan, y para llevar: 350 + 25.
         cotizacion: expect.objectContaining({ estimada: true, totalCentavos: 375, saldoPorCobrarCentavos: 375, monedaCodigo: 'USD' }),
       },

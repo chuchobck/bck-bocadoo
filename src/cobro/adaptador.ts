@@ -5,6 +5,7 @@
 import { cotizar } from '../billing/cotizar';
 import {
   CotizarError,
+  type CategoriaBase,
   type Cotizacion,
   type EntradaCobro,
   type ItemCobro,
@@ -101,6 +102,67 @@ const lineaAlmuerzo = (personaRef: string, ref: string, precio: number, disponib
   platoId: null,
 });
 
+/** Almuerzo de una oferta (D4): al precio de la oferta, sin plan. Si la oferta ya no vale (`vigente` false), un almuerzo normal. */
+export interface OfertaAlmuerzo {
+  /** public_id de la oferta. */
+  ofertaId: string;
+  precio: number;
+  vigente?: boolean;
+}
+
+/** Oferta pedida como ítem suelto (`ofertas[]`): su plato, al precio de la oferta; sin vigencia, al precio normal del plato. */
+export interface OfertaSuelta {
+  /** public_id de la oferta. */
+  ofertaId: string;
+  titulo: string;
+  platoId: string;
+  platoNombre: string;
+  categoria: CategoriaPlato;
+  seccion?: string | null;
+  cantidad: number;
+  precioOferta: number;
+  /** Precio normal del plato (carta; si no tiene, el original de la oferta): lo que cuesta si la oferta cayó entre pedir y canjear. */
+  precioNormal: number;
+  /** false = la oferta ya no vale: se cotiza como el plato suelto, a su precio normal. */
+  vigente?: boolean;
+  /** Solo MESA: el plato se agotó hoy. */
+  disponible?: boolean;
+}
+
+const lineaOferta = (personaRef: string, ref: string, o: OfertaSuelta, flujoMesa: boolean): ItemCobro =>
+  o.vigente === false
+    ? lineaPlato(
+        personaRef,
+        ref,
+        {
+          platoId: o.platoId,
+          nombre: o.platoNombre,
+          categoria: o.categoria,
+          seccion: o.seccion,
+          cantidad: o.cantidad,
+          precioUnitario: o.precioNormal,
+          disponible: o.disponible,
+        },
+        flujoMesa,
+      )
+    : {
+        ref,
+        personaRef,
+        tipo: 'OFERTA',
+        cantidad: o.cantidad,
+        precioUnitario: o.precioOferta,
+        paraLlevar: null,
+        ofertaId: o.ofertaId,
+        // Categoría del plato de la oferta: decide el recargo (B.3 paso 3).
+        categoriaBase: o.categoria as CategoriaBase,
+        disponible: flujoMesa ? (o.disponible ?? true) : true,
+        nombre: o.titulo,
+        platoId: o.platoId,
+      };
+
+const lineaAlmuerzoOferta = (personaRef: string, ref: string, P: number, o: OfertaAlmuerzo | null | undefined): ItemCobro =>
+  o && o.vigente !== false ? { ...lineaAlmuerzo(personaRef, ref, o.precio), ofertaId: o.ofertaId } : lineaAlmuerzo(personaRef, ref, P);
+
 /**
  * Cotización de una respuesta informativa: nunca hace fallar la lectura. Un almuerzo de caja con P = 0 (I-12) no se
  * puede cotizar y da null; cualquier otro CotizarError es un error de programación y sí se propaga.
@@ -124,16 +186,21 @@ export interface PedidoParaCobro extends Precios {
   /** Platos de la carta fija pedidos aparte (`cartaItems`). Ref `carta:i`, por posición. */
   carta?: PlatoSuelto[];
   plan: PlanPersona;
+  /** Oferta del almuerzo (`almuerzo.ofertaId`): precio de la oferta y sin plan (D4). */
+  almuerzoOferta?: OfertaAlmuerzo | null;
+  /** Ofertas pedidas como ítems (`ofertas`). Ref `oferta:i`, por posición. */
+  ofertas?: OfertaSuelta[];
 }
 
 /** Flujo PREORDEN: una sola persona (ref "0"), el almuerzo (si hay), los extras del menú de hoy y la carta. */
 export function entradaPedido(p: PedidoParaCobro): EntradaCobro {
   const persona: PersonaCobro = { ref: '0', orden: 0, esAnfitrion: true, paraLlevar: false, plan: p.plan };
   const items: ItemCobro[] = [];
-  if (p.conAlmuerzo) items.push(lineaAlmuerzo('0', 'almuerzo', p.precioAlmuerzo));
+  if (p.conAlmuerzo) items.push(lineaAlmuerzoOferta('0', 'almuerzo', p.precioAlmuerzo, p.almuerzoOferta));
   // Por posición: un pedido puede repetir un mismo plato en dos renglones.
   p.extras.forEach((e, i) => items.push(lineaPlato('0', `extra:${i}`, e, false)));
   (p.carta ?? []).forEach((e, i) => items.push(lineaPlato('0', `carta:${i}`, e, false)));
+  (p.ofertas ?? []).forEach((o, i) => items.push(lineaOferta('0', `oferta:${i}`, o, false)));
   return {
     flujo: 'PREORDEN',
     modoMesa: null,
@@ -168,7 +235,9 @@ export function entradaPedidoCreado(
     const plan: PlanPersona = p.canjeado ? (p.canjeado.conConsumo ? { estado: 'OK', disponibles: 1 } : SIN_PLAN) : p.plan;
     return entradaPedido({ ...p, precioAlmuerzo: p.precioAlmuerzo, plan });
   }
-  const extras = [...p.extras, ...(p.carta ?? [])].reduce((s, e) => s + e.cantidad * e.precioUnitario, 0);
+  const extras =
+    [...p.extras, ...(p.carta ?? [])].reduce((s, e) => s + e.cantidad * e.precioUnitario, 0) +
+    (p.ofertas ?? []).reduce((s, o) => s + o.cantidad * o.precioOferta, 0);
   const precioAlmuerzo = Math.max(0, p.subtotal - extras);
   const plan: PlanPersona = p.conAlmuerzo && precioAlmuerzo === 0 ? { estado: 'OK', disponibles: Math.max(1, p.plan.disponibles) } : p.plan;
   return entradaPedido({ ...p, precioAlmuerzo, plan });
@@ -194,7 +263,14 @@ export interface MiembroParaCobro {
   /** Plan del miembro; null = quien consulta no puede leerlo (RLS). */
   plan: PlanPersona | null;
   /** Lo que eligió; null o vacía = no eligió nada. */
-  seleccion: { almuerzo: boolean; almuerzoAgotado?: boolean; extras: PlatoSuelto[] } | null;
+  seleccion: {
+    almuerzo: boolean;
+    almuerzoAgotado?: boolean;
+    extras: PlatoSuelto[];
+    /** Oferta del almuerzo de este miembro. */
+    almuerzoOferta?: OfertaAlmuerzo | null;
+    ofertas?: OfertaSuelta[];
+  } | null;
 }
 
 export interface MesaParaCobro extends Precios {
@@ -224,10 +300,14 @@ export function entradaMesa(mesa: MesaParaCobro): EntradaCobro {
   const items: ItemCobro[] = [];
   for (const m of mesa.miembros) {
     const sel = mesa.base === 'seleccion' ? m.seleccion : null;
-    const vacia = !sel || (!sel.almuerzo && sel.extras.length === 0);
-    if (vacia || sel!.almuerzo)
-      items.push(lineaAlmuerzo(m.ref, `${m.ref}:almuerzo`, mesa.precioAlmuerzo, vacia ? true : !sel!.almuerzoAgotado));
+    const vacia = !sel || (!sel.almuerzo && sel.extras.length === 0 && !sel.ofertas?.length);
+    if (vacia || sel!.almuerzo) {
+      const l = lineaAlmuerzoOferta(m.ref, `${m.ref}:almuerzo`, mesa.precioAlmuerzo, sel?.almuerzoOferta);
+      // Un almuerzo nunca se omite por agotado: solo avisa (B.3 paso 4); con oferta vigente tampoco.
+      items.push({ ...l, disponible: vacia || l.ofertaId ? true : !sel!.almuerzoAgotado });
+    }
     for (const e of sel?.extras ?? []) items.push(lineaPlato(m.ref, `${m.ref}:${e.platoId}`, e, true));
+    for (const o of sel?.ofertas ?? []) items.push(lineaOferta(m.ref, `${m.ref}:oferta:${o.ofertaId}`, o, true));
   }
   return {
     flujo: 'MESA',
