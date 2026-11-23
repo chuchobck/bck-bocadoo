@@ -198,6 +198,7 @@ export class CatalogService {
       const r = await q.query<{
         public_id: string;
         categoria: string;
+        seccion: string | null;
         nombre: string;
         descripcion: string | null;
         foto_url: string | null;
@@ -206,7 +207,7 @@ export class CatalogService {
         orden: number;
         agotado: boolean;
       }>(
-        `SELECT p.public_id, p.categoria, p.nombre, p.descripcion, p.foto_url, p.etiquetas, p.precio_centavos, p.orden,
+        `SELECT p.public_id, p.categoria, p.seccion, p.nombre, p.descripcion, p.foto_url, p.etiquetas, p.precio_centavos, p.orden,
                 ${platoAgotadoSql('p', 'r')} AS agotado
            FROM plato p JOIN restaurante r ON r.restaurante_id = p.restaurante_id
           WHERE p.restaurante_id = $1 AND p.activo AND p.precio_centavos IS NOT NULL AND p.categoria::text = ANY($2::text[])
@@ -218,6 +219,7 @@ export class CatalogService {
         items: r.rows.map((p) => ({
           id: p.public_id,
           categoria: p.categoria,
+          seccion: p.seccion,
           nombre: p.nombre,
           descripcion: p.descripcion,
           fotoUrl: p.foto_url,
