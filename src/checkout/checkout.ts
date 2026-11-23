@@ -191,6 +191,16 @@ async function consumoInterno(q: Queryable, publicId: string): Promise<string> {
   );
 }
 
+export class ConsumoPrevioResponse {
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-13T17:00:00.000Z',
+    description: 'Hora del canje previo que causó el DUPLICADO (con plan: el consumo; sin plan: cuando se abrió la primera cuenta).',
+  })
+  creadoEn!: Date;
+}
+
 export class ValidacionResponse {
   @ApiProperty({ enum: Object.keys(RESULTADOS), example: 'OK' }) resultado!: Resultado;
   @ApiProperty({ example: RESULTADOS.OK }) mensaje!: string;
@@ -229,6 +239,11 @@ export class ValidacionResponse {
   cuenta!: CuentaResponse | null;
   @ApiProperty({ type: [AvisoCotizacionResponse], description: 'Avisos de esta validación (p. ej. DUPLICADO, LIMITE_SAAS)' })
   avisos!: { codigo: string; lineaRef: string | null }[];
+  @ApiPropertyOptional({
+    type: () => ConsumoPrevioResponse,
+    description: 'Solo cuando `resultado` = `DUPLICADO`: hora del canje anterior (de hace menos de 60 s) que lo causó.',
+  })
+  consumoPrevio?: ConsumoPrevioResponse;
 }
 
 /** Lo que responde `deduct`: el resultado del descuento, sin cliente ni cobro. */
@@ -450,18 +465,35 @@ export class CheckoutService {
     const entrada = (plan: PlanPersona, conItems = true) =>
       entradaQr({ ...precios, paraLlevar: dto.paraLlevar ?? false, plan, items: conItems ? resueltos : [] });
     const sinPrecio = () => conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
-    const omitirTodo = (b: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>, estado: 'DUPLICADO' | 'LIMITE_SAAS') => {
+    const omitirTodo = (
+      b: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>,
+      estado: 'DUPLICADO' | 'LIMITE_SAAS',
+      consumoPrevioEn?: Date | null,
+    ) => {
       const omitida = cotizar(entrada({ estado, disponibles: 0 }, false), { estimada: false });
-      return { ...b, cotizacion: aRespuesta(omitida, ctx.moneda), cuenta: null, avisos: omitida.avisos };
+      return {
+        ...b,
+        cotizacion: aRespuesta(omitida, ctx.moneda),
+        cuenta: null,
+        avisos: omitida.avisos,
+        ...(consumoPrevioEn ? { consumoPrevio: { creadoEn: consumoPrevioEn } } : {}),
+      };
     };
 
     // DUPLICADO sin plan (decisión del PR 6b): el plan tiene su regla de 60 s en fn_descontar_almuerzo (sobre consumos);
     // quien no tiene plan no deja consumo, así que la regla se aplica aquí sobre su cuenta QR sin consumo (origen el
     // intento) creada hace < 60 s y no anulada. Sin esto, dos cajas (o dos toques) abrirían dos cuentas del mismo almuerzo.
     // Un reintento con la misma llave no llega aquí: ya respondió arriba (cuenta del intento) o la reconoce más abajo.
-    if (!previa && !prev.rows[0] && (await this.duplicadoSinPlan(q, clienteId ?? null, usuarioPersona))) {
-      await registrarIntento('DUPLICADO', usuarioPersona, clienteId);
-      return omitirTodo({ ...rechazo('DUPLICADO'), cliente: clienteId ? { id: clienteId, nombre: cliente!.nombre } : null }, 'DUPLICADO');
+    if (!previa && !prev.rows[0]) {
+      const previoSinPlan = await this.duplicadoSinPlan(q, clienteId ?? null, usuarioPersona);
+      if (previoSinPlan) {
+        await registrarIntento('DUPLICADO', usuarioPersona, clienteId);
+        return omitirTodo(
+          { ...rechazo('DUPLICADO'), cliente: clienteId ? { id: clienteId, nombre: cliente!.nombre } : null },
+          'DUPLICADO',
+          previoSinPlan,
+        );
+      }
     }
 
     let base: ResultadoDescuento & Pick<ValidacionResponse, 'cliente'>;
@@ -521,7 +553,8 @@ export class CheckoutService {
     }
 
     // DUPLICADO y LIMITE_SAAS no cobran nada (I-10): ni el almuerzo (omitido) ni los platos; sin cuenta.
-    if (base.resultado === 'DUPLICADO' || base.resultado === 'LIMITE_SAAS') return omitirTodo(base, base.resultado);
+    if (base.resultado === 'DUPLICADO') return omitirTodo(base, 'DUPLICADO', await this.ultimoConsumoReciente(q, clienteId!));
+    if (base.resultado === 'LIMITE_SAAS') return omitirTodo(base, 'LIMITE_SAAS');
     if (!cot) return { ...base, cotizacion: null, cuenta: null, avisos: [] };
 
     const saldo = cot.saldoPorCobrarCentavos;
@@ -566,18 +599,35 @@ export class CheckoutService {
    * sigue viva? Es la regla de doble escaneo de fn_descontar_almuerzo, aplicada a quien no deja consumo. Quien llama
    * tiene el candado de la persona, así que ve la cuenta de una validación simultánea ya confirmada.
    */
-  private async duplicadoSinPlan(q: Queryable, clienteId: string | null, usuarioId: string | null): Promise<boolean> {
-    const r = await q.query(
-      `SELECT 1 FROM cuenta_cobro c
+  /** Cuenta QR sin plan (origen el intento) abierta hace < 60 s y no anulada: la hora en que se abrió, o null si no hay. */
+  private async duplicadoSinPlan(q: Queryable, clienteId: string | null, usuarioId: string | null): Promise<Date | null> {
+    const r = await q.query<{ creada_en: Date }>(
+      `SELECT c.creada_en FROM cuenta_cobro c
         WHERE c.restaurante_id = app_tenant_id() AND c.intento_id IS NOT NULL AND c.estado <> 'ANULADA'
           AND c.creada_en > CURRENT_TIMESTAMP - INTERVAL '60 seconds'
           AND c.fecha_local >= (SELECT (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date - 1 FROM restaurante r
                                  WHERE r.restaurante_id = app_tenant_id())
           AND (c.cliente_id = $1 OR c.usuario_id = $2)
-        LIMIT 1`,
+        ORDER BY c.creada_en DESC LIMIT 1`,
       [clienteId, usuarioId],
     );
-    return Boolean(r.rowCount);
+    return r.rows[0]?.creada_en ?? null;
+  }
+
+  /**
+   * Con plan: el último consumo no revertido del cliente en los últimos 60 s (el mismo criterio que usa
+   * `fn_descontar_almuerzo` para responder DUPLICADO). Su hora es la que se expone como `consumoPrevio`.
+   */
+  private async ultimoConsumoReciente(q: Queryable, clienteId: string): Promise<Date | null> {
+    const r = await q.query<{ creado_en: Date }>(
+      `SELECT c.creado_en FROM consumo_almuerzo c
+        WHERE c.restaurante_id = app_tenant_id() AND c.cliente_id = $1 AND c.cantidad = 1
+          AND c.creado_en > CURRENT_TIMESTAMP - INTERVAL '60 seconds'
+          AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = c.consumo_id)
+        ORDER BY c.creado_en DESC LIMIT 1`,
+      [clienteId],
+    );
+    return r.rows[0]?.creado_en ?? null;
   }
 
   /** Llama a la función atómica de la base (FIFO, duplicado, idempotencia, límite SaaS) y arma la respuesta. */

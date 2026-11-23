@@ -291,6 +291,7 @@ describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
       const primero = await validar(l.o, { codigoQr: await codigo(d, l) });
       expect(primero.json().cuenta).toMatchObject({ estado: 'ABIERTA', saldoCentavos: P });
       const antes = await filas();
+      const creadaEnPrimero = primero.json().cuenta.creadaEn;
       // Otra llave (otra caja o un segundo toque), sin items y también con items y cobro: nada se cobra (I-10).
       for (const body of [
         {},
@@ -307,6 +308,7 @@ describe.skipIf(!probe)('PR 5b: cuentas de cobro del QR en caja', () => {
           cuenta: null,
           avisos: [{ codigo: 'DUPLICADO', lineaRef: 'almuerzo' }],
           cotizacion: { totalCentavos: 0, saldoPorCobrarCentavos: 0, lineas: [{ ref: 'almuerzo', omitida: 'DUPLICADO' }] },
+          consumoPrevio: { creadoEn: creadaEnPrimero },
         });
       }
       expect({ ...(await filas()) }).toEqual(antes);
