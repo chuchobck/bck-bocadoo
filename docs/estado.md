@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-22 (hora de llegada en pedidos, rama `feat/pedido-hora-llegada`; carta sin caché, 6c, 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (cajero confirma pagos, rama `fix/cajero-confirma-pagos`; hora de llegada en pedidos, rama `feat/pedido-hora-llegada`; carta sin caché, 6c, 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -20,6 +20,49 @@
 Fix de dinero (rama `fix/dinero-claims-y-pago-pos`, sin migración): **(1)** aceptar un reclamo (`POST /v1/reclamos/{id}/devolver`) pasa por `revertirConsumoEnCuenta` como deshacer: almuerzo de cuenta cobrada o con pagos → 409 `CUENTA_COBRADA`, cuenta abierta sin pagos → línea inversa; **(2)** un pago POS `PENDIENTE` (transferencia/Deuna) ya se confirma o rechaza con `POST /v1/pagos/{id}/confirmar|rechazar` (antes 404) y la venta POS trae `pago.id`. Rechazar el pago no deshace la venta (eso sigue en `POST /v1/caja/ventas/{id}/deshacer`). `GET /v1/pagos/pendientes` sigue listando solo planes.
 
 Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; **PR 7a** (carta fija en pedidos y recargo por unidad, abajo) en la rama `feat/pedidos-carta-recargo`, con una migración **pendiente en Neon**; siguen ofertas en pedidos y mesas, POS y canje de oferta (PR 7b en adelante, H.1).
+
+## Cajero confirma pagos (auditoría de seguridad; rama `fix/cajero-confirma-pagos`)
+
+Cierra el hallazgo MEDIO «el cajero autoconfirma transferencias/Deuna» ([`docs/seguridad.md`](seguridad.md#hallazgo-cerrado-el-cajero-autoconfirmaba-transferencias-y-pagos-deuna-auditoría-de-seguridad-22-nov-2026)). Reemplaza al PR #38, que no se usa (su `estadoPagoInicial` dejaba al cajero sin poder confirmar nunca y casi todas las transferencias PENDIENTES sin forma de listarlas). **Una migración pendiente en Neon**: `20261122210000_pago_confirmado_por` (la corre el dueño con `pnpm db:migrate --remoto`). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] Decisión de producto (del dueño): el cajero **conserva** `pagoConfirmado`, con `referenciaExterna` obligatoria al confirmar TRANSFERENCIA o DEUNA; se guarda quién confirmó (usuario y rol) y el cierre separa cajero y dueño. Efectivo no cambia.
+- [x] Migración: `transaccion_pago.confirmado_por_usuario_id` (FK a `usuario`), `confirmado_por_rol` (`rol_personal_enum`) y `confirmado_en`, todas nullable; `ck_pago_confirmado_por` (las tres juntas y solo en un pago `CONFIRMADO`); `fn_pago_solo_cambia_estado` (`CREATE OR REPLACE`) admite fijarlas en el UPDATE que confirma un `PENDIENTE`. El down vuelve la función de la baseline y quita las columnas. Probada up → down → up en local.
+- [x] `src/common/pago-confirmado.ts`: `exigirReferenciaAlConfirmar` (422 `REFERENCIA_PAGO_REQUERIDA`, solo rol CAJERO, solo si no es efectivo y queda confirmado), `confirmadoPorSql` / `resolverEstadoPago` (quién sale de la sesión: `app_user_id()` y el rol de `personal_restaurante`, nunca del body) y `errorReferenciaRepetida`.
+- [x] Puntos cubiertos: venta de plan y cobrar solicitud (`sales.ts`), venta POS (`pos.ts`), pago de cuenta (`aplicar.ts`, `registrarPago`: cobrar cuenta, validar con `cobro`, canje de pedido con `cobro`), confirmar después (`POST /v1/pagos/{id}/confirmar`, sigue solo del dueño) y **canje de oferta** (`offers.ts`: siempre nacía `CONFIRMADO` con cualquier método y sin referencia; ahora acepta `referenciaExterna` y aplica la misma regla).
+- [x] Todo pago que nace `CONFIRMADO` (efectivo y canjes incluidos) guarda quién; los reversos no (el cierre los atribuye al pago original); rechazar no guarda a nadie.
+- [x] 409 `REFERENCIA_PAGO_REPETIDA` también en planes y POS (antes `code: "CONFLICT"`).
+- [x] Cierre: `porMetodo[].confirmadoPorCajeroCentavos`, `confirmadoPorDuenoCentavos` y `confirmadoSinRegistroCentavos` (pagos de antes de la migración); suman `totalCentavos` del método. `efectivoEsperadoCentavos`, `totalCentavos` y `cierre_caja_detalle` no cambian.
+- [x] Pruebas: `test/integration/pago-confirmado-por.int.ts` (13, probe): cajero confirma TRANSFERENCIA con referencia → `CONFIRMADO` con su usuario y rol; sin referencia → 422 en planes, POS, cuenta, validar con `cobro` y canje de oferta, sin crear nada (ni consumo); referencia repetida → 409; dueño confirma sin referencia (al vender y con `/confirmar`) y el cajero no puede `/confirmar` (403); efectivo sin cambios; reintento idempotente; cierre con cajero, dueño, sin registro y un reverso; aislamiento entre locales (misma referencia en dos locales, cierres separados, 403/404 cruzados, RLS como `bck_api`); barreras de la base (`23001` al reescribir quién en un pago confirmado, `23514` al marcarlo en uno pendiente). Prueba de mutación: con la regla y el registro apagados fallan 9 de 13. Ajustada `checkout.int.ts` (igualdad exacta de `porMetodo`).
+
+### Migración: GRANT y RLS antes y después
+
+Comparado en el contenedor local (`relacl`, `attacl`, `relrowsecurity`/`relforcerowsecurity`, `pg_policies`, `information_schema.column_privileges`, ACL y dueño de `fn_pago_solo_cambia_estado`, triggers):
+
+| Qué                             | Antes                                                                                     | Después                                     |
+| ------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `relacl` de `transaccion_pago`  | `postgres=arwdDxt`, `bocadoo_servicio=arwdDxt`, `bocadoo_app=arw`                         | igual                                       |
+| GRANT por columna (`attacl`)    | ninguno                                                                                   | ninguno                                     |
+| RLS                             | activado, sin FORCE                                                                       | igual                                       |
+| Políticas                       | `tenant_total` (ALL), `comensal_lee_pagos_cuenta` (SELECT)                                | igual                                       |
+| `column_privileges` por grantee | 19 columnas                                                                               | 22 (las 3 nuevas heredan el GRANT de tabla) |
+| `fn_pago_solo_cambia_estado`    | dueño `postgres`, SECURITY INVOKER, EXECUTE a `PUBLIC`, `bocadoo_app`, `bocadoo_servicio` | igual                                       |
+| Triggers                        | `trg_auditoria_transaccion_pago`, `trg_pago_solo_cambia_estado`                           | igual                                       |
+
+### Decisiones
+
+- **Quién confirma sale de la sesión**, en SQL (como `PERSONAL_ACTUAL`), no del JWT ni del body. El rol que se guarda es el del momento (si el cajero pasa a dueño después, sus pagos anteriores siguen como de cajero).
+- **Reversos al grupo del original**, para que cajero + dueño + sin registro sume siempre el total del método.
+- **Efectivo también se registra y desglosa**: quien lo cobra es quien lo confirma.
+- **El dueño sigue sin necesitar referencia**, ni al cobrar ni al confirmar después.
+- **La regla vive en la API, no en la base**: un CHECK no puede saber si el método es efectivo (`metodo_pago.es_efectivo`) ni el rol de la sesión. La base sí impide reescribir quién confirmó o marcarlo sin confirmar.
+
+### Límites
+
+- **`GET /v1/pagos/pendientes` sigue listando solo pagos de planes**: los pendientes de POS y de cuentas solo se ven en `pagosPendientes` del cierre o en cada venta o cuenta. Queda para otra PR (decisión del dueño).
+- Los pagos que ya existen (también los del seed de demo) quedan con quién confirmó en NULL y salen en `confirmadoSinRegistroCentavos`.
+- La referencia se valida en forma (1..100, sin espacios al borde) y en unicidad por local y método, no contra el banco.
 
 ## Reportes y cierre con cuentas de cobro (entrega D, PR 8; rama `feat/reportes-cuentas`)
 
@@ -559,7 +602,7 @@ Evidencia: archivo de prueba (`test/integration/…`) y, cuando aplica, el coman
 
 ### Decisiones de la fase
 
-- **Canje de ofertas en caja**: lo registra el personal (dueño o cajero), con el comensal opcional por `public_id`. El cobro se guarda `CONFIRMADO` en la misma transacción (la oferta se entrega al pagar), así que entra al arqueo de caja del día; no usa el flujo de pagos pendientes. Las ofertas no tienen deshacer.
+- **Canje de ofertas en caja**: lo registra el personal (dueño o cajero), con el comensal opcional por `public_id`. El cobro se guarda `CONFIRMADO` en la misma transacción (la oferta se entrega al pagar), así que entra al arqueo de caja del día; no usa el flujo de pagos pendientes. Desde «cajero confirma pagos», el cajero que cobra con transferencia o Deuna debe dar `referenciaExterna`. Las ofertas no tienen deshacer.
 - **Estado de una oferta** calculado con la hora de la base: `CERRADA` > `AGOTADA` > `EXPIRADA` > `PROGRAMADA` > `VIGENTE`. La API solo puede cambiar `activa` y `stock_restante` de una oferta publicada (permiso por columnas); el canje es de solo inserción (trigger de la baseline).
 - **Reportes solo para el dueño.** Definiciones: almuerzos servidos = consumos netos de devoluciones (igual que el cierre de caja); horas pico cuentan almuerzos y tickets que **no** fueron devueltos/deshechos (un reverso no mueve la hora); pasivo = planes `ACTIVA` con saldo y que no pasaron su último día local (no se cuenta un plan vencido que espera al job); ranking de platos = ventas sueltas netas + pedidos canjeados (las dos fuentes por separado: un plato cobrado en caja y en el pedido cuenta en ambas).
 - **Clientes a contactar**: tres motivos (`POR_VENCER`, `SIN_VENIR`, `PARA_RENOVAR`), umbrales por query, un cliente con todos sus motivos, sin paginación (`limit` y `total`). La actividad es lo más reciente entre el último almuerzo servido y la última compra.
@@ -692,7 +735,7 @@ Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm t
 
 ### Decisiones de la fase
 
-- Efectivo queda confirmado al vender; transferencia y Deuna quedan pendientes salvo `pagoConfirmado`. Rechazar el pago anula el plan.
+- Efectivo queda confirmado al vender; transferencia y Deuna quedan pendientes salvo `pagoConfirmado` (el cajero, solo con `referenciaExterna`, desde «cajero confirma pagos»). Rechazar el pago anula el plan.
 - El plan con pago pendiente ya está activo (el cajero confía en el comprobante); el dueño lo confirma o rechaza después.
 - Deshacer solo si no se consumió ningún almuerzo. El consumo FIFO llega en la fase 7.
 - Pedir un plan desde la app crea la ficha del cliente en ese local (vinculada a su cuenta) si aún no existía.
