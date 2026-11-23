@@ -7811,7 +7811,7 @@
     },
     "/v1/pagos/{id}/confirmar": {
       "post": {
-        "description": "Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.",
+        "description": "Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`. Pago de una venta suelta (`pago.id` de la venta) → la `Venta`.",
         "operationId": "SalesController_confirm",
         "parameters": [
           {
@@ -7844,6 +7844,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/CuentaResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VentaResponse"
                     }
                   ]
                 },
@@ -7991,7 +7994,7 @@
     },
     "/v1/pagos/{id}/rechazar": {
       "post": {
-        "description": "Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta vuelve a ABIERTA y responde la `Cuenta`.",
+        "description": "Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta vuelve a ABIERTA y responde la `Cuenta`. Pago de una venta suelta: queda RECHAZADO y responde la `Venta` (se deshace aparte).",
         "operationId": "SalesController_reject",
         "parameters": [
           {
@@ -8024,6 +8027,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/CuentaResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VentaResponse"
                     }
                   ]
                 },
@@ -10374,6 +10380,7 @@
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "deshecha": true,
                     "pago": {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "estado": "CONFIRMADO",
                       "metodo": "EFECTIVO"
                     },
@@ -10546,6 +10553,7 @@
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "deshecha": true,
                   "pago": {
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "estado": "CONFIRMADO",
                     "metodo": "EFECTIVO"
                   },
@@ -10719,6 +10727,7 @@
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "deshecha": true,
                   "pago": {
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "estado": "CONFIRMADO",
                     "metodo": "EFECTIVO"
                   },
@@ -11657,6 +11666,25 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `CUENTA_COBRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "CUENTA_COBRADA",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -26261,6 +26289,123 @@
           "anuladaEn"
         ]
       },
+      "PagoVentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del pago: con él se confirma o rechaza un pago PENDIENTE (`POST /v1/pagos/{id}/confirmar`)"
+          },
+          "estado": {
+            "type": "string",
+            "example": "CONFIRMADO"
+          },
+          "metodo": {
+            "type": "string",
+            "nullable": true,
+            "example": "EFECTIVO"
+          }
+        },
+        "required": ["id", "estado", "metodo"]
+      },
+      "ItemVentaResponse": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Almuerzo"
+          },
+          "esAlmuerzo": {
+            "type": "boolean"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 2
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "example": 350
+          },
+          "subtotalCentavos": {
+            "type": "number",
+            "example": 700
+          }
+        },
+        "required": ["nombre", "esAlmuerzo", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
+      },
+      "VentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de la venta"
+          },
+          "ticket": {
+            "type": "number",
+            "example": 17,
+            "description": "Número de ticket del día"
+          },
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "example": 700,
+            "description": "Centavos"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "mesaTexto": {
+            "type": "string",
+            "nullable": true,
+            "example": "Mesa 3"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deshecha": {
+            "type": "boolean",
+            "description": "true si ya se deshizo (pago inverso registrado)"
+          },
+          "pago": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PagoVentaResponse"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemVentaResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "ticket",
+          "fecha",
+          "totalCentavos",
+          "monedaCodigo",
+          "paraLlevar",
+          "mesaTexto",
+          "creadoEn",
+          "deshecha",
+          "pago",
+          "items"
+        ]
+      },
       "PlanSolicitadoResponse": {
         "type": "object",
         "properties": {
@@ -26861,118 +27006,6 @@
           "porCobrar",
           "cuentas",
           "avisos"
-        ]
-      },
-      "PagoVentaResponse": {
-        "type": "object",
-        "properties": {
-          "estado": {
-            "type": "string",
-            "example": "CONFIRMADO"
-          },
-          "metodo": {
-            "type": "string",
-            "nullable": true,
-            "example": "EFECTIVO"
-          }
-        },
-        "required": ["estado", "metodo"]
-      },
-      "ItemVentaResponse": {
-        "type": "object",
-        "properties": {
-          "nombre": {
-            "type": "string",
-            "example": "Almuerzo"
-          },
-          "esAlmuerzo": {
-            "type": "boolean"
-          },
-          "cantidad": {
-            "type": "number",
-            "example": 2
-          },
-          "precioUnitarioCentavos": {
-            "type": "number",
-            "example": 350
-          },
-          "subtotalCentavos": {
-            "type": "number",
-            "example": 700
-          }
-        },
-        "required": ["nombre", "esAlmuerzo", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
-      },
-      "VentaResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "public_id de la venta"
-          },
-          "ticket": {
-            "type": "number",
-            "example": 17,
-            "description": "Número de ticket del día"
-          },
-          "fecha": {
-            "type": "string",
-            "example": "2026-11-13"
-          },
-          "totalCentavos": {
-            "type": "number",
-            "example": 700,
-            "description": "Centavos"
-          },
-          "monedaCodigo": {
-            "type": "string",
-            "example": "USD"
-          },
-          "paraLlevar": {
-            "type": "boolean"
-          },
-          "mesaTexto": {
-            "type": "string",
-            "nullable": true,
-            "example": "Mesa 3"
-          },
-          "creadoEn": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "deshecha": {
-            "type": "boolean",
-            "description": "true si ya se deshizo (pago inverso registrado)"
-          },
-          "pago": {
-            "nullable": true,
-            "type": "object",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PagoVentaResponse"
-              }
-            ]
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ItemVentaResponse"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "ticket",
-          "fecha",
-          "totalCentavos",
-          "monedaCodigo",
-          "paraLlevar",
-          "mesaTexto",
-          "creadoEn",
-          "deshecha",
-          "pago",
-          "items"
         ]
       },
       "ItemVentaDto": {

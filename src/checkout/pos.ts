@@ -341,61 +341,67 @@ export class PosService {
     return r.rows[0] ? this.render(q, r.rows[0].venta_pos_id) : null;
   }
 
-  private async render(q: Queryable, ventaId: string) {
-    const v = (
-      await q.query<{
-        public_id: string;
-        ticket: number;
-        fecha: string;
-        total_centavos: string;
-        moneda_codigo: string;
-        para_llevar: boolean;
-        mesa_texto: string | null;
-        creado_en: Date;
-        deshecha: boolean;
-        pago_estado: string | null;
-        metodo: string | null;
-      }>(
-        `SELECT v.public_id, v.ticket, v.fecha_local::text AS fecha, v.total_centavos, v.moneda_codigo, v.para_llevar, v.mesa_texto, v.creado_en,
-              EXISTS (SELECT 1 FROM venta_pos_cabecera x WHERE x.revierte_a_venta_pos_id = v.venta_pos_id) AS deshecha,
-              p.estado AS pago_estado, m.codigo AS metodo
-         FROM venta_pos_cabecera v
-         LEFT JOIN transaccion_pago p ON p.restaurante_id = v.restaurante_id AND p.venta_pos_id = v.venta_pos_id AND p.revierte_a_pago_id IS NULL
-         LEFT JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
-        WHERE v.restaurante_id = app_tenant_id() AND v.venta_pos_id = $1`,
-        [ventaId],
-      )
-    ).rows[0]!;
-    const lines = await q.query<{
-      nombre_item: string;
-      es_almuerzo: boolean;
-      cantidad: number;
-      precio_unitario_centavos: string;
-      subtotal_centavos: string;
-    }>(
-      'SELECT nombre_item, es_almuerzo, cantidad, precio_unitario_centavos, subtotal_centavos FROM venta_pos_detalle WHERE restaurante_id = app_tenant_id() AND venta_pos_id = $1 ORDER BY venta_pos_detalle_id',
-      [ventaId],
-    );
-    return {
-      id: v.public_id,
-      ticket: v.ticket,
-      fecha: v.fecha,
-      totalCentavos: Number(v.total_centavos),
-      monedaCodigo: v.moneda_codigo,
-      paraLlevar: v.para_llevar,
-      mesaTexto: v.mesa_texto,
-      creadoEn: v.creado_en,
-      deshecha: v.deshecha,
-      pago: v.pago_estado ? { estado: v.pago_estado, metodo: v.metodo } : null,
-      items: lines.rows.map((l) => ({
-        nombre: l.nombre_item,
-        esAlmuerzo: l.es_almuerzo,
-        cantidad: l.cantidad,
-        precioUnitarioCentavos: Number(l.precio_unitario_centavos),
-        subtotalCentavos: Number(l.subtotal_centavos),
-      })),
-    };
+  private render(q: Queryable, ventaId: string) {
+    return renderVenta(q, ventaId);
   }
+}
+
+/** La venta como la ve la caja (la usan el POS y la resolución de un pago pendiente). */
+export async function renderVenta(q: Queryable, ventaId: string) {
+  const v = (
+    await q.query<{
+      public_id: string;
+      ticket: number;
+      fecha: string;
+      total_centavos: string;
+      moneda_codigo: string;
+      para_llevar: boolean;
+      mesa_texto: string | null;
+      creado_en: Date;
+      deshecha: boolean;
+      pago_id: string | null;
+      pago_estado: string | null;
+      metodo: string | null;
+    }>(
+      `SELECT v.public_id, v.ticket, v.fecha_local::text AS fecha, v.total_centavos, v.moneda_codigo, v.para_llevar, v.mesa_texto, v.creado_en,
+            EXISTS (SELECT 1 FROM venta_pos_cabecera x WHERE x.revierte_a_venta_pos_id = v.venta_pos_id) AS deshecha,
+            p.public_id AS pago_id, p.estado AS pago_estado, m.codigo AS metodo
+       FROM venta_pos_cabecera v
+       LEFT JOIN transaccion_pago p ON p.restaurante_id = v.restaurante_id AND p.venta_pos_id = v.venta_pos_id AND p.revierte_a_pago_id IS NULL
+       LEFT JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+      WHERE v.restaurante_id = app_tenant_id() AND v.venta_pos_id = $1`,
+      [ventaId],
+    )
+  ).rows[0]!;
+  const lines = await q.query<{
+    nombre_item: string;
+    es_almuerzo: boolean;
+    cantidad: number;
+    precio_unitario_centavos: string;
+    subtotal_centavos: string;
+  }>(
+    'SELECT nombre_item, es_almuerzo, cantidad, precio_unitario_centavos, subtotal_centavos FROM venta_pos_detalle WHERE restaurante_id = app_tenant_id() AND venta_pos_id = $1 ORDER BY venta_pos_detalle_id',
+    [ventaId],
+  );
+  return {
+    id: v.public_id,
+    ticket: v.ticket,
+    fecha: v.fecha,
+    totalCentavos: Number(v.total_centavos),
+    monedaCodigo: v.moneda_codigo,
+    paraLlevar: v.para_llevar,
+    mesaTexto: v.mesa_texto,
+    creadoEn: v.creado_en,
+    deshecha: v.deshecha,
+    pago: v.pago_estado ? { id: v.pago_id!, estado: v.pago_estado, metodo: v.metodo } : null,
+    items: lines.rows.map((l) => ({
+      nombre: l.nombre_item,
+      esAlmuerzo: l.es_almuerzo,
+      cantidad: l.cantidad,
+      precioUnitarioCentavos: Number(l.precio_unitario_centavos),
+      subtotalCentavos: Number(l.subtotal_centavos),
+    })),
+  };
 }
 
 @ApiTags('caja')

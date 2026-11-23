@@ -8,6 +8,16 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Fix de dinero: reclamos y pagos POS pendientes
+
+**Sin migración.** Solo cambios aditivos o de error; `openapi:breaking` sin errores.
+
+| Dónde                                               | Qué cambia                                                                                                                                                                                          |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/reclamos/{id}/devolver`                   | Puede responder **409 `CUENTA_COBRADA`** (almuerzo de una cuenta cobrada o con pagos): mostrar "anula primero la cuenta". Antes devolvía el almuerzo y dejaba la cuenta cobrada.                    |
+| `VentaResponse.pago` (POS: crear, listar, deshacer) | **Campo nuevo `pago.id`** (UUID del pago).                                                                                                                                                          |
+| `POST /v1/pagos/{id}/confirmar` y `/rechazar`       | Con el `pago.id` de una venta POS con transferencia/Deuna `PENDIENTE` responden la **`Venta`** (nuevo `oneOf`). Antes 404. Rechazar no deshace la venta: usar `POST /v1/caja/ventas/{id}/deshacer`. |
+
 ### Entrega D · PR 7a: carta fija en pedidos, recargo por unidad y totales de lo guardado
 
 Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (B, C, D, E.2, E.3). **Una migración aditiva** (`20261122200000_orden_detalle_es_carta`: `orden_detalle.es_carta BOOLEAN NOT NULL DEFAULT false`; lo histórico queda como extra, no se reescribe nada). `pnpm openapi:breaking` marca 16 errores que son **correcciones de un contrato mal documentado** (el servidor ya validaba todo eso: `minItems: 1`, `maxItems: 4` y `uniqueItems` de `almuerzo.platos`, `maxItems: 10` de `extras`, `cantidad` entera, `format: uuid`); la PR lleva la etiqueta `cambio-incompatible`. Los cambios de comportamiento van marcados con **⚠ comportamiento**.
@@ -2798,6 +2808,8 @@ Response `200`:
 - **Estado:** Estable
 
 > **Novedad (PR 5a):** con el `id` de un pago de cuenta (`cuenta.pagos[].id`) responde la [`Cuenta`](#el-objeto-cuenta) en vez del plan vendido (`oneOf` en el OpenAPI). `GET /v1/pagos/pendientes` sigue listando solo pagos de planes.
+>
+> **Novedad (pago POS):** con el `pago.id` de una venta suelta (`POST /v1/caja/ventas`) responde la `Venta` (antes 404 y el pago PENDIENTE no se podía resolver). Rechazar deja el pago `RECHAZADO` y la venta sigue ahí: se deshace con `POST /v1/caja/ventas/{id}/deshacer`.
 
 Request: sin cuerpo (no envíes `content-type`).
 
@@ -3719,6 +3731,7 @@ Response `200`:
     "creadoEn": "2026-11-13T03:49:45.468Z",
     "deshecha": false,
     "pago": {
+      "id": "b4d073bc-05b5-4cf7-88a9-0ef86afaeb4e",
       "estado": "CONFIRMADO",
       "metodo": "EFECTIVO"
     },
@@ -3862,6 +3875,7 @@ Response `201`:
   "creadoEn": "2026-11-13T03:48:39.770Z",
   "deshecha": false,
   "pago": {
+    "id": "b4d073bc-05b5-4cf7-88a9-0ef86afaeb4e",
     "estado": "CONFIRMADO",
     "metodo": "EFECTIVO"
   },
@@ -3907,6 +3921,7 @@ Response `200`:
   "creadoEn": "2026-11-13T03:49:45.520Z",
   "deshecha": true,
   "pago": {
+    "id": "b4d073bc-05b5-4cf7-88a9-0ef86afaeb4e",
     "estado": "CONFIRMADO",
     "metodo": "TRANSFERENCIA"
   },
@@ -4101,6 +4116,8 @@ Response `200`:
 
 - **Rol:** dueño · con `Authorization` y `x-restaurant-id`
 - **Estado:** Estable
+
+> **Novedad:** si el almuerzo es parte de una cuenta de cobro ya cobrada o con pagos, responde 409 `CUENTA_COBRADA` y no cambia nada (primero se anula la cuenta, que devuelve el dinero y el almuerzo), igual que `POST /v1/caja/consumos/{id}/deshacer`. Con la cuenta abierta y sin pagos, la anula. Sin cuenta, igual que antes.
 
 Request:
 

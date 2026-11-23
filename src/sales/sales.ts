@@ -35,7 +35,9 @@ import { IdPipe, UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
+import { renderVenta } from '../checkout/pos';
 import { SUBS_SELECT, SubRow, toSub } from './subscriptions';
+import { VentaResponse } from '../checkout/responses';
 import { PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
 
 const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
@@ -232,8 +234,8 @@ export class SalesService {
   resolvePayment(pagoPublicId: string, accion: 'CONFIRMADO' | 'RECHAZADO') {
     return this.db.forRequest(async (q) => {
       const deCuenta = (
-        await q.query<{ pago_id: string; cuenta_cobro_id: string | null }>(
-          `SELECT pago_id, cuenta_cobro_id FROM transaccion_pago
+        await q.query<{ pago_id: string; cuenta_cobro_id: string | null; venta_pos_id: string | null }>(
+          `SELECT pago_id, cuenta_cobro_id, venta_pos_id FROM transaccion_pago
             WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL`,
           [pagoPublicId],
         )
@@ -242,6 +244,7 @@ export class SalesService {
         await resolverPagoDeCuenta(q, String(deCuenta.cuenta_cobro_id), String(deCuenta.pago_id), accion);
         return renderCuenta(q, String(deCuenta.cuenta_cobro_id));
       }
+      if (deCuenta?.venta_pos_id) return this.resolverPagoPos(q, String(deCuenta.pago_id), String(deCuenta.venta_pos_id), accion);
       const r = await q.query<{ pago_id: string; estado: string; suscripcion_id: string | null }>(
         `SELECT pago_id, estado, suscripcion_id FROM transaccion_pago
           WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL FOR UPDATE`,
@@ -263,6 +266,22 @@ export class SalesService {
       }
       return this.renderSub(q, pago.suscripcion_id);
     });
+  }
+
+  /**
+   * Pago PENDIENTE de una venta suelta (POS) con transferencia o Deuna. Confirmar lo deja CONFIRMADO; rechazar, RECHAZADO (la venta
+   * se deshace aparte con `POST /v1/caja/ventas/{id}/deshacer`). Repetir la misma acción no cambia nada. Responde la venta.
+   */
+  private async resolverPagoPos(q: Queryable, pagoId: string, ventaId: string, accion: 'CONFIRMADO' | 'RECHAZADO') {
+    const p = (
+      await q.query<{ estado: string }>(
+        'SELECT estado FROM transaccion_pago WHERE restaurante_id = app_tenant_id() AND pago_id = $1 FOR UPDATE',
+        [pagoId],
+      )
+    ).rows[0]!;
+    if (p.estado === 'PENDIENTE') await q.query('UPDATE transaccion_pago SET estado = $2 WHERE pago_id = $1', [pagoId, accion]);
+    else if (p.estado !== accion) throw new ConflictException(`Ese pago ya está ${p.estado.toLowerCase()}.`);
+    return renderVenta(q, ventaId);
   }
 
   // --- Deshacer --------------------------------------------------------------------------------------------------
@@ -448,7 +467,9 @@ export class SalesService {
 }
 
 /** Confirmar o rechazar: el plan vendido (pago de un plan) o la cuenta (pago de una cuenta de cobro). */
-const PAGO_RESUELTO = { oneOf: [{ $ref: getSchemaPath(PlanVendidoResponse) }, { $ref: getSchemaPath(CuentaResponse) }] };
+const PAGO_RESUELTO = {
+  oneOf: [{ $ref: getSchemaPath(PlanVendidoResponse) }, { $ref: getSchemaPath(CuentaResponse) }, { $ref: getSchemaPath(VentaResponse) }],
+};
 
 @ApiTags('ventas')
 @Controller('v1')
@@ -494,9 +515,10 @@ export class SalesController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Confirmar un pago pendiente',
-    description: 'Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.',
+    description:
+      'Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`. Pago de una venta suelta (`pago.id` de la venta) → la `Venta`.',
   })
-  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse, VentaResponse)
   @ApiOkResponse({ schema: PAGO_RESUELTO })
   confirm(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'CONFIRMADO');
@@ -509,9 +531,9 @@ export class SalesController {
     summary: 'Rechazar un pago pendiente',
     description:
       'Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta ' +
-      'vuelve a ABIERTA y responde la `Cuenta`.',
+      'vuelve a ABIERTA y responde la `Cuenta`. Pago de una venta suelta: queda RECHAZADO y responde la `Venta` (se deshace aparte).',
   })
-  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse, VentaResponse)
   @ApiOkResponse({ schema: PAGO_RESUELTO })
   reject(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'RECHAZADO');
