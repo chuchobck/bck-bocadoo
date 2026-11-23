@@ -72,10 +72,17 @@ export async function createApp(opts: { controllers?: Type<unknown>[]; poolFacto
     void reply.header('x-request-id', req.id);
     done();
   });
-  // Una línea de log por request, con el mismo id que ve el cliente en x-request-id.
+  // Una línea de log por request, con el mismo id que ve el cliente en x-request-id. Solo la ruta: el query string
+  // (búsquedas por teléfono, nombre o correo) no se registra nunca.
   fastify.addHook('onResponse', (req, reply, done) => {
     logger.log(
-      { requestId: req.id, method: req.method, url: req.url, statusCode: reply.statusCode, ms: Math.round(reply.elapsedTime) },
+      {
+        requestId: req.id,
+        method: req.method,
+        url: req.url.split('?')[0],
+        statusCode: reply.statusCode,
+        ms: Math.round(reply.elapsedTime),
+      },
       'request completed',
     );
     done();
