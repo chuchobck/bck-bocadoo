@@ -121,16 +121,19 @@ export interface PedidoParaCobro extends Precios {
   /** El pedido lleva un almuerzo. */
   conAlmuerzo: boolean;
   extras: PlatoSuelto[];
+  /** Platos de la carta fija pedidos aparte (`cartaItems`). Ref `carta:i`, por posición. */
+  carta?: PlatoSuelto[];
   plan: PlanPersona;
 }
 
-/** Flujo PREORDEN: una sola persona (ref "0"), el almuerzo (si hay) y los extras del menú de hoy. */
+/** Flujo PREORDEN: una sola persona (ref "0"), el almuerzo (si hay), los extras del menú de hoy y la carta. */
 export function entradaPedido(p: PedidoParaCobro): EntradaCobro {
   const persona: PersonaCobro = { ref: '0', orden: 0, esAnfitrion: true, paraLlevar: false, plan: p.plan };
   const items: ItemCobro[] = [];
   if (p.conAlmuerzo) items.push(lineaAlmuerzo('0', 'almuerzo', p.precioAlmuerzo));
   // Por posición: un pedido puede repetir un mismo plato en dos renglones.
   p.extras.forEach((e, i) => items.push(lineaPlato('0', `extra:${i}`, e, false)));
+  (p.carta ?? []).forEach((e, i) => items.push(lineaPlato('0', `carta:${i}`, e, false)));
   return {
     flujo: 'PREORDEN',
     modoMesa: null,
@@ -165,7 +168,7 @@ export function entradaPedidoCreado(
     const plan: PlanPersona = p.canjeado ? (p.canjeado.conConsumo ? { estado: 'OK', disponibles: 1 } : SIN_PLAN) : p.plan;
     return entradaPedido({ ...p, precioAlmuerzo: p.precioAlmuerzo, plan });
   }
-  const extras = p.extras.reduce((s, e) => s + e.cantidad * e.precioUnitario, 0);
+  const extras = [...p.extras, ...(p.carta ?? [])].reduce((s, e) => s + e.cantidad * e.precioUnitario, 0);
   const precioAlmuerzo = Math.max(0, p.subtotal - extras);
   const plan: PlanPersona = p.conAlmuerzo && precioAlmuerzo === 0 ? { estado: 'OK', disponibles: Math.max(1, p.plan.disponibles) } : p.plan;
   return entradaPedido({ ...p, precioAlmuerzo, plan });

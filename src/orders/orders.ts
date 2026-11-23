@@ -18,6 +18,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   Matches,
   Max,
@@ -34,8 +35,10 @@ import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { PassEventBus } from '../pass-events/bus';
 import { occupancy } from '../catalog/catalog.service';
+import { CATEGORIAS_CARTA, platoAgotadoSql } from '../menu/carta';
 import {
   type CategoriaPlato,
+  type PedidoParaCobro,
   type CotizacionRespuesta,
   type PlatoSuelto,
   SIN_PLAN,
@@ -61,6 +64,8 @@ import {
 import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion.dto';
 import { CobroDto, CuentaResponse } from '../cobro/cuenta.dto';
 import { huella } from '../common/derive-key';
+import { horaLlegadaEnVentana } from '../common/hora-llegada';
+import { PREORDER_MINUTES, venceEn } from './vencimiento';
 import { cargarPlanes, claveCliente, planVigenteHoySql } from '../cobro/planes';
 import { cotizar } from '../billing/cotizar';
 import { type Cotizacion, CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
@@ -76,8 +81,6 @@ import {
   restauranteRef,
 } from '../diner/common';
 
-/** Minutos que vive una preorden: después la caja ya no la canjea. */
-export const PREORDER_MINUTES = 30;
 /** Secciones que forman el almuerzo; el resto del menú se pide como extra con su precio. */
 const LUNCH_SECTIONS = ['JUGO', 'SOPA', 'FUERTE', 'POSTRE'];
 /** Estado visto desde afuera: un pedido EN_CAMINO cuyo plazo pasó ya está EXPIRADA aunque nadie lo haya tocado. */
@@ -86,7 +89,12 @@ export const ESTADO_EFECTIVO = `CASE WHEN o.estado = 'EN_CAMINO' AND o.vence_en 
 class AlmuerzoDto {
   @ApiProperty({
     description: 'public_id de los platos elegidos del menú de hoy, uno por sección (JUGO, SOPA, FUERTE, POSTRE)',
-    example: ['uuid-sopa', 'uuid-fuerte'],
+    type: [String],
+    format: 'uuid',
+    minItems: 1,
+    maxItems: 4,
+    uniqueItems: true,
+    example: ['0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55', '41c0703f-3521-48eb-98ec-6d6d8efd5979'],
   })
   @IsArray()
   @ArrayMinSize(1)
@@ -97,75 +105,127 @@ class AlmuerzoDto {
 }
 
 class ExtraDto {
-  @ApiProperty({ description: 'public_id del plato (con precio) del menú de hoy' })
+  @ApiProperty({ format: 'uuid', description: 'public_id del plato (con precio) del menú de hoy' })
   @Matches(UUID_RE, { message: 'plato debe ser un UUID' })
   plato!: string;
-  @ApiProperty({ example: 1, minimum: 1, maximum: 10 }) @IsInt() @Min(1) @Max(10) cantidad!: number;
+  @ApiProperty({ type: 'integer', example: 1, minimum: 1, maximum: 10 }) @IsInt() @Min(1) @Max(10) cantidad!: number;
+}
+
+export const MAX_ITEMS_PEDIDO = 10;
+
+class CartaItemDto {
+  @ApiProperty({ format: 'uuid', description: 'public_id de un plato de la carta fija del local (A_LA_CARTA, EXTRA o BEBIDA)' })
+  @Matches(UUID_RE, { message: 'platoId debe ser un UUID' })
+  platoId!: string;
+  @ApiProperty({ type: 'integer', example: 1, minimum: 1, maximum: 10 }) @IsInt() @Min(1) @Max(10) cantidad!: number;
 }
 
 export class CrearPedidoDto {
-  @ApiProperty({ description: 'public_id del restaurante' })
+  @ApiProperty({ format: 'uuid', description: 'public_id del restaurante' })
   @Matches(UUID_RE, { message: 'restaurante debe ser un UUID' })
   restaurante!: string;
-  @ApiPropertyOptional({ description: 'Suma el recargo para llevar del local al almuerzo' })
+  @ApiPropertyOptional({
+    description: 'Suma el recargo para llevar del local por cada unidad de almuerzo y de plato A_LA_CARTA (EXTRA y BEBIDA no lo pagan)',
+  })
   @IsOptional()
   @IsBoolean()
   paraLlevar?: boolean;
   @ApiPropertyOptional({ type: AlmuerzoDto }) @IsOptional() @ValidateNested() @Type(() => AlmuerzoDto) almuerzo?: AlmuerzoDto;
-  @ApiPropertyOptional({ type: [ExtraDto] })
+  @ApiPropertyOptional({ type: [ExtraDto], maxItems: MAX_ITEMS_PEDIDO })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(MAX_ITEMS_PEDIDO)
   @ValidateNested({ each: true })
   @Type(() => ExtraDto)
   extras?: ExtraDto[];
+  @ApiPropertyOptional({
+    type: [CartaItemDto],
+    maxItems: MAX_ITEMS_PEDIDO,
+    description:
+      'Platos de la carta fija (no dependen del menú del día). Con `extras`, entre los dos suman a lo sumo 10 renglones; un mismo plato ' +
+      'puede repetirse (cada renglón es una línea) y también estar a la vez en `extras` y en `cartaItems`.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ITEMS_PEDIDO)
+  @ValidateNested({ each: true })
+  @Type(() => CartaItemDto)
+  cartaItems?: CartaItemDto[];
+  @ApiPropertyOptional({
+    example: '2026-11-13T17:30:00Z',
+    description:
+      'Hora a la que el comensal piensa llegar (ISO 8601, de 5 minutos atrás a 12 horas adelante). Solo informativa: no cambia el vencimiento.',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  horaLlegada?: string;
 }
 
 class PlatoPedido {
-  @ApiProperty() id!: string;
+  @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() nombre!: string;
   @ApiProperty({ type: String, nullable: true, enum: LUNCH_SECTIONS }) seccion!: string | null;
 }
 class ExtraPedido {
-  @ApiProperty() id!: string;
+  @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() nombre!: string;
-  @ApiProperty() cantidad!: number;
+  @ApiProperty({ type: 'integer' }) cantidad!: number;
   @ApiProperty() precioUnitarioCentavos!: number;
   @ApiProperty() subtotalCentavos!: number;
 }
+class CartaItemPedido {
+  @ApiProperty({ format: 'uuid', description: 'public_id del plato' }) id!: string;
+  @ApiProperty() nombre!: string;
+  @ApiProperty({ enum: CATEGORIAS_CARTA }) categoria!: string;
+  @ApiProperty({ type: 'integer' }) cantidad!: number;
+  @ApiProperty({ description: 'Precio de la carta al pedir (congelado)' }) precioUnitarioCentavos!: number;
+  @ApiProperty() subtotalCentavos!: number;
+}
+class RestaurantePedido {
+  @ApiProperty({ format: 'uuid', description: 'public_id del restaurante' }) id!: string;
+  @ApiProperty({ example: 'Doña Rosa' }) nombre!: string;
+  @ApiProperty({ example: 'dona-rosa' }) slug!: string;
+}
+class AlmuerzoPedido {
+  @ApiProperty({ type: [PlatoPedido] }) platos!: PlatoPedido[];
+  @ApiProperty({ description: 'Lo que se cobraría por el almuerzo: 0 si lo cubre el plan; si no, el precio guardado al pedir' })
+  precioCentavos!: number;
+  @ApiProperty({ description: 'El plan cubría el almuerzo al pedir (precioCentavos = 0)' }) cubiertoPorPlan!: boolean;
+}
 export class PedidoResponse {
-  @ApiProperty({ description: 'public_id del pedido' }) id!: string;
-  @ApiProperty({ description: 'Contenido del QR que la caja escanea: es el public_id del pedido' }) qr!: string;
-  @ApiProperty({ example: 7, description: '"Pedido #7" del día' }) numero!: number;
+  @ApiProperty({ format: 'uuid', description: 'public_id del pedido' }) id!: string;
+  @ApiProperty({ format: 'uuid', description: 'Contenido del QR que la caja escanea: es el public_id del pedido' }) qr!: string;
+  @ApiProperty({ type: 'integer', example: 7, description: '"Pedido #7" del día' }) numero!: number;
   @ApiProperty({ example: '2026-11-13' }) fecha!: string;
-  @ApiProperty({ example: { id: 'uuid', nombre: 'Doña Rosa', slug: 'dona-rosa' } }) restaurante!: {
-    id: string;
-    nombre: string;
-    slug: string;
-  };
+  @ApiProperty({ type: RestaurantePedido }) restaurante!: RestaurantePedido;
   @ApiProperty({ enum: ['EN_CAMINO', 'CANJEADA', 'SERVIDA', 'EXPIRADA', 'CANCELADA'] }) estado!: string;
   @ApiProperty() paraLlevar!: boolean;
-  @ApiPropertyOptional({
-    description: 'null si solo pidió extras',
-    example: { platos: [{ id: 'uuid', nombre: 'Seco de pollo', seccion: 'FUERTE' }], precioCentavos: 0, cubiertoPorPlan: true },
-  })
-  almuerzo!: { platos: PlatoPedido[]; precioCentavos: number; cubiertoPorPlan: boolean } | null;
-  @ApiProperty({ type: [ExtraPedido] }) extras!: ExtraPedido[];
+  @ApiProperty({ type: AlmuerzoPedido, nullable: true, description: 'null si no pidió almuerzo (solo extras o carta)' })
+  almuerzo!: AlmuerzoPedido | null;
+  @ApiProperty({ type: [ExtraPedido], description: 'Extras del menú del día' }) extras!: ExtraPedido[];
+  @ApiProperty({ type: [CartaItemPedido], description: 'Platos de la carta fija (vacío si no pidió ninguno)' })
+  cartaItems!: CartaItemPedido[];
   @ApiProperty() recargoLlevarCentavos!: number;
   @ApiProperty({ description: 'Lo que se pagaría en caja según lo conocido al pedir' }) totalCentavos!: number;
   @ApiProperty({ example: 'USD' }) monedaCodigo!: string;
   @ApiProperty({
     type: CotizacionResponse,
     description:
-      'Cotización estimada (informativa) con la regla de cobro objetivo (docs/spec-cobros.md). Para un pedido ya creado el precio del almuerzo sale de `subtotal − extras` y el plan se lee de hoy. ' +
-      'Puede diferir de `totalCentavos`: por ahora solo si un extra del menú es un plato `A_LA_CARTA` pedido para llevar (la cotización suma el recargo por unidad; `totalCentavos` aún no). Cambia en el PR 7.',
+      'Cotización estimada (informativa) con la regla de cobro (docs/spec-cobros.md). Para un pedido ya creado usa el precio del almuerzo guardado al pedir ' +
+      '(`precio_almuerzo_centavos`; un pedido anterior sin él, `subtotal − extras − carta`), los precios y el recargo por unidad guardados en sus renglones, y el plan de hoy. ' +
+      'Al crear, `totalCentavos` = `cotizacion.saldoPorCobrarCentavos` y `recargoLlevarCentavos` = `cotizacion.recargoCentavos`. Una cotización puede cambiar después si el plan cambia (se lee de hoy).',
   })
   cotizacion!: CotizacionResponse;
   @ApiProperty() creadoEn!: Date;
-  @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
-  @ApiPropertyOptional({ type: Date, nullable: true }) canjeadoEn!: Date | null;
-  @ApiPropertyOptional({ type: Date, nullable: true }) servidoEn!: Date | null;
-  @ApiPropertyOptional({ type: Date, nullable: true }) canceladoEn!: Date | null;
+  @ApiProperty({
+    description: `max(creadoEn, horaLlegada) + ${PREORDER_MINUTES} minutos (sin horaLlegada: creadoEn + ${PREORDER_MINUTES}). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA.`,
+  })
+  venceEn!: Date;
+  @ApiProperty({ type: Date, nullable: true, description: 'Hora de llegada que mandó el comensal al pedir; null si no la mandó' })
+  horaLlegada!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null mientras no se canjee en caja' }) canjeadoEn!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null mientras no se sirva' }) servidoEn!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null si no se canceló' }) canceladoEn!: Date | null;
 }
 class PedidosResponse {
   @ApiProperty({ type: [PedidoResponse] }) items!: PedidoResponse[];
@@ -189,6 +249,7 @@ export interface OrderRow {
   canjeada_en: Date | null;
   servida_en: Date | null;
   cancelada_en: Date | null;
+  hora_llegada: Date | null;
   cliente_id: string | null;
   usuario_id: string;
   usuario_nombre: string;
@@ -211,6 +272,8 @@ interface LineRow {
   precio_unitario_centavos: string;
   categoria: CategoriaPlato;
   plato_seccion: string | null;
+  es_carta: boolean;
+  recargo_unitario_centavos: string;
 }
 
 interface PreciosRow {
@@ -222,7 +285,7 @@ interface PreciosRow {
 
 export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o.numero_dia, o.fecha_local::text AS fecha_local, ${ESTADO_EFECTIVO} AS estado, o.tipo,
        o.subtotal_centavos, o.recargo_llevar_centavos, o.total_centavos, o.moneda_codigo, o.creada_en, o.vence_en,
-       o.canjeada_en, o.servida_en, o.cancelada_en, o.cliente_id, o.usuario_id, u.nombre AS usuario_nombre, o.precio_almuerzo_centavos,
+       o.canjeada_en, o.servida_en, o.cancelada_en, o.hora_llegada, o.cliente_id, o.usuario_id, u.nombre AS usuario_nombre, o.precio_almuerzo_centavos,
        EXISTS (SELECT 1 FROM consumo_almuerzo k WHERE k.restaurante_id = o.restaurante_id AND k.orden_id = o.orden_id AND k.cantidad = 1
                   AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)) AS con_consumo,
        r.public_id AS restaurante_public_id, r.nombre AS restaurante_nombre, r.slug AS restaurante_slug,
@@ -231,10 +294,10 @@ export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o
   JOIN restaurante r ON r.restaurante_id = o.restaurante_id
   JOIN usuario u ON u.usuario_id = o.usuario_id`;
 
-/** Extras del pedido (renglones sin sección) como platos sueltos para la cotización. */
-function extrasParaCobro(lines: LineRow[]): PlatoSuelto[] {
+/** Renglones sin sección como platos sueltos para la cotización: los extras del menú (`carta` = false) o los de la carta fija. */
+function platosParaCobro(lines: LineRow[], carta: boolean): PlatoSuelto[] {
   return lines
-    .filter((l) => l.seccion === null)
+    .filter((l) => l.seccion === null && l.es_carta === carta)
     .map((l) => ({
       platoId: l.plato_public_id,
       nombre: l.nombre_plato,
@@ -244,12 +307,22 @@ function extrasParaCobro(lines: LineRow[]): PlatoSuelto[] {
       precioUnitario: Number(l.precio_unitario_centavos),
     }));
 }
+const extrasParaCobro = (lines: LineRow[]) => platosParaCobro(lines, false);
+const cartaParaCobro = (lines: LineRow[]) => platosParaCobro(lines, true);
+
+/**
+ * R congelado del pedido: el recargo unitario que se guardó en sus renglones. Un pedido anterior al PR 7a (o uno que no
+ * cobró recargo) no guarda ninguno: ahí se usa el del local de hoy, como siempre.
+ */
+const recargoCongelado = (lines: LineRow[], actual: number) =>
+  lines.reduce((m, l) => Math.max(m, Number(l.recargo_unitario_centavos)), 0) || actual;
 
 /** Renglones de pedidos (orden_detalle) con su plato. */
 async function orderLines(q: Queryable, ordenIds: string[]): Promise<LineRow[]> {
   return (
     await q.query<LineRow>(
-      `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion
+      `SELECT d.orden_id, p.public_id AS plato_public_id, d.nombre_plato, d.seccion, d.cantidad, d.precio_unitario_centavos, p.categoria, p.seccion AS plato_seccion,
+              d.es_carta, d.recargo_unitario_centavos
          FROM orden_detalle d JOIN plato p ON p.plato_id = d.plato_id
         WHERE d.orden_id = ANY($1::bigint[]) ORDER BY d.orden_detalle_id`,
       [ordenIds],
@@ -259,7 +332,8 @@ async function orderLines(q: Queryable, ordenIds: string[]): Promise<LineRow[]> 
 
 /**
  * Arma los pedidos con sus renglones. En orden_detalle, un renglón con `seccion` es parte del almuerzo (precio 0: el
- * precio del almuerzo es subtotal − extras) y uno sin `seccion` es un extra con su precio.
+ * precio del almuerzo es subtotal − extras − carta); uno sin `seccion` es un extra del menú del día o, con `es_carta`, un
+ * plato de la carta fija, ambos con su precio.
  */
 export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<PedidoResponse[]> {
   if (!rows.length) return [];
@@ -287,27 +361,33 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
   return rows.map((o) => {
     const mine = lines.rows.filter((l) => String(l.orden_id) === String(o.orden_id));
     const lunch = mine.filter((l) => l.seccion !== null);
-    const extras = mine
-      .filter((l) => l.seccion === null)
-      .map((l) => ({
-        id: l.plato_public_id,
-        nombre: l.nombre_plato,
-        cantidad: l.cantidad,
-        precioUnitarioCentavos: Number(l.precio_unitario_centavos),
-        subtotalCentavos: l.cantidad * Number(l.precio_unitario_centavos),
-      }));
-    const lunchPrice = Number(o.subtotal_centavos) - extras.reduce((s, e) => s + e.subtotalCentavos, 0);
+    const renglon = (l: LineRow) => ({
+      id: l.plato_public_id,
+      nombre: l.nombre_plato,
+      cantidad: l.cantidad,
+      precioUnitarioCentavos: Number(l.precio_unitario_centavos),
+      subtotalCentavos: l.cantidad * Number(l.precio_unitario_centavos),
+    });
+    const extras = mine.filter((l) => l.seccion === null && !l.es_carta).map(renglon);
+    const cartaItems = mine
+      .filter((l) => l.seccion === null && l.es_carta)
+      .map((l) => ({ ...renglon(l), categoria: l.categoria as string }));
+    const lunchPrice =
+      Number(o.subtotal_centavos) -
+      extras.reduce((s, e) => s + e.subtotalCentavos, 0) -
+      cartaItems.reduce((s, e) => s + e.subtotalCentavos, 0);
     const pr = precios.get(String(o.restaurante_id))!;
     const plan: PlanPersona =
       (o.cliente_id !== null && planes.get(claveCliente(String(o.restaurante_id), String(o.cliente_id)))) || SIN_PLAN;
     const base = {
-      recargoLlevar: Number(pr.recargo),
+      recargoLlevar: recargoCongelado(mine, Number(pr.recargo)),
       momentoCobro: pr.momento_cobro,
       paraLlevar: o.tipo === 'LLEVAR',
       conAlmuerzo: lunch.length > 0,
       subtotal: Number(o.subtotal_centavos),
       plan,
       extras: extrasParaCobro(mine),
+      carta: cartaParaCobro(mine),
     };
     const canjeado = o.estado === 'CANJEADA' || o.estado === 'SERVIDA' ? { conConsumo: o.con_consumo } : null;
     // Con snapshot de P (INC-06) se cotiza con él; si así no se puede (P = 0 y sin plan, I-12), como un pedido viejo.
@@ -331,17 +411,47 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
           }
         : null,
       extras,
+      cartaItems,
       recargoLlevarCentavos: Number(o.recargo_llevar_centavos),
       totalCentavos: Number(o.total_centavos),
       monedaCodigo: o.moneda_codigo,
       cotizacion: aRespuesta(cotizacion, o.moneda_codigo),
       creadoEn: o.creada_en,
       venceEn: o.vence_en,
+      horaLlegada: o.hora_llegada,
       canjeadoEn: o.canjeada_en,
       servidoEn: o.servida_en,
       canceladoEn: o.cancelada_en,
     };
   });
+}
+
+interface RestPedido {
+  restaurante_id: string;
+  estado: string;
+  precio: string;
+  recargo: string;
+  moneda: string;
+  hoy: string;
+  momento: MomentoCobro;
+}
+
+interface CartaPick {
+  plato_id: string;
+  public_id: string;
+  nombre: string;
+  categoria: CategoriaPlato;
+  plato_seccion: string | null;
+  activo: boolean;
+  precio: string | null;
+  agotado: boolean;
+}
+
+/** Un plato resuelto del pedido (extra o de la carta) con su cantidad y el precio unitario de hoy. */
+interface Seleccion {
+  p: { public_id: string; nombre: string; categoria: CategoriaPlato; plato_seccion: string | null };
+  cantidad: number;
+  precio: number;
 }
 
 interface MenuPick {
@@ -392,19 +502,18 @@ export class DinerOrdersService {
     return (await renderOrders(q, r.rows))[0]!;
   }
 
-  /** Todo lo que se valida antes de pedir (compartido con `cotizar`): local, menú de hoy, aforo y platos. No escribe nada. */
+  /**
+   * Todo lo que se valida antes de pedir (compartido con `cotizar`): pedido no vacío, tope de renglones, hora de llegada,
+   * local, menú de hoy (solo si el pedido lleva almuerzo o extras: la carta no lo necesita) y aforo. No escribe nada.
+   */
   private async resolve(q: Queryable, dto: CrearPedidoDto, restaurante: string) {
-    if (!dto.almuerzo && !dto.extras?.length) throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras o ambos.');
+    if (!dto.almuerzo && !dto.extras?.length && !dto.cartaItems?.length)
+      throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras, platos de la carta o una mezcla.');
+    if ((dto.extras?.length ?? 0) + (dto.cartaItems?.length ?? 0) > MAX_ITEMS_PEDIDO)
+      throw badRequest('PEDIDO_DEMASIADOS_ITEMS', `Entre extras y platos de la carta, a lo sumo ${MAX_ITEMS_PEDIDO} renglones por pedido.`);
+    const horaLlegada = dto.horaLlegada === undefined ? null : horaLlegadaEnVentana(dto.horaLlegada);
     const rest = (
-      await q.query<{
-        restaurante_id: string;
-        estado: string;
-        precio: string;
-        recargo: string;
-        moneda: string;
-        hoy: string;
-        momento: MomentoCobro;
-      }>(
+      await q.query<RestPedido>(
         `SELECT r.restaurante_id, r.estado, r.precio_suelto_centavos AS precio, r.recargo_para_llevar_centavos AS recargo, r.moneda_codigo AS moneda,
                 ${HOY_LOCAL('r')}::text AS hoy, r.momento_cobro AS momento
            FROM restaurante r WHERE r.public_id = $1 AND r.estado IN ('ACTIVO', 'PAUSADO')`,
@@ -413,7 +522,8 @@ export class DinerOrdersService {
     ).rows[0];
     if (!rest) throw notFound('RESTAURANTE_NO_ENCONTRADO', 'Restaurante no encontrado.');
     if (rest.estado === 'PAUSADO') throw restaurantePausado();
-    const menu = { menu_diario_id: await assertMenuPublicado(q, rest.restaurante_id) };
+    // Los extras salen del menú del día; la carta fija no: un pedido solo de carta se acepta sin menú publicado.
+    const menuId = dto.almuerzo || dto.extras?.length ? await assertMenuPublicado(q, rest.restaurante_id) : null;
     // Con el local LLENO (manual o por aforo, la misma ocupación de la vitrina) solo se admite para llevar.
     if (!dto.paraLlevar) {
       const o = (
@@ -425,7 +535,7 @@ export class DinerOrdersService {
       if (o && occupancy(o.personas, o.puestos, o.lleno_manual, o.concurrido_manual).nivel === 'LLENO')
         throw conflict('LOCAL_LLENO_SOLO_LLEVAR', 'El local está lleno: por ahora solo se aceptan pedidos para llevar.');
     }
-    return { rest, menu };
+    return { rest, menuId, horaLlegada };
   }
 
   /** Un pedido en camino a la vez por local. */
@@ -437,18 +547,21 @@ export class DinerOrdersService {
     if (active.rowCount) throw conflict('PEDIDO_ACTIVO', 'Ya tienes un pedido en camino a este restaurante.');
   }
 
-  /** Platos del pedido contra el menú de hoy (agotados, sección única, precio). */
-  private async platos(q: Queryable, dto: CrearPedidoDto, menuId: string) {
+  /** Platos del pedido: almuerzo y extras contra el menú de hoy (agotados, sección única, precio) y carta contra la carta fija. */
+  private async platos(q: Queryable, dto: CrearPedidoDto, menuId: string | null, restauranteId: string) {
     const wanted = [...new Set([...(dto.almuerzo?.platos ?? []), ...(dto.extras ?? []).map((e) => e.plato)].map((p) => p.toLowerCase()))];
     const picks = new Map(
-      (
-        await q.query<MenuPick>(
-          `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
-             FROM menu_diario_detalle d JOIN plato p ON p.plato_id = d.plato_id AND p.restaurante_id = d.restaurante_id
-            WHERE d.menu_diario_id = $1 AND p.activo AND p.public_id = ANY($2::uuid[])`,
-          [menuId, wanted],
-        )
-      ).rows.map((p) => [p.public_id, p]),
+      (menuId === null || !wanted.length
+        ? []
+        : (
+            await q.query<MenuPick>(
+              `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, d.seccion, COALESCE(d.precio_centavos, p.precio_centavos) AS precio, d.agotado
+                 FROM menu_diario_detalle d JOIN plato p ON p.plato_id = d.plato_id AND p.restaurante_id = d.restaurante_id
+                WHERE d.menu_diario_id = $1 AND p.activo AND p.public_id = ANY($2::uuid[])`,
+              [menuId, wanted],
+            )
+          ).rows
+      ).map((p) => [p.public_id, p]),
     );
     const pick = (id: string) => {
       const p = picks.get(id.toLowerCase());
@@ -465,94 +578,165 @@ export class DinerOrdersService {
       if (p.precio === null) throw unprocessable('PLATO_SIN_PRECIO', `"${p.nombre}" solo se sirve dentro del almuerzo.`);
       return { p, cantidad: e.cantidad, precio: Number(p.precio) };
     });
-    return { lunch, extras };
+    return { lunch, extras, carta: await this.carta(q, dto.cartaItems ?? [], restauranteId) };
+  }
+
+  /**
+   * Platos de la carta fija del local: existen, están activos y son de la carta (A_LA_CARTA, EXTRA, BEBIDA). Agotado hoy
+   * (`platoAgotadoSql`) → 409 PLATO_AGOTADO; ajeno, inexistente, inactivo o fuera de la carta (p. ej. ALMUERZO) → 422
+   * PLATO_NO_DISPONIBLE. El precio es el de la carta hoy.
+   */
+  private async carta(q: Queryable, items: { platoId: string; cantidad: number }[], restauranteId: string) {
+    if (!items.length) return [];
+    const rows = (
+      await q.query<CartaPick>(
+        `SELECT p.plato_id, p.public_id, p.nombre, p.categoria, p.seccion AS plato_seccion, p.activo, p.precio_centavos AS precio,
+                ${platoAgotadoSql('p', 'r')} AS agotado
+           FROM plato p JOIN restaurante r ON r.restaurante_id = p.restaurante_id
+          WHERE p.restaurante_id = $1 AND p.public_id = ANY($2::uuid[])`,
+        [restauranteId, [...new Set(items.map((i) => i.platoId.toLowerCase()))]],
+      )
+    ).rows;
+    const porId = new Map(rows.map((p) => [String(p.public_id), p]));
+    return items.map((i) => {
+      const p = porId.get(i.platoId.toLowerCase());
+      if (!p?.activo || !(CATEGORIAS_CARTA as readonly string[]).includes(p.categoria))
+        throw unprocessable('PLATO_NO_DISPONIBLE', 'Algún plato no está en la carta de este restaurante.');
+      if (p.precio === null) throw unprocessable('PLATO_SIN_PRECIO', `"${p.nombre}" no tiene precio en la carta.`);
+      if (p.agotado) throw conflict('PLATO_AGOTADO', `"${p.nombre}" se agotó.`);
+      return { p, cantidad: i.cantidad, precio: Number(p.precio) };
+    });
+  }
+
+  /**
+   * La cotización estimada del pedido, con el plan de hoy del comensal. La usan `cotizar` y `create`: así el total que se
+   * guarda es el saldo que se cotizó, y el almuerzo sin precio (P = 0 sin plan que lo cubra, I-12) falla igual en las dos
+   * (409 `ALMUERZO_SIN_PRECIO`). Devuelve también la ficha de cliente del comensal en el local (null si no es cliente).
+   */
+  private async cotizacionDelPedido(
+    q: Queryable,
+    rest: RestPedido,
+    dto: CrearPedidoDto,
+    platos: { lunch: unknown[]; extras: Seleccion[]; carta: Seleccion[] },
+  ) {
+    const cliente = (
+      await q.query<{ cliente_id: string }>(
+        'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = $1 AND usuario_id = app_user_id() AND activo',
+        [rest.restaurante_id],
+      )
+    ).rows[0];
+    const planes = await cargarPlanes(q, [
+      { restauranteId: String(rest.restaurante_id), clienteId: cliente ? String(cliente.cliente_id) : null },
+    ]);
+    const plan = (cliente && planes.get(claveCliente(String(rest.restaurante_id), String(cliente.cliente_id)))) || SIN_PLAN;
+    const suelto = (e: Seleccion) => ({
+      platoId: e.p.public_id,
+      nombre: e.p.nombre,
+      categoria: e.p.categoria,
+      seccion: e.p.plato_seccion,
+      cantidad: e.cantidad,
+      precioUnitario: e.precio,
+    });
+    const pedido: PedidoParaCobro = {
+      precioAlmuerzo: Number(rest.precio),
+      recargoLlevar: Number(rest.recargo),
+      momentoCobro: rest.momento,
+      paraLlevar: dto.paraLlevar ?? false,
+      conAlmuerzo: platos.lunch.length > 0,
+      plan,
+      extras: platos.extras.map(suelto),
+      carta: platos.carta.map(suelto),
+    };
+    try {
+      return { cotizacion: cotizar(entradaPedido(pedido)), clienteId: cliente?.cliente_id ?? null };
+    } catch (e) {
+      if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')
+        throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubre.');
+      throw e;
+    }
   }
 
   /**
    * POST /v1/mis/pedidos/cotizar: lo mismo que pedir, sin pedir. No escribe nada (ni el número del día ni el pedido):
-   * corre en una transacción de solo lectura. Responde la cotización estimada con el plan de hoy del comensal.
+   * corre en una transacción de solo lectura. Es un cálculo sin efectos: no exige que no haya otro pedido en camino
+   * (`PEDIDO_ACTIVO` es solo de crear). Responde la cotización estimada con el plan de hoy del comensal.
    */
   cotizar(user: AuthUser, dto: CrearPedidoDto): Promise<CotizacionRespuesta> {
     const restaurante = dto.restaurante.toLowerCase();
     return this.db.scope({ userId: user.userId, readOnly: true }, async (q) => {
-      const { rest, menu } = await this.resolve(q, dto, restaurante);
-      await this.assertSinPedidoActivo(q, rest.restaurante_id);
-      const { lunch, extras } = await this.platos(q, dto, menu.menu_diario_id);
-      const cliente = (
-        await q.query<{ cliente_id: string }>(
-          'SELECT cliente_id FROM cliente_restaurante WHERE restaurante_id = $1 AND usuario_id = app_user_id() AND activo',
-          [rest.restaurante_id],
-        )
-      ).rows[0];
-      const planes = await cargarPlanes(q, [
-        { restauranteId: String(rest.restaurante_id), clienteId: cliente ? String(cliente.cliente_id) : null },
-      ]);
-      const plan = (cliente && planes.get(claveCliente(String(rest.restaurante_id), String(cliente.cliente_id)))) || SIN_PLAN;
-      try {
-        return aRespuesta(
-          cotizar(
-            entradaPedido({
-              precioAlmuerzo: Number(rest.precio),
-              recargoLlevar: Number(rest.recargo),
-              momentoCobro: rest.momento,
-              paraLlevar: dto.paraLlevar ?? false,
-              conAlmuerzo: lunch.length > 0,
-              plan,
-              extras: extras.map((e) => ({
-                platoId: e.p.public_id,
-                nombre: e.p.nombre,
-                categoria: e.p.categoria,
-                seccion: e.p.plato_seccion,
-                cantidad: e.cantidad,
-                precioUnitario: e.precio,
-              })),
-            }),
-          ),
-          rest.moneda,
-        );
-      } catch (e) {
-        if (e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')
-          throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubre.');
-        throw e;
-      }
+      const { rest, menuId } = await this.resolve(q, dto, restaurante);
+      const platos = await this.platos(q, dto, menuId, rest.restaurante_id);
+      return aRespuesta((await this.cotizacionDelPedido(q, rest, dto, platos)).cotizacion, rest.moneda);
     });
   }
 
   private async createIn(q: Queryable, dto: CrearPedidoDto, restaurante: string, key: string) {
-    if (!dto.almuerzo && !dto.extras?.length) throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras o ambos.');
+    if (!dto.almuerzo && !dto.extras?.length && !dto.cartaItems?.length)
+      throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras, platos de la carta o una mezcla.');
     // El reintento pudo terminar entre la primera lectura y esta transacción: antes de "un pedido a la vez", la clave.
     const replay = await this.byKeyIn(q, key, restaurante);
     if (replay) return replay;
-    const { rest, menu } = await this.resolve(q, dto, restaurante);
+    const { rest, menuId, horaLlegada } = await this.resolve(q, dto, restaurante);
     // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
     // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
     const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
       .rows[0]!.n;
     await this.assertSinPedidoActivo(q, rest.restaurante_id);
-    const { lunch, extras } = await this.platos(q, dto, menu.menu_diario_id);
+    const platos = await this.platos(q, dto, menuId, rest.restaurante_id);
+    const { lunch, extras, carta } = platos;
 
-    // ¿Lo cubre un plan? Solo es una estimación para el total: el descuento real ocurre al canjear en caja.
-    const cliente = (
-      await q.query<{ cliente_id: string; cubierto: boolean }>(
-        `SELECT c.cliente_id, EXISTS (SELECT 1 FROM suscripcion_plan s WHERE s.restaurante_id = c.restaurante_id AND s.cliente_id = c.cliente_id
-                  AND s.estado = 'ACTIVA' AND s.vence_el >= $2::date AND EXTRACT(ISODOW FROM $2::date)::smallint = ANY (s.dias_validos)) AS cubierto
-           FROM cliente_restaurante c WHERE c.restaurante_id = $1 AND c.usuario_id = app_user_id() AND c.activo`,
-        [rest.restaurante_id, rest.hoy],
-      )
-    ).rows[0];
-    const lunchPrice = lunch.length && !cliente?.cubierto ? Number(rest.precio) : 0;
-    const recargo = lunch.length && dto.paraLlevar ? Number(rest.recargo) : 0;
-    const subtotal = lunchPrice + extras.reduce((s, e) => s + e.precio * e.cantidad, 0);
+    // Todo el dinero sale de la cotización (src/billing): el plan es solo una estimación para el total (el descuento real
+    // ocurre al canjear en caja) y el recargo por unidad lo decide su regla por tipo. Lo que se guarda en el pedido y en
+    // sus renglones es esa cotización: total = saldo por cobrar, recargo = recargo de la cotización.
+    const { cotizacion: cot, clienteId } = await this.cotizacionDelPedido(q, rest, dto, platos);
+    const recargoDe = (ref: string) => cot.lineas.find((l) => l.ref === ref)?.recargoUnitarioCentavos ?? 0;
+    // El recargo del almuerzo (una unidad) va en su primer renglón; los demás platos del almuerzo, en 0.
+    const recargoAlmuerzo = cot.lineas.find((l) => l.tipo === 'ALMUERZO')?.recargoUnitarioCentavos ?? 0;
+    const renglones = [
+      ...lunch.map((p, i) => ({
+        p,
+        seccion: p.seccion as string | null,
+        cantidad: 1,
+        precio: 0,
+        recargo: i === 0 ? recargoAlmuerzo : 0,
+        esCarta: false,
+      })),
+      ...extras.map((e, i) => ({
+        p: e.p,
+        seccion: null,
+        cantidad: e.cantidad,
+        precio: e.precio,
+        recargo: recargoDe(`extra:${i}`),
+        esCarta: false,
+      })),
+      ...carta.map((e, i) => ({
+        p: e.p,
+        seccion: null,
+        cantidad: e.cantidad,
+        precio: e.precio,
+        recargo: recargoDe(`carta:${i}`),
+        esCarta: true,
+      })),
+    ];
+    const recargo = renglones.reduce((s, r) => s + r.cantidad * r.recargo, 0);
+    const subtotal =
+      (lunch.length && cot.cubiertoPorPlanCentavos === 0 ? Number(rest.precio) : 0) +
+      renglones.reduce((s, r) => s + r.cantidad * r.precio, 0);
+    if (recargo !== cot.recargoCentavos || subtotal + recargo !== cot.saldoPorCobrarCentavos)
+      throw new Error(`pedido: lo guardado (${subtotal} + ${recargo}) no coincide con la cotización (${cot.saldoPorCobrarCentavos})`);
 
+    // Mismo reloj que el default de creada_en (CURRENT_TIMESTAMP de la transacción), así vence_en > creada_en siempre.
+    const creadaEn = (await q.query<{ ahora: Date }>('SELECT CURRENT_TIMESTAMP AS ahora')).rows[0]!.ahora;
     const o = (
       await q.query<{ orden_id: string }>(
         `INSERT INTO orden_cabecera (restaurante_id, usuario_id, cliente_id, numero_dia, fecha_local, tipo, subtotal_centavos,
-                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos)
-         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11, $12)
+                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos,
+                                     hora_llegada)
+         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING orden_id`,
         [
           rest.restaurante_id,
-          cliente?.cliente_id ?? null,
+          clienteId,
           numero,
           rest.hoy,
           dto.paraLlevar ? 'LLEVAR' : 'AQUI',
@@ -560,25 +744,20 @@ export class DinerOrdersService {
           recargo,
           subtotal + recargo,
           rest.moneda,
-          PREORDER_MINUTES,
+          venceEn(creadaEn, horaLlegada),
           key,
           // Snapshot de P (INC-06): lo que vale el almuerzo si la caja lo cobra, aunque al pedir lo cubra un plan.
           Number(rest.precio),
+          horaLlegada,
         ],
       )
     ).rows[0]!;
-    for (const p of lunch) {
+    for (const r of renglones) {
       await q.query(
-        `INSERT INTO orden_detalle (orden_id, restaurante_id, plato_id, seccion, nombre_plato, cantidad, precio_unitario_centavos)
-         VALUES ($1, $2, $3, $4, $5, 1, 0)`,
-        [o.orden_id, rest.restaurante_id, p.plato_id, p.seccion, p.nombre],
-      );
-    }
-    for (const e of extras) {
-      await q.query(
-        `INSERT INTO orden_detalle (orden_id, restaurante_id, plato_id, seccion, nombre_plato, cantidad, precio_unitario_centavos)
-         VALUES ($1, $2, $3, NULL, $4, $5, $6)`,
-        [o.orden_id, rest.restaurante_id, e.p.plato_id, e.p.nombre, e.cantidad, e.precio],
+        `INSERT INTO orden_detalle (orden_id, restaurante_id, plato_id, seccion, nombre_plato, cantidad, precio_unitario_centavos,
+                                    recargo_unitario_centavos, es_carta)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [o.orden_id, rest.restaurante_id, r.p.plato_id, r.seccion, r.p.nombre, r.cantidad, r.precio, r.recargo, r.esCarta],
       );
     }
     const r = await q.query<OrderRow>(`${ORDER_SELECT} WHERE o.orden_id = $1`, [o.orden_id]);
@@ -642,15 +821,23 @@ export class DinerOrdersController {
   @Post()
   @ApiIdempotent()
   @ApiOperation({
-    summary: 'Hacer una preorden del menú de hoy',
+    summary: 'Hacer una preorden (menú del día, carta fija o ambos)',
     description:
-      `El pedido vence a los ${PREORDER_MINUTES} minutos. Su QR es el public_id (\`qr\`): la caja lo escanea y descuenta el almuerzo ` +
-      'del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. ' +
-      'Un pedido en camino a la vez por local.',
+      `El pedido vence ${PREORDER_MINUTES} minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (\`qr\`): la caja lo escanea y descuenta el almuerzo ` +
+      'del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún ' +
+      'plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los ' +
+      '`extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.',
   })
   @ApiCreatedResponse({ type: PedidoResponse })
   @ApiProblems({
-    400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO', 'IDEMPOTENCY_KEY_INVALIDA'],
+    400: [
+      'BAD_REQUEST',
+      'PEDIDO_VACIO',
+      'PEDIDO_DEMASIADOS_ITEMS',
+      'HORA_LLEGADA_INVALIDA',
+      'ALMUERZO_INVALIDO',
+      'IDEMPOTENCY_KEY_INVALIDA',
+    ],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
     409: [
       'RESTAURANTE_PAUSADO',
@@ -658,6 +845,7 @@ export class DinerOrdersController {
       'MENU_NO_PUBLICADO',
       'PEDIDO_ACTIVO',
       'PLATO_AGOTADO',
+      'ALMUERZO_SIN_PRECIO',
       'IDEMPOTENCY_KEY_REUTILIZADA',
     ],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
@@ -673,13 +861,13 @@ export class DinerOrdersController {
     description:
       'Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos`, pero sin `Idempotency-Key` y sin efectos: no crea el pedido, ' +
       'no toma número del día y no toca el plan. Responde la `Cotizacion` estimada (`estimada: true`) con el plan de hoy del comensal. ' +
-      'Para mostrar el total antes de pedir. Hoy cotiza el menú del día; carta y ofertas llegan en el PR 7.',
+      'Para mostrar el total antes de pedir (menú del día y carta fija). No responde `PEDIDO_ACTIVO`: eso es solo de crear.',
   })
   @ApiOkResponse({ type: CotizacionResponse })
   @ApiProblems({
-    400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO'],
+    400: ['BAD_REQUEST', 'PEDIDO_VACIO', 'PEDIDO_DEMASIADOS_ITEMS', 'HORA_LLEGADA_INVALIDA', 'ALMUERZO_INVALIDO'],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
-    409: ['RESTAURANTE_PAUSADO', 'LOCAL_LLENO_SOLO_LLEVAR', 'MENU_NO_PUBLICADO', 'PEDIDO_ACTIVO', 'PLATO_AGOTADO', 'ALMUERZO_SIN_PRECIO'],
+    409: ['RESTAURANTE_PAUSADO', 'LOCAL_LLENO_SOLO_LLEVAR', 'MENU_NO_PUBLICADO', 'PLATO_AGOTADO', 'ALMUERZO_SIN_PRECIO'],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
   })
   cotizar(@CurrentUser() user: AuthUser, @Body() dto: CrearPedidoDto) {
@@ -862,7 +1050,8 @@ export class StaffOrdersService {
     const pedido0 = (await renderOrders(q, [o]))[0]!;
     const hasLunch = pedido0.almuerzo !== null;
     const platoNombre = pedido0.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
-    const extras = pedido0.extras.reduce((s, e) => s + e.subtotalCentavos, 0);
+    const extras = [...pedido0.extras, ...pedido0.cartaItems].reduce((s, e) => s + e.subtotalCentavos, 0);
+    const lineas = await orderLines(q, [String(o.orden_id)]);
     const rest = (
       await q.query<{ precio: string; recargo: string; momento: MomentoCobro; moneda: string }>(
         `SELECT precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, momento_cobro AS momento, moneda_codigo AS moneda
@@ -877,16 +1066,17 @@ export class StaffOrdersService {
       precioActual: Number(rest.precio),
     });
     const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
-    const lineas = await orderLines(q, [String(o.orden_id)]);
     const entrada = (plan: PlanPersona) =>
       entradaPedido({
         precioAlmuerzo: precio,
-        recargoLlevar: Number(rest.recargo),
+        // R congelado al pedir (el de sus renglones); un pedido anterior al PR 7a usa el del local de hoy.
+        recargoLlevar: recargoCongelado(lineas, Number(rest.recargo)),
         momentoCobro: rest.momento,
         paraLlevar: o.tipo === 'LLEVAR',
         conAlmuerzo: hasLunch,
         plan,
         extras: extrasParaCobro(lineas),
+        carta: cartaParaCobro(lineas),
       });
 
     // Misma llave: si ya creó la cuenta de este pedido con el mismo cuerpo es un reintento; con otro pedido u otro cuerpo, 409.
@@ -1095,7 +1285,7 @@ export class StaffOrdersController {
       'REFERENCIA_PAGO_REPETIDA',
       'ALMUERZO_SIN_PRECIO',
     ],
-    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO', 'REFERENCIA_PAGO_REQUERIDA'],
   })
   redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearPedidoDto, @IdempotencyKey() key: string) {
     return this.svc.redeem(id, key, dto);

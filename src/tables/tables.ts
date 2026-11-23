@@ -2,9 +2,10 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Injectable, Module, Param,
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsISO8601, IsOptional, Matches } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
-import { ApiProblems, BusinessError, badRequest, conflict, notFound } from '../common/errors';
+import { ApiProblems, BusinessError, conflict, notFound } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
+import { horaLlegadaEnVentana } from '../common/hora-llegada';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, restaurantePausado, restauranteRef } from '../diner/common';
 import type { PlanPersona } from '../billing/tipos';
@@ -14,8 +15,6 @@ import { cotizarMesa } from '../cobro/mesa';
 import { SeleccionDto, SeleccionMiembroResponse, TableSelectionService, loadSelections, seleccionDe } from './selection';
 
 const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
-/** La hora de llegada va de 5 minutos atrás a 12 horas adelante. */
-const ARRIVAL_WINDOW = { pastMs: 5 * 60_000, futureMs: 12 * 3_600_000 };
 
 class CrearMesaCompartidaDto {
   @ApiProperty({ description: 'public_id del restaurante' })
@@ -161,10 +160,7 @@ export class TablesService {
   constructor(private readonly db: DbService) {}
 
   async create(user: AuthUser, dto: CrearMesaCompartidaDto, key: string): Promise<MesaResponse> {
-    const llegada = new Date(dto.horaLlegada);
-    const now = Date.now();
-    if (llegada.getTime() < now - ARRIVAL_WINDOW.pastMs || llegada.getTime() > now + ARRIVAL_WINDOW.futureMs)
-      throw badRequest('HORA_LLEGADA_INVALIDA', 'La hora de llegada debe estar entre ahora y las próximas 12 horas.');
+    const llegada = horaLlegadaEnVentana(dto.horaLlegada);
     const restaurante = dto.restaurante.toLowerCase();
     try {
       return await this.db.scope({ userId: user.userId }, async (q) => {

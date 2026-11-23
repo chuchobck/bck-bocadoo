@@ -6,6 +6,7 @@ import { Roles } from '../authz/roles.decorator';
 import { PERSONAL_ACTUAL } from '../checkout/checkout';
 import { ApiProblems, conflict, notFound, unprocessable } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
+import { CONFIRMADO_POR_COLS, confirmadoPorSql, errorReferenciaRepetida, exigirReferenciaAlConfirmar } from '../common/pago-confirmado';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { CURSOR_TS, PageQuery, decodeCursor, encodeCursor, restaurantePausado } from '../diner/common';
@@ -89,6 +90,16 @@ class CanjearOfertaDto {
   @IsOptional()
   @IsUUID()
   comensalId?: string;
+  @ApiPropertyOptional({
+    description:
+      'Número de la transferencia o id de Deuna. El cobro queda confirmado, así que el cajero que cobra con TRANSFERENCIA o DEUNA debe ' +
+      'darla (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`',
+  })
+  @IsOptional()
+  @Text()
+  @IsString()
+  @Length(1, 100)
+  referenciaExterna?: string;
 }
 
 class OfertaCanjeResponse {
@@ -301,12 +312,14 @@ export class OffersService {
           if (!u.rows[0]) throw notFound('COMENSAL_NO_ENCONTRADO', 'Comensal no encontrado.');
           usuarioId = u.rows[0].usuario_id;
         }
-        const metodo = await q.query<{ metodo_pago_id: string }>(
-          `SELECT metodo_pago_id FROM metodo_pago WHERE codigo = $1 AND activo
+        const metodo = await q.query<{ metodo_pago_id: string; es_efectivo: boolean }>(
+          `SELECT metodo_pago_id, es_efectivo FROM metodo_pago WHERE codigo = $1 AND activo
               AND (pais_codigo IS NULL OR pais_codigo = (SELECT pais_codigo FROM restaurante WHERE restaurante_id = app_tenant_id()))`,
           [dto.metodoPago],
         );
         if (!metodo.rows[0]) throw unprocessable('METODO_PAGO_NO_DISPONIBLE', 'Método de pago no disponible en este local.');
+        // El canje siempre nace CONFIRMADO (se entrega al pagar): misma regla que `pagoConfirmado` en los demás cobros.
+        exigirReferenciaAlConfirmar({ esEfectivo: metodo.rows[0].es_efectivo, confirmado: true, referenciaExterna: dto.referenciaExterna });
 
         const take = await q.query<{ oferta_flash_id: string; precio_centavos: string }>(
           `UPDATE oferta_flash SET stock_restante = stock_restante - $2
@@ -326,17 +339,19 @@ export class OffersService {
         );
         await q.query(
           `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, canje_oferta_id,
-                                         cobrado_por_personal_id, fecha_local, clave_idempotencia)
+                                         cobrado_por_personal_id, fecha_local, clave_idempotencia, referencia_externa, ${CONFIRMADO_POR_COLS})
            SELECT app_tenant_id(), $1, $2, r.moneda_codigo, 'CONFIRMADO', $3, ${PERSONAL_ACTUAL},
-                  (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date, $4
+                  (CURRENT_TIMESTAMP AT TIME ZONE r.zona_horaria)::date, $4, $5, ${confirmadoPorSql(true)}
              FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
-          [metodo.rows[0].metodo_pago_id, monto, canje.rows[0]!.canje_id, key],
+          [metodo.rows[0].metodo_pago_id, monto, canje.rows[0]!.canje_id, key, dto.referenciaExterna ?? null],
         );
         return this.renderCanje(q, (await this.canjeByKey(q, key))!);
       });
     } catch (err) {
       // La misma llave en dos peticiones simultáneas: gana una (la otra se revierte, con su descuento de stock) y la
       // perdedora devuelve el canje de la ganadora.
+      const referencia = errorReferenciaRepetida(err);
+      if (referencia !== err) throw referencia;
       const e = err as { code?: string; constraint?: string };
       if (e.code === '23505' && e.constraint?.includes('clave_idempotencia')) {
         return this.db.forRequest(async (q) => {
@@ -454,7 +469,8 @@ export class OffersController {
   @ApiOperation({
     summary: 'Canjear una oferta en caja',
     description:
-      'Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.',
+      'Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez. ' +
+      'Con TRANSFERENCIA o DEUNA, el cajero debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.',
   })
   @ApiCreatedResponse({ type: OfertaCanjeResponse })
   @ApiProblems({
@@ -467,8 +483,9 @@ export class OffersController {
       'OFERTA_EXPIRADA',
       'OFERTA_NO_INICIADA',
       'IDEMPOTENCY_KEY_REUTILIZADA',
+      'REFERENCIA_PAGO_REPETIDA',
     ],
-    422: ['METODO_PAGO_NO_DISPONIBLE'],
+    422: ['METODO_PAGO_NO_DISPONIBLE', 'REFERENCIA_PAGO_REQUERIDA'],
   })
   redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearOfertaDto, @IdempotencyKey() key: string) {
     return this.svc.redeem(id, dto, key);

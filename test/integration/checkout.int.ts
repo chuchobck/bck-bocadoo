@@ -576,6 +576,36 @@ describe('Fase 7: caja', () => {
         pago: { estado: 'RECHAZADO' },
       });
     });
+
+    it('la venta trae pago.id y POST /v1/pagos/{id}/confirmar|rechazar lo resuelven (antes 404); idempotente, 409 si es la acción contraria', async () => {
+      const o = await posLocal('POS Pendiente');
+      const other = await posLocal('POS Pendiente Otro');
+      const vender = (metodoPago: string) =>
+        as(o).post('/v1/caja/ventas', { metodoPago, items: [{ tipo: 'ALMUERZO', cantidad: 1 }] }, randomUUID());
+      const a = (await vender('TRANSFERENCIA')).json();
+      expect(a.pago).toMatchObject({ estado: 'PENDIENTE', metodo: 'TRANSFERENCIA' });
+      expect(a.pago.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect((await as(other).post(`/v1/pagos/${a.pago.id}/confirmar`)).statusCode).toBe(404);
+
+      const ok = await as(o).post(`/v1/pagos/${a.pago.id}/confirmar`);
+      expect(ok.statusCode, ok.body).toBe(200);
+      expect(ok.json()).toMatchObject({ id: a.id, pago: { id: a.pago.id, estado: 'CONFIRMADO' } });
+      expect((await as(o).post(`/v1/pagos/${a.pago.id}/confirmar`)).statusCode).toBe(200);
+      expect((await as(o).post(`/v1/pagos/${a.pago.id}/rechazar`)).statusCode).toBe(409);
+
+      const b = (await vender('DEUNA')).json();
+      const no = await as(o).post(`/v1/pagos/${b.pago.id}/rechazar`);
+      expect(no.statusCode, no.body).toBe(200);
+      expect(no.json()).toMatchObject({ id: b.id, deshecha: false, pago: { id: b.pago.id, estado: 'RECHAZADO' } });
+      expect((await as(o).post(`/v1/pagos/${b.pago.id}/confirmar`)).statusCode).toBe(409);
+      // Lo rechazado se puede deshacer después, como siempre.
+      expect((await as(o).post(`/v1/caja/ventas/${b.id}/deshacer`, undefined, randomUUID())).json()).toMatchObject({ deshecha: true });
+
+      // El efectivo sigue naciendo CONFIRMADO y con id.
+      const e = (await vender('EFECTIVO')).json();
+      expect(e.pago).toMatchObject({ estado: 'CONFIRMADO', metodo: 'EFECTIVO' });
+      expect(e.pago.id).toBeTruthy();
+    });
   });
 
   describe('cierre de caja', () => {
@@ -615,8 +645,31 @@ describe('Fase 7: caja', () => {
         cierre: null,
       });
       expect(arqueo.porMetodo).toEqual([
-        { metodo: 'EFECTIVO', nombre: 'Efectivo', esEfectivo: true, planesCentavos: 1500, posCentavos: 600, totalCentavos: 2100 },
-        { metodo: 'DEUNA', nombre: 'Deuna', esEfectivo: false, planesCentavos: 1500, posCentavos: 0, totalCentavos: 1500 },
+        {
+          metodo: 'EFECTIVO',
+          nombre: 'Efectivo',
+          esEfectivo: true,
+          planesCentavos: 1500,
+          posCentavos: 600,
+          cuentasCentavos: 0,
+          // El plan que vendió el cajero (+1500) lo deshizo el dueño (−1500): el reverso resta del grupo del cajero.
+          confirmadoPorCajeroCentavos: 0,
+          confirmadoPorDuenoCentavos: 2100,
+          confirmadoSinRegistroCentavos: 0,
+          totalCentavos: 2100,
+        },
+        {
+          metodo: 'DEUNA',
+          nombre: 'Deuna',
+          esEfectivo: false,
+          planesCentavos: 1500,
+          posCentavos: 0,
+          cuentasCentavos: 0,
+          confirmadoPorCajeroCentavos: 0,
+          confirmadoPorDuenoCentavos: 1500,
+          confirmadoSinRegistroCentavos: 0,
+          totalCentavos: 1500,
+        },
       ]);
 
       const cierre = await as(cashier).post('/v1/caja/cierre/hoy', { efectivoContadoCentavos: 2000, nota: 'Faltó un dólar' });

@@ -12,6 +12,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
@@ -37,7 +38,7 @@ import { UsersLookupService } from '../auth/users-lookup.service';
 import { Roles } from '../authz/roles.decorator';
 import { IdPipe, IsoDatePipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
-import { RateLimit } from '../security/rate-limit';
+import { RateLimit, UserRateLimitGuard } from '../security/rate-limit';
 import { Email, Text } from '../security/sanitize';
 import { SUBS_SELECT, SubRow, toSub } from '../sales/subscriptions';
 import { ClienteDetalleResponse, ClientePageResponse } from './responses';
@@ -366,11 +367,12 @@ export class CustomersController {
 
   @Roles('DUENO', 'CAJERO')
   @RateLimit('invite')
+  @UseGuards(UserRateLimitGuard)
   @Post(':id/vincular')
   @HttpCode(200)
   @ApiOperation({
     summary: 'Vincular el cliente con su cuenta de la app',
-    description: 'Por el correo de la cuenta. Límite de intentos por hora.',
+    description: 'Por el correo de la cuenta. Límite de intentos por hora (por IP y por usuario).',
   })
   @ApiOkResponse({ type: ClienteDetalleResponse })
   link(@Param('id', IdPipe) id: string, @Body() dto: VincularDto) {

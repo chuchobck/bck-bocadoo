@@ -1151,7 +1151,7 @@ export class CheckoutController {
       'REFERENCIA_PAGO_REPETIDA',
       'IDEMPOTENCY_KEY_REUTILIZADA',
     ],
-    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+    422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO', 'REFERENCIA_PAGO_REQUERIDA'],
   })
   validate(@Body() dto: ValidarDto, @IdempotencyKey() key: string) {
     return this.checkout.validate(dto, key);

@@ -98,10 +98,12 @@ describe('Personal: agregar y desactivar cajeros', () => {
   });
 
   it('buscar cuentas por correo tiene límite por hora', async () => {
-    const o = await h.owner('Local Límite');
+    // Tres dueños desde la misma IP: el tope por IP (20) salta antes que el de cada usuario (10).
+    const owners = [await h.owner('Local Límite 1'), await h.owner('Local Límite 2'), await h.owner('Local Límite 3')];
     const ip = '10.71.200.1';
     const codes: number[] = [];
     for (let i = 0; i < 22; i++) {
+      const o = owners[i % 3]!;
       codes.push(
         (
           await h.call('POST', '/v1/restaurante/personal/cajeros', {

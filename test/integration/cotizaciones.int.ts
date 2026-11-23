@@ -137,15 +137,19 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       }
     });
 
-    it('un pedido en camino bloquea igual que al crear; el local pausado también; sin token 401', async () => {
+    it('cotizar no depende de otro pedido en camino (PEDIDO_ACTIVO es solo de crear); el local pausado sí bloquea; sin token 401', async () => {
       const o = await k.activeOwner();
       const ids = await k.menu(o);
       const d = await k.diner();
       const body = { restaurante: o.restaurante, extras: [{ plato: ids['Cola']!, cantidad: 1 }] };
       expect((await pedir(d, body)).statusCode).toBe(201);
+      // Crear otro en camino sigue siendo 409; cotizar es un cálculo sin efectos y responde 200.
+      const otroPedido = await pedir(d, body);
+      expect(otroPedido.statusCode).toBe(409);
+      expect(otroPedido.json().code).toBe('PEDIDO_ACTIVO');
       const q = await cotizar(d, body);
-      expect(q.statusCode).toBe(409);
-      expect(q.json().code).toBe('PEDIDO_ACTIVO');
+      expect(q.statusCode, q.body).toBe(200);
+      expect(q.json()).toMatchObject({ estimada: true, saldoPorCobrarCentavos: 100 });
       expect((await cotizar({}, body)).statusCode).toBe(401);
 
       const otro = await k.diner();
@@ -279,13 +283,13 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       expect(canje.json().pedido.totalCentavos).toBe(100);
     });
 
-    it('DIVERGENCIA CONOCIDA (cambia en el PR 7): un extra A_LA_CARTA del menú para llevar paga recargo en la cotización pero no en totalCentavos', async () => {
+    it('un extra A_LA_CARTA del menú para llevar paga recargo por unidad y totalCentavos = saldo de la cotización (PR 7a cierra la divergencia)', async () => {
       const o = await k.activeOwner();
       const ids = await k.menu(o);
       const ceviche = await platoDelMenu(o, 'A_LA_CARTA', 'Ceviche', 600);
       const cajero = await k.h.cashier(o.restaurante);
 
-      // Con almuerzo: hoy un solo recargo (el del almuerzo); la cotización suma uno por unidad (almuerzo + ceviche).
+      // Con almuerzo: un recargo por unidad (almuerzo + ceviche), en la cotización y en lo guardado.
       const a = (
         await pedir(await k.diner(), {
           restaurante: o.restaurante,
@@ -294,13 +298,14 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
           extras: [{ plato: ceviche, cantidad: 1 }],
         })
       ).json();
-      expect(a).toMatchObject({ totalCentavos: P + 600 + R, recargoLlevarCentavos: R });
+      expect(a).toMatchObject({ totalCentavos: P + 600 + 2 * R, recargoLlevarCentavos: 2 * R });
       expect(a.cotizacion).toMatchObject({
         recargoCentavos: 2 * R,
         totalCentavos: P + 600 + 2 * R,
         saldoPorCobrarCentavos: P + 600 + 2 * R,
       });
-      expect(a.cotizacion.saldoPorCobrarCentavos - a.totalCentavos).toBe(R);
+      expect(a.cotizacion.saldoPorCobrarCentavos).toBe(a.totalCentavos);
+      expect(a.cotizacion.recargoCentavos).toBe(a.recargoLlevarCentavos);
       expect(a.cotizacion.lineas.find((l: { tipo: string }) => l.tipo === 'A_LA_CARTA')).toMatchObject({
         recargoUnitarioCentavos: R,
         cantidad: 1,
@@ -308,19 +313,20 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       // Las vistas de caja dicen lo mismo que el comensal.
       expect((await k.as(cajero).get(`/v1/caja/pedidos/${a.id}`)).json().cotizacion).toEqual(a.cotizacion);
 
-      // Solo el plato a la carta: hoy sin recargo; la cotización cobra uno por unidad.
+      // Solo el plato a la carta: un recargo por unidad.
       const b = (
         await pedir(await k.diner(), { restaurante: o.restaurante, paraLlevar: true, extras: [{ plato: ceviche, cantidad: 2 }] })
       ).json();
-      expect(b).toMatchObject({ totalCentavos: 1200, recargoLlevarCentavos: 0 });
+      expect(b).toMatchObject({ totalCentavos: 1200 + 2 * R, recargoLlevarCentavos: 2 * R });
       expect(b.cotizacion).toMatchObject({ recargoCentavos: 2 * R, saldoPorCobrarCentavos: 1200 + 2 * R });
 
       // Sin llevar no hay diferencia.
       const c = (await pedir(await k.diner(), { restaurante: o.restaurante, extras: [{ plato: ceviche, cantidad: 1 }] })).json();
       expect(c.cotizacion.saldoPorCobrarCentavos).toBe(c.totalCentavos);
+      expect(b.cotizacion.saldoPorCobrarCentavos).toBe(b.totalCentavos);
     });
 
-    it('un plato ALMUERZO pedido suelto se mapea por sección: el fuerte paga recargo (diverge hasta el PR 7); jugo y postre no', async () => {
+    it('un plato ALMUERZO pedido suelto se mapea por sección: el fuerte paga recargo; jugo y postre no', async () => {
       const o = await k.activeOwner();
       await k.menu(o);
       const fuerte = await platoDelMenu(o, 'ALMUERZO', 'Seco aparte', 500, 'FUERTE');
@@ -330,7 +336,7 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
         (await pedir(await k.diner(), { restaurante: o.restaurante, paraLlevar: true, extras: [{ plato, cantidad: 1 }] })).json();
 
       const f = await pedido(fuerte);
-      expect(f).toMatchObject({ totalCentavos: 500, recargoLlevarCentavos: 0 });
+      expect(f).toMatchObject({ totalCentavos: 500 + R, recargoLlevarCentavos: R });
       expect(f.cotizacion).toMatchObject({ recargoCentavos: R, saldoPorCobrarCentavos: 500 + R });
       expect(f.cotizacion.lineas[0].tipo).toBe('A_LA_CARTA');
 

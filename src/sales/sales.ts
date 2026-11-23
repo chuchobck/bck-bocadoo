@@ -27,6 +27,13 @@ import { renderCuenta, resolverPagoDeCuenta } from '../cobro/aplicar';
 import { CuentaResponse } from '../cobro/cuenta.dto';
 import { SolicitudPlanCreadaResponse } from '../catalog/dto';
 import { ApiProblems } from '../common/errors';
+import {
+  CONFIRMADO_POR_COLS,
+  confirmadoPorSql,
+  errorReferenciaRepetida,
+  exigirReferenciaAlConfirmar,
+  resolverEstadoPago,
+} from '../common/pago-confirmado';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUrl, Length, Matches, MaxLength } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
@@ -35,7 +42,9 @@ import { IdPipe, UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
 import { RequestContextStore } from '../tenancy/request-context';
+import { renderVenta } from '../checkout/pos';
 import { SUBS_SELECT, SubRow, toSub } from './subscriptions';
+import { VentaResponse } from '../checkout/responses';
 import { PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
 
 const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
@@ -45,7 +54,8 @@ class CobroDto {
   @ApiProperty({ enum: METODOS }) @IsIn(METODOS) metodoPago!: (typeof METODOS)[number];
   @ApiPropertyOptional({
     description:
-      'Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma.',
+      'Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. ' +
+      'El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.',
   })
   @IsOptional()
   @IsBoolean()
@@ -55,7 +65,10 @@ class CobroDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(500)
   comprobanteUrl?: string;
-  @ApiPropertyOptional({ description: 'Número de la transferencia o id de Deuna' })
+  @ApiPropertyOptional({
+    description:
+      'Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`',
+  })
   @IsOptional()
   @Text()
   @IsString()
@@ -84,10 +97,8 @@ const IDEMP_CONSTRAINT = 'transaccion_pago_restaurante_id_clave_idempotencia_key
 
 /** Un mismo depósito (referencia de transferencia/Deuna) no puede pagar dos planes: el esquema lo impide con un índice único. */
 function assertNotDuplicateReference(err: unknown) {
-  const e = err as { code?: string; constraint?: string };
-  if (e.code === '23505' && e.constraint === 'uq_pago_referencia_externa') {
-    throw new ConflictException('Esa referencia de pago ya se registró: no se puede usar el mismo depósito dos veces.');
-  }
+  const traducido = errorReferenciaRepetida(err);
+  if (traducido !== err) throw traducido;
 }
 
 interface SellInput extends CobroDto {
@@ -187,7 +198,8 @@ export class SalesService {
     );
     const metodo = m.rows[0];
     if (!metodo) throw new BadRequestException('Método de pago no disponible.');
-    const estadoPago = metodo.es_efectivo || input.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE';
+    const confirmado = metodo.es_efectivo || Boolean(input.pagoConfirmado);
+    exigirReferenciaAlConfirmar({ esEfectivo: metodo.es_efectivo, confirmado, referenciaExterna: input.referenciaExterna });
 
     // Cada plan vence por su cuenta (desde hoy + vigencia): dos planes del mismo cliente NO suman vencimientos.
     const s = await q.query<{ suscripcion_id: string }>(
@@ -202,10 +214,18 @@ export class SalesService {
     const subId = s.rows[0]!.suscripcion_id;
     await q.query(
       `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, suscripcion_id, cobrado_por_personal_id,
-           fecha_local, comprobante_url, referencia_externa, clave_idempotencia)
-       SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7
+           fecha_local, comprobante_url, referencia_externa, clave_idempotencia, ${CONFIRMADO_POR_COLS})
+       SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7, ${confirmadoPorSql(confirmado)}
          FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
-      [metodo.metodo_pago_id, tpl.precio_centavos, estadoPago, subId, input.comprobanteUrl ?? null, input.referenciaExterna ?? null, key],
+      [
+        metodo.metodo_pago_id,
+        tpl.precio_centavos,
+        confirmado ? 'CONFIRMADO' : 'PENDIENTE',
+        subId,
+        input.comprobanteUrl ?? null,
+        input.referenciaExterna ?? null,
+        key,
+      ],
     );
     return subId;
   }
@@ -232,8 +252,8 @@ export class SalesService {
   resolvePayment(pagoPublicId: string, accion: 'CONFIRMADO' | 'RECHAZADO') {
     return this.db.forRequest(async (q) => {
       const deCuenta = (
-        await q.query<{ pago_id: string; cuenta_cobro_id: string | null }>(
-          `SELECT pago_id, cuenta_cobro_id FROM transaccion_pago
+        await q.query<{ pago_id: string; cuenta_cobro_id: string | null; venta_pos_id: string | null }>(
+          `SELECT pago_id, cuenta_cobro_id, venta_pos_id FROM transaccion_pago
             WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL`,
           [pagoPublicId],
         )
@@ -242,6 +262,7 @@ export class SalesService {
         await resolverPagoDeCuenta(q, String(deCuenta.cuenta_cobro_id), String(deCuenta.pago_id), accion);
         return renderCuenta(q, String(deCuenta.cuenta_cobro_id));
       }
+      if (deCuenta?.venta_pos_id) return this.resolverPagoPos(q, String(deCuenta.pago_id), String(deCuenta.venta_pos_id), accion);
       const r = await q.query<{ pago_id: string; estado: string; suscripcion_id: string | null }>(
         `SELECT pago_id, estado, suscripcion_id FROM transaccion_pago
           WHERE restaurante_id = app_tenant_id() AND public_id = $1 AND revierte_a_pago_id IS NULL FOR UPDATE`,
@@ -253,7 +274,7 @@ export class SalesService {
         if (pago.estado === accion) return this.renderSub(q, pago.suscripcion_id);
         throw new ConflictException(`Ese pago ya está ${pago.estado.toLowerCase()}.`);
       }
-      await q.query('UPDATE transaccion_pago SET estado = $2 WHERE pago_id = $1', [pago.pago_id, accion]);
+      await resolverEstadoPago(q, String(pago.pago_id), accion);
       if (accion === 'RECHAZADO') {
         await q.query(
           `UPDATE suscripcion_plan SET estado = 'ANULADA', anulada_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP,
@@ -263,6 +284,22 @@ export class SalesService {
       }
       return this.renderSub(q, pago.suscripcion_id);
     });
+  }
+
+  /**
+   * Pago PENDIENTE de una venta suelta (POS) con transferencia o Deuna. Confirmar lo deja CONFIRMADO; rechazar, RECHAZADO (la venta
+   * se deshace aparte con `POST /v1/caja/ventas/{id}/deshacer`). Repetir la misma acción no cambia nada. Responde la venta.
+   */
+  private async resolverPagoPos(q: Queryable, pagoId: string, ventaId: string, accion: 'CONFIRMADO' | 'RECHAZADO') {
+    const p = (
+      await q.query<{ estado: string }>(
+        'SELECT estado FROM transaccion_pago WHERE restaurante_id = app_tenant_id() AND pago_id = $1 FOR UPDATE',
+        [pagoId],
+      )
+    ).rows[0]!;
+    if (p.estado === 'PENDIENTE') await resolverEstadoPago(q, pagoId, accion);
+    else if (p.estado !== accion) throw new ConflictException(`Ese pago ya está ${p.estado.toLowerCase()}.`);
+    return renderVenta(q, ventaId);
   }
 
   // --- Deshacer --------------------------------------------------------------------------------------------------
@@ -448,7 +485,9 @@ export class SalesService {
 }
 
 /** Confirmar o rechazar: el plan vendido (pago de un plan) o la cuenta (pago de una cuenta de cobro). */
-const PAGO_RESUELTO = { oneOf: [{ $ref: getSchemaPath(PlanVendidoResponse) }, { $ref: getSchemaPath(CuentaResponse) }] };
+const PAGO_RESUELTO = {
+  oneOf: [{ $ref: getSchemaPath(PlanVendidoResponse) }, { $ref: getSchemaPath(CuentaResponse) }, { $ref: getSchemaPath(VentaResponse) }],
+};
 
 @ApiTags('ventas')
 @Controller('v1')
@@ -461,9 +500,11 @@ export class SalesController {
   @ApiOperation({
     summary: 'Vender un plan a un cliente',
     description:
-      'Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.',
+      'Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado ' +
+      '(el cajero, solo con `referenciaExterna`).',
   })
   @ApiCreatedResponse({ type: PlanVendidoResponse })
+  @ApiProblems({ 409: ['REFERENCIA_PAGO_REPETIDA'], 422: ['REFERENCIA_PAGO_REQUERIDA'] })
   sell(@Param('id', IdPipe) clienteId: string, @Body() dto: VenderPlanDto, @IdempotencyKey() key: string) {
     return this.sales.sell({ ...dto, clienteId }, key);
   }
@@ -494,9 +535,10 @@ export class SalesController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Confirmar un pago pendiente',
-    description: 'Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.',
+    description:
+      'Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`. Pago de una venta suelta (`pago.id` de la venta) → la `Venta`.',
   })
-  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse, VentaResponse)
   @ApiOkResponse({ schema: PAGO_RESUELTO })
   confirm(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'CONFIRMADO');
@@ -509,9 +551,9 @@ export class SalesController {
     summary: 'Rechazar un pago pendiente',
     description:
       'Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta ' +
-      'vuelve a ABIERTA y responde la `Cuenta`.',
+      'vuelve a ABIERTA y responde la `Cuenta`. Pago de una venta suelta: queda RECHAZADO y responde la `Venta` (se deshace aparte).',
   })
-  @ApiExtraModels(PlanVendidoResponse, CuentaResponse)
+  @ApiExtraModels(PlanVendidoResponse, CuentaResponse, VentaResponse)
   @ApiOkResponse({ schema: PAGO_RESUELTO })
   reject(@Param('id', UuidPipe) id: string) {
     return this.sales.resolvePayment(id, 'RECHAZADO');
@@ -531,6 +573,7 @@ export class SalesController {
   @ApiIdempotent()
   @ApiOperation({ summary: 'Cobrar una solicitud: vende el plan y la marca cobrada' })
   @ApiOkResponse({ type: PlanVendidoResponse })
+  @ApiProblems({ 409: ['REFERENCIA_PAGO_REPETIDA'], 422: ['REFERENCIA_PAGO_REQUERIDA'] })
   charge(@Param('id', IdPipe) id: string, @Body() dto: CobroDto, @IdempotencyKey() key: string) {
     return this.sales.chargeRequest(id, dto, key);
   }

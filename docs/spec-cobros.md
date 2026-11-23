@@ -905,6 +905,7 @@ Además de los casos, cada prueba de `cotizar` verifica las invariantes de B.3 p
    la carta): se anuncia antes (H.2). Integración: casos 1–16, 24–27, 40–42, 49.
 8. **feat(reports): include accounts** — ranking de platos y almuerzos sueltos del cierre cuentan las líneas `CAJA` de
    cuentas (hoy solo `venta_pos_detalle` y `orden_detalle`, `src/checkout/cash.ts:128-131`, `src/reports/operations.ts:139`).
+   **Hecho** (`src/cobro/resumen-dia.ts`; ver `docs/estado.md`): cuentas COBRADAS en almuerzos sueltos, ranking (sin las de pedido) y desglose en cierre y resumen diario.
 9. **(Después de decidir I-5)** otros cambios incompatibles (el de I-4 ya va en el PR 6), con la etiqueta `cambio-incompatible` (como pide
    `docs/estado.md:388`).
 

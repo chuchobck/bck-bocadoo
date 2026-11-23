@@ -58,7 +58,7 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
       almuerzos: { servidos: 2, paraLlevar: 1, porCanal: { QR: 0, MANUAL: 2, PREORDEN: 0, MESA: 0 } },
       ingresos: {
         totalCentavos: 7100,
-        porOrigen: { planes: 5500, ventas: 700, ofertas: 900, pedidos: 0 },
+        porOrigen: { planes: 5500, ventas: 700, ofertas: 900, pedidos: 0, cuentas: 0 },
         porMetodo: [
           { metodo: 'DEUNA', centavos: 3400 },
           { metodo: 'EFECTIVO', centavos: 3700 },
@@ -66,6 +66,8 @@ describe.skipIf(!probe)('Fase 9: reportes · resumen diario y ventas de planes',
         pendientesPorConfirmar: { cantidad: 1, centavos: 1500 },
       },
       ventasPos: { tickets: 2, reversos: 1, totalCentavos: 700, almuerzos: 2 },
+      // El QR para llevar con plan deja abierta su cuenta con el recargo (25): se informa, no suma.
+      cuentas: { cobradas: 0, abiertas: 1, saldoAbiertasCentavos: 25, almuerzosSueltos: 0 },
       planesVendidos: { cantidad: 4, centavos: 6500 + 500 },
       ofertas: { unidades: 2, centavos: 900 },
       escaneos: { total: 4, validos: 3, rechazados: 1 },

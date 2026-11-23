@@ -2,9 +2,11 @@ import { Body, ConflictException, Controller, Get, HttpCode, Injectable, NotFoun
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
+import { ApiProblems } from '../common/errors';
 import { IdPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
+import { revertirConsumoEnCuenta } from '../cobro/aplicar';
 import { PERSONAL_ACTUAL } from './checkout';
 import { ReclamoPersonalResponse } from './responses';
 
@@ -77,7 +79,10 @@ export class ClaimsService {
     );
   }
 
-  /** Acepta el reclamo: devuelve el almuerzo al plan (consumo inverso) y lo marca DEVUELTO, en una transacción. */
+  /**
+   * Acepta el reclamo: devuelve el almuerzo al plan (consumo inverso) y lo marca DEVUELTO, en una transacción.
+   * Si el almuerzo es parte de una cuenta de cobro aplica la misma guardia que deshacer (`CUENTA_COBRADA`).
+   */
   refund(id: string, respuesta?: string) {
     return this.db.forRequest(async (q) => {
       const r = await this.lock(q, id);
@@ -88,6 +93,8 @@ export class ClaimsService {
         [r.consumo_id],
       );
       if (reverted.rowCount) throw new ConflictException('Ese almuerzo ya había sido devuelto al plan. Rechaza el reclamo explicándolo.');
+      // Mismo orden que deshacer: si el almuerzo es parte de una cuenta, cobrada o con pagos → 409 CUENTA_COBRADA; abierta → línea inversa.
+      await revertirConsumoEnCuenta(q, String(r.consumo_id));
       await q.query(`SELECT fn_revertir_consumo(app_tenant_id(), $1, ${PERSONAL_ACTUAL}, $2)`, [r.consumo_id, `Reclamo #${id}`]);
       await q.query(
         `UPDATE reclamo SET estado = 'DEVUELTO', respuesta = $2, resuelto_en = CURRENT_TIMESTAMP, resuelto_por_personal_id = ${PERSONAL_ACTUAL}
@@ -144,6 +151,7 @@ export class ClaimsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Aceptar el reclamo y devolver el almuerzo al plan' })
   @ApiOkResponse({ type: ReclamoPersonalResponse })
+  @ApiProblems({ 409: ['CUENTA_COBRADA'] })
   refund(@Param('id', IdPipe) id: string, @Body() dto: DevolverDto) {
     return this.claims.refund(id, dto.respuesta);
   }

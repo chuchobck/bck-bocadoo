@@ -45,11 +45,11 @@ describe.skipIf(!probe)('Fase 9: reportes · horas pico, ranking de platos y alm
     expect(r.porHora.map((h: { hora: number }) => h.hora)).toEqual(Array.from({ length: 24 }, (_, i) => i));
     const con = r.porHora.filter((h: { total: number }) => h.total > 0);
     expect(con).toEqual([
-      { hora: 12, almuerzos: 3, ventas: 2, total: 5 },
-      { hora: 13, almuerzos: 2, ventas: 0, total: 2 },
-      { hora: 18, almuerzos: 1, ventas: 0, total: 1 },
-      { hora: 20, almuerzos: 0, ventas: 1, total: 1 },
-      { hora: 23, almuerzos: 1, ventas: 0, total: 1 },
+      { hora: 12, almuerzos: 3, ventas: 2, cuentas: 0, total: 5 },
+      { hora: 13, almuerzos: 2, ventas: 0, cuentas: 0, total: 2 },
+      { hora: 18, almuerzos: 1, ventas: 0, cuentas: 0, total: 1 },
+      { hora: 20, almuerzos: 0, ventas: 1, cuentas: 0, total: 1 },
+      { hora: 23, almuerzos: 1, ventas: 0, cuentas: 0, total: 1 },
     ]);
     expect(r).toMatchObject({ horaPico: 12, totalAlmuerzos: 7, totalVentas: 3, zonaHoraria: 'America/Guayaquil' });
     // La suma por hora es igual a los almuerzos netos del resumen del día.
@@ -98,15 +98,25 @@ describe.skipIf(!probe)('Fase 9: reportes · horas pico, ranking de platos y alm
         unidades: 5,
         unidadesVentas: 3,
         unidadesPedidos: 2,
+        unidadesCuentas: 0,
         ingresoCentavos: 375,
       },
-      { posicion: 2, plato: { id: m.Cola, nombre: 'Cola' }, unidades: 2, unidadesVentas: 2, unidadesPedidos: 0, ingresoCentavos: 200 },
+      {
+        posicion: 2,
+        plato: { id: m.Cola, nombre: 'Cola' },
+        unidades: 2,
+        unidadesVentas: 2,
+        unidadesPedidos: 0,
+        unidadesCuentas: 0,
+        ingresoCentavos: 200,
+      },
       {
         posicion: 3,
         plato: { id: m['Jugo de mora'], nombre: 'Jugo de mora' },
         unidades: 1,
         unidadesVentas: 0,
         unidadesPedidos: 1,
+        unidadesCuentas: 0,
         ingresoCentavos: 0,
       },
       {
@@ -115,6 +125,7 @@ describe.skipIf(!probe)('Fase 9: reportes · horas pico, ranking de platos y alm
         unidades: 1,
         unidadesVentas: 0,
         unidadesPedidos: 1,
+        unidadesCuentas: 0,
         ingresoCentavos: 0,
       },
       {
@@ -123,6 +134,7 @@ describe.skipIf(!probe)('Fase 9: reportes · horas pico, ranking de platos y alm
         unidades: 1,
         unidadesVentas: 0,
         unidadesPedidos: 1,
+        unidadesCuentas: 0,
         ingresoCentavos: 0,
       },
     ]);

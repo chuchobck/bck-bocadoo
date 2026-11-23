@@ -338,6 +338,25 @@
               }
             }
           },
+          "403": {
+            "description": "application/problem+json con `code`: `REGISTRO_CERRADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "REGISTRO_CERRADO",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
           "409": {
             "description": "application/problem+json con `code`: `CONFLICT`",
             "content": {
@@ -2898,7 +2917,7 @@
     },
     "/v1/restaurante/personal/cajeros": {
       "post": {
-        "description": "La persona debe haberse registrado antes. Límite de intentos por hora.",
+        "description": "La persona debe haberse registrado antes. Límite de intentos por hora (por IP y por usuario).",
         "operationId": "StaffController_invite",
         "parameters": [
           {
@@ -5325,6 +5344,15 @@
         ],
         "responses": {
           "200": {
+            "headers": {
+              "Cache-Control": {
+                "description": "Siempre `no-store, no-cache, must-revalidate`: la carta no se guarda en caché (tampoco el 404).",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store, no-cache, must-revalidate"
+                }
+              }
+            },
             "description": "Operación exitosa",
             "content": {
               "application/json": {
@@ -5371,6 +5399,15 @@
           },
           "404": {
             "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`",
+            "headers": {
+              "Cache-Control": {
+                "description": "Siempre `no-store, no-cache, must-revalidate`: la carta no se guarda en caché (tampoco el 404).",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store, no-cache, must-revalidate"
+                }
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6865,7 +6902,7 @@
     },
     "/v1/clientes/{id}/vincular": {
       "post": {
-        "description": "Por el correo de la cuenta. Límite de intentos por hora.",
+        "description": "Por el correo de la cuenta. Límite de intentos por hora (por IP y por usuario).",
         "operationId": "CustomersController_link",
         "parameters": [
           {
@@ -7249,7 +7286,7 @@
     },
     "/v1/clientes/{id}/planes": {
       "post": {
-        "description": "Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.",
+        "description": "Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado (el cajero, solo con `referenciaExterna`).",
         "operationId": "SalesController_sell",
         "parameters": [
           {
@@ -7391,6 +7428,44 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -7793,7 +7868,7 @@
     },
     "/v1/pagos/{id}/confirmar": {
       "post": {
-        "description": "Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`.",
+        "description": "Pago de un plan → el plan vendido. Pago de una cuenta de cobro (`cuenta.pagos[].id`) → la `Cuenta`. Pago de una venta suelta (`pago.id` de la venta) → la `Venta`.",
         "operationId": "SalesController_confirm",
         "parameters": [
           {
@@ -7826,6 +7901,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/CuentaResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VentaResponse"
                     }
                   ]
                 },
@@ -7973,7 +8051,7 @@
     },
     "/v1/pagos/{id}/rechazar": {
       "post": {
-        "description": "Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta vuelve a ABIERTA y responde la `Cuenta`.",
+        "description": "Pago de un plan: anula el plan asociado y responde el plan vendido. Pago de una cuenta de cobro: el saldo vuelve a ser > 0, la cuenta vuelve a ABIERTA y responde la `Cuenta`. Pago de una venta suelta: queda RECHAZADO y responde la `Venta` (se deshace aparte).",
         "operationId": "SalesController_reject",
         "parameters": [
           {
@@ -8006,6 +8084,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/CuentaResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VentaResponse"
                     }
                   ]
                 },
@@ -8424,6 +8505,44 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -9417,7 +9536,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -10359,6 +10478,7 @@
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "deshecha": true,
                     "pago": {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "estado": "CONFIRMADO",
                       "metodo": "EFECTIVO"
                     },
@@ -10463,7 +10583,7 @@
         "x-dominio": "caja"
       },
       "post": {
-        "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.",
+        "description": "Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado (el cajero, solo con `referenciaExterna`).",
         "operationId": "PosController_sell",
         "parameters": [
           {
@@ -10531,6 +10651,7 @@
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "deshecha": true,
                   "pago": {
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "estado": "CONFIRMADO",
                     "metodo": "EFECTIVO"
                   },
@@ -10598,6 +10719,44 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REPETIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "REFERENCIA_PAGO_REPETIDA",
+                  "detail": "La operación choca con el estado actual.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "application/problem+json con `code`: `REFERENCIA_PAGO_REQUERIDA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable Entity",
+                  "status": 422,
+                  "code": "REFERENCIA_PAGO_REQUERIDA",
+                  "detail": "La solicitud es válida pero no se puede cumplir.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -10704,6 +10863,7 @@
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "deshecha": true,
                   "pago": {
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "estado": "CONFIRMADO",
                     "metodo": "EFECTIVO"
                   },
@@ -10870,6 +11030,10 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -10881,6 +11045,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -11057,6 +11225,10 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11068,6 +11240,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -11232,6 +11408,10 @@
                       "esEfectivo": true,
                       "planesCentavos": 3000,
                       "posCentavos": 1400,
+                      "cuentasCentavos": 500,
+                      "confirmadoPorCajeroCentavos": 1400,
+                      "confirmadoPorDuenoCentavos": 3000,
+                      "confirmadoSinRegistroCentavos": 0,
                       "totalCentavos": 4400
                     }
                   ],
@@ -11243,6 +11423,10 @@
                   "cuentasAbiertas": {
                     "cantidad": 2,
                     "saldoCentavos": 850
+                  },
+                  "cuentasCobradas": {
+                    "cantidad": 3,
+                    "totalCentavos": 1200
                   },
                   "cierre": {
                     "efectivoEsperadoCentavos": 4400,
@@ -11642,6 +11826,25 @@
                   "status": 403,
                   "code": "FORBIDDEN",
                   "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "application/problem+json con `code`: `CUENTA_COBRADA`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "code": "CUENTA_COBRADA",
+                  "detail": "La operación choca con el estado actual.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
                 }
@@ -12566,7 +12769,7 @@
     },
     "/v1/caja/cuentas/{id}/cobrar": {
       "post": {
-        "description": "`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. `montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en `POST /v1/pagos/{id}/confirmar|rechazar`). Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.",
+        "description": "`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. `montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en `POST /v1/pagos/{id}/confirmar|rechazar`). Con `pagoConfirmado`, el cajero debe dar `referenciaExterna` (si no, 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.",
         "operationId": "CuentasController_cobrar",
         "parameters": [
           {
@@ -12793,7 +12996,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14462,7 +14665,7 @@
     },
     "/v1/mis/pedidos": {
       "post": {
-        "description": "El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. Un pedido en camino a la vez por local.",
+        "description": "El pedido vence 30 minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los `extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.",
         "operationId": "DinerOrdersController_create",
         "parameters": [
           {
@@ -14483,17 +14686,24 @@
                 "$ref": "#/components/schemas/CrearPedidoDto"
               },
               "example": {
-                "restaurante": "texto",
+                "restaurante": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                 "paraLlevar": true,
                 "almuerzo": {
-                  "platos": ["uuid-sopa", "uuid-fuerte"]
+                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"]
                 },
                 "extras": [
                   {
-                    "plato": "texto",
+                    "plato": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "cantidad": 1
                   }
-                ]
+                ],
+                "cartaItems": [
+                  {
+                    "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "cantidad": 1
+                  }
+                ],
+                "horaLlegada": "2026-11-13T17:30:00Z"
               }
             }
           }
@@ -14508,11 +14718,11 @@
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                  "qr": "texto",
+                  "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                   "numero": 7,
                   "fecha": "2026-11-13",
                   "restaurante": {
-                    "id": "uuid",
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "slug": "dona-rosa"
                   },
@@ -14521,18 +14731,28 @@
                   "almuerzo": {
                     "platos": [
                       {
-                        "id": "uuid",
-                        "nombre": "Seco de pollo",
-                        "seccion": "FUERTE"
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "seccion": "JUGO"
                       }
                     ],
-                    "precioCentavos": 0,
+                    "precioCentavos": 650,
                     "cubiertoPorPlan": true
                   },
                   "extras": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "cartaItems": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "nombre": "Doña Rosa",
+                      "categoria": "A_LA_CARTA",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -14590,6 +14810,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -14598,7 +14819,7 @@
             }
           },
           "400": {
-            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `ALMUERZO_INVALIDO`, `IDEMPOTENCY_KEY_INVALIDA`",
+            "description": "application/problem+json con `code`: `BAD_REQUEST`, `PEDIDO_VACIO`, `PEDIDO_DEMASIADOS_ITEMS`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`, `IDEMPOTENCY_KEY_INVALIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14608,7 +14829,7 @@
                   "type": "about:blank",
                   "title": "Bad Request",
                   "status": 400,
-                  "code": "PEDIDO_VACIO",
+                  "code": "BAD_REQUEST",
                   "detail": "La solicitud no es válida: revisa los campos enviados.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -14655,7 +14876,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`, `IDEMPOTENCY_KEY_REUTILIZADA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14736,7 +14957,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hacer una preorden del menú de hoy",
+        "summary": "Hacer una preorden (menú del día, carta fija o ambos)",
         "tags": ["Comensal"],
         "x-dominio": "comensal"
       },
@@ -14776,11 +14997,11 @@
                   "items": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                      "qr": "texto",
+                      "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "numero": 7,
                       "fecha": "2026-11-13",
                       "restaurante": {
-                        "id": "uuid",
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                         "nombre": "Doña Rosa",
                         "slug": "dona-rosa"
                       },
@@ -14789,18 +15010,28 @@
                       "almuerzo": {
                         "platos": [
                           {
-                            "id": "uuid",
-                            "nombre": "Seco de pollo",
-                            "seccion": "FUERTE"
+                            "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                            "nombre": "Doña Rosa",
+                            "seccion": "JUGO"
                           }
                         ],
-                        "precioCentavos": 0,
+                        "precioCentavos": 650,
                         "cubiertoPorPlan": true
                       },
                       "extras": [
                         {
                           "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                           "nombre": "Doña Rosa",
+                          "cantidad": 5,
+                          "precioUnitarioCentavos": 650,
+                          "subtotalCentavos": 650
+                        }
+                      ],
+                      "cartaItems": [
+                        {
+                          "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "nombre": "Doña Rosa",
+                          "categoria": "A_LA_CARTA",
                           "cantidad": 5,
                           "precioUnitarioCentavos": 650,
                           "subtotalCentavos": 650
@@ -14858,6 +15089,7 @@
                       },
                       "creadoEn": "2026-11-13T17:00:00.000Z",
                       "venceEn": "2026-11-13T17:00:00.000Z",
+                      "horaLlegada": "2026-11-13T17:00:00.000Z",
                       "canjeadoEn": "2026-11-13T17:00:00.000Z",
                       "servidoEn": "2026-11-13T17:00:00.000Z",
                       "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -14957,7 +15189,7 @@
     },
     "/v1/mis/pedidos/cotizar": {
       "post": {
-        "description": "Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos`, pero sin `Idempotency-Key` y sin efectos: no crea el pedido, no toma número del día y no toca el plan. Responde la `Cotizacion` estimada (`estimada: true`) con el plan de hoy del comensal. Para mostrar el total antes de pedir. Hoy cotiza el menú del día; carta y ofertas llegan en el PR 7.",
+        "description": "Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos`, pero sin `Idempotency-Key` y sin efectos: no crea el pedido, no toma número del día y no toca el plan. Responde la `Cotizacion` estimada (`estimada: true`) con el plan de hoy del comensal. Para mostrar el total antes de pedir (menú del día y carta fija). No responde `PEDIDO_ACTIVO`: eso es solo de crear.",
         "operationId": "DinerOrdersController_cotizar",
         "parameters": [],
         "requestBody": {
@@ -14968,17 +15200,24 @@
                 "$ref": "#/components/schemas/CrearPedidoDto"
               },
               "example": {
-                "restaurante": "texto",
+                "restaurante": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                 "paraLlevar": true,
                 "almuerzo": {
-                  "platos": ["uuid-sopa", "uuid-fuerte"]
+                  "platos": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"]
                 },
                 "extras": [
                   {
-                    "plato": "texto",
+                    "plato": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "cantidad": 1
                   }
-                ]
+                ],
+                "cartaItems": [
+                  {
+                    "platoId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                    "cantidad": 1
+                  }
+                ],
+                "horaLlegada": "2026-11-13T17:30:00Z"
               }
             }
           }
@@ -15042,7 +15281,7 @@
             }
           },
           "400": {
-            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `ALMUERZO_INVALIDO`",
+            "description": "application/problem+json con `code`: `BAD_REQUEST`, `PEDIDO_VACIO`, `PEDIDO_DEMASIADOS_ITEMS`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15052,7 +15291,7 @@
                   "type": "about:blank",
                   "title": "Bad Request",
                   "status": 400,
-                  "code": "PEDIDO_VACIO",
+                  "code": "BAD_REQUEST",
                   "detail": "La solicitud no es válida: revisa los campos enviados.",
                   "instance": "/v1/ejemplo",
                   "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
@@ -15099,7 +15338,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `ALMUERZO_SIN_PRECIO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15208,11 +15447,11 @@
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                  "qr": "texto",
+                  "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                   "numero": 7,
                   "fecha": "2026-11-13",
                   "restaurante": {
-                    "id": "uuid",
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "slug": "dona-rosa"
                   },
@@ -15221,18 +15460,28 @@
                   "almuerzo": {
                     "platos": [
                       {
-                        "id": "uuid",
-                        "nombre": "Seco de pollo",
-                        "seccion": "FUERTE"
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "seccion": "JUGO"
                       }
                     ],
-                    "precioCentavos": 0,
+                    "precioCentavos": 650,
                     "cubiertoPorPlan": true
                   },
                   "extras": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "cartaItems": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "nombre": "Doña Rosa",
+                      "categoria": "A_LA_CARTA",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -15290,6 +15539,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -15426,11 +15676,11 @@
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                  "qr": "texto",
+                  "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                   "numero": 7,
                   "fecha": "2026-11-13",
                   "restaurante": {
-                    "id": "uuid",
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "slug": "dona-rosa"
                   },
@@ -15439,18 +15689,28 @@
                   "almuerzo": {
                     "platos": [
                       {
-                        "id": "uuid",
-                        "nombre": "Seco de pollo",
-                        "seccion": "FUERTE"
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "seccion": "JUGO"
                       }
                     ],
-                    "precioCentavos": 0,
+                    "precioCentavos": 650,
                     "cubiertoPorPlan": true
                   },
                   "extras": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "cartaItems": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "nombre": "Doña Rosa",
+                      "categoria": "A_LA_CARTA",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -15508,6 +15768,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -15680,11 +15941,11 @@
                 "example": [
                   {
                     "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                    "qr": "texto",
+                    "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "numero": 7,
                     "fecha": "2026-11-13",
                     "restaurante": {
-                      "id": "uuid",
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "slug": "dona-rosa"
                     },
@@ -15693,18 +15954,28 @@
                     "almuerzo": {
                       "platos": [
                         {
-                          "id": "uuid",
-                          "nombre": "Seco de pollo",
-                          "seccion": "FUERTE"
+                          "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "nombre": "Doña Rosa",
+                          "seccion": "JUGO"
                         }
                       ],
-                      "precioCentavos": 0,
+                      "precioCentavos": 650,
                       "cubiertoPorPlan": true
                     },
                     "extras": [
                       {
                         "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                         "nombre": "Doña Rosa",
+                        "cantidad": 5,
+                        "precioUnitarioCentavos": 650,
+                        "subtotalCentavos": 650
+                      }
+                    ],
+                    "cartaItems": [
+                      {
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "categoria": "A_LA_CARTA",
                         "cantidad": 5,
                         "precioUnitarioCentavos": 650,
                         "subtotalCentavos": 650
@@ -15762,6 +16033,7 @@
                     },
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "venceEn": "2026-11-13T17:00:00.000Z",
+                    "horaLlegada": "2026-11-13T17:00:00.000Z",
                     "canjeadoEn": "2026-11-13T17:00:00.000Z",
                     "servidoEn": "2026-11-13T17:00:00.000Z",
                     "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -15915,11 +16187,11 @@
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                  "qr": "texto",
+                  "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                   "numero": 7,
                   "fecha": "2026-11-13",
                   "restaurante": {
-                    "id": "uuid",
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "slug": "dona-rosa"
                   },
@@ -15928,18 +16200,28 @@
                   "almuerzo": {
                     "platos": [
                       {
-                        "id": "uuid",
-                        "nombre": "Seco de pollo",
-                        "seccion": "FUERTE"
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "seccion": "JUGO"
                       }
                     ],
-                    "precioCentavos": 0,
+                    "precioCentavos": 650,
                     "cubiertoPorPlan": true
                   },
                   "extras": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "cartaItems": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "nombre": "Doña Rosa",
+                      "categoria": "A_LA_CARTA",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -15997,6 +16279,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -16197,11 +16480,11 @@
                 "example": {
                   "pedido": {
                     "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                    "qr": "texto",
+                    "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "numero": 7,
                     "fecha": "2026-11-13",
                     "restaurante": {
-                      "id": "uuid",
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
                       "slug": "dona-rosa"
                     },
@@ -16210,18 +16493,28 @@
                     "almuerzo": {
                       "platos": [
                         {
-                          "id": "uuid",
-                          "nombre": "Seco de pollo",
-                          "seccion": "FUERTE"
+                          "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                          "nombre": "Doña Rosa",
+                          "seccion": "JUGO"
                         }
                       ],
-                      "precioCentavos": 0,
+                      "precioCentavos": 650,
                       "cubiertoPorPlan": true
                     },
                     "extras": [
                       {
                         "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                         "nombre": "Doña Rosa",
+                        "cantidad": 5,
+                        "precioUnitarioCentavos": 650,
+                        "subtotalCentavos": 650
+                      }
+                    ],
+                    "cartaItems": [
+                      {
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "categoria": "A_LA_CARTA",
                         "cantidad": 5,
                         "precioUnitarioCentavos": 650,
                         "subtotalCentavos": 650
@@ -16279,6 +16572,7 @@
                     },
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "venceEn": "2026-11-13T17:00:00.000Z",
+                    "horaLlegada": "2026-11-13T17:00:00.000Z",
                     "canjeadoEn": "2026-11-13T17:00:00.000Z",
                     "servidoEn": "2026-11-13T17:00:00.000Z",
                     "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -16524,7 +16818,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `MONTO_EXCEDE_SALDO`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -16623,11 +16917,11 @@
                 },
                 "example": {
                   "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
-                  "qr": "texto",
+                  "qr": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                   "numero": 7,
                   "fecha": "2026-11-13",
                   "restaurante": {
-                    "id": "uuid",
+                    "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                     "nombre": "Doña Rosa",
                     "slug": "dona-rosa"
                   },
@@ -16636,18 +16930,28 @@
                   "almuerzo": {
                     "platos": [
                       {
-                        "id": "uuid",
-                        "nombre": "Seco de pollo",
-                        "seccion": "FUERTE"
+                        "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                        "nombre": "Doña Rosa",
+                        "seccion": "JUGO"
                       }
                     ],
-                    "precioCentavos": 0,
+                    "precioCentavos": 650,
                     "cubiertoPorPlan": true
                   },
                   "extras": [
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "nombre": "Doña Rosa",
+                      "cantidad": 5,
+                      "precioUnitarioCentavos": 650,
+                      "subtotalCentavos": 650
+                    }
+                  ],
+                  "cartaItems": [
+                    {
+                      "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                      "nombre": "Doña Rosa",
+                      "categoria": "A_LA_CARTA",
                       "cantidad": 5,
                       "precioUnitarioCentavos": 650,
                       "subtotalCentavos": 650
@@ -16705,6 +17009,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -21366,7 +21671,7 @@
     },
     "/v1/ofertas/{id}/canjear": {
       "post": {
-        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez.",
+        "description": "Descuenta el stock y registra el cobro (confirmado) en una sola transacción. El stock nunca queda negativo, ni con canjes simultáneos. La misma `Idempotency-Key` devuelve el mismo canje sin descontar otra vez. Con TRANSFERENCIA o DEUNA, el cajero debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.",
         "operationId": "OffersController_redeem",
         "parameters": [
           {
@@ -21406,7 +21711,8 @@
               "example": {
                 "cantidad": 1,
                 "metodoPago": "EFECTIVO",
-                "comensalId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                "comensalId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
+                "referenciaExterna": "texto"
               }
             }
           }
@@ -21527,7 +21833,7 @@
             }
           },
           "409": {
-            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`",
+            "description": "application/problem+json con `code`: `RESTAURANTE_PAUSADO`, `OFERTA_AGOTADA`, `STOCK_INSUFICIENTE`, `OFERTA_CERRADA`, `OFERTA_EXPIRADA`, `OFERTA_NO_INICIADA`, `IDEMPOTENCY_KEY_REUTILIZADA`, `REFERENCIA_PAGO_REPETIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -21546,7 +21852,7 @@
             }
           },
           "422": {
-            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`",
+            "description": "application/problem+json con `code`: `METODO_PAGO_NO_DISPONIBLE`, `REFERENCIA_PAGO_REQUERIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -21796,7 +22102,8 @@
                       "planes": 1500,
                       "ventas": 700,
                       "ofertas": 900,
-                      "pedidos": 0
+                      "pedidos": 0,
+                      "cuentas": 450
                     },
                     "porMetodo": [
                       {
@@ -21814,6 +22121,12 @@
                     "reversos": 1,
                     "totalCentavos": 650,
                     "almuerzos": 5
+                  },
+                  "cuentas": {
+                    "cobradas": 1,
+                    "abiertas": 1,
+                    "saldoAbiertasCentavos": 650,
+                    "almuerzosSueltos": 5
                   },
                   "planesVendidos": {
                     "cantidad": 5,
@@ -22170,12 +22483,14 @@
                       "hora": 1,
                       "almuerzos": 5,
                       "ventas": 1,
+                      "cuentas": 1,
                       "total": 1
                     }
                   ],
                   "horaPico": 1,
                   "totalAlmuerzos": 5,
-                  "totalVentas": 1
+                  "totalVentas": 1,
+                  "totalCuentas": 1
                 }
               }
             }
@@ -22356,6 +22671,7 @@
                       "unidades": 1,
                       "unidadesVentas": 1,
                       "unidadesPedidos": 1,
+                      "unidadesCuentas": 1,
                       "ingresoCentavos": 650
                     }
                   ]
@@ -25785,7 +26101,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -25793,7 +26109,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Número de la transferencia o id de Deuna"
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           },
           "planId": {
             "type": "string",
@@ -26144,6 +26460,123 @@
           "anuladaEn"
         ]
       },
+      "PagoVentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del pago: con él se confirma o rechaza un pago PENDIENTE (`POST /v1/pagos/{id}/confirmar`)"
+          },
+          "estado": {
+            "type": "string",
+            "example": "CONFIRMADO"
+          },
+          "metodo": {
+            "type": "string",
+            "nullable": true,
+            "example": "EFECTIVO"
+          }
+        },
+        "required": ["id", "estado", "metodo"]
+      },
+      "ItemVentaResponse": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "example": "Almuerzo"
+          },
+          "esAlmuerzo": {
+            "type": "boolean"
+          },
+          "cantidad": {
+            "type": "number",
+            "example": 2
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "example": 350
+          },
+          "subtotalCentavos": {
+            "type": "number",
+            "example": 700
+          }
+        },
+        "required": ["nombre", "esAlmuerzo", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
+      },
+      "VentaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de la venta"
+          },
+          "ticket": {
+            "type": "number",
+            "example": 17,
+            "description": "Número de ticket del día"
+          },
+          "fecha": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "example": 700,
+            "description": "Centavos"
+          },
+          "monedaCodigo": {
+            "type": "string",
+            "example": "USD"
+          },
+          "paraLlevar": {
+            "type": "boolean"
+          },
+          "mesaTexto": {
+            "type": "string",
+            "nullable": true,
+            "example": "Mesa 3"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deshecha": {
+            "type": "boolean",
+            "description": "true si ya se deshizo (pago inverso registrado)"
+          },
+          "pago": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PagoVentaResponse"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemVentaResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "ticket",
+          "fecha",
+          "totalCentavos",
+          "monedaCodigo",
+          "paraLlevar",
+          "mesaTexto",
+          "creadoEn",
+          "deshecha",
+          "pago",
+          "items"
+        ]
+      },
       "PlanSolicitadoResponse": {
         "type": "object",
         "properties": {
@@ -26195,7 +26628,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -26203,7 +26636,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Número de la transferencia o id de Deuna"
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["metodoPago"]
@@ -26766,118 +27199,6 @@
           "avisos"
         ]
       },
-      "PagoVentaResponse": {
-        "type": "object",
-        "properties": {
-          "estado": {
-            "type": "string",
-            "example": "CONFIRMADO"
-          },
-          "metodo": {
-            "type": "string",
-            "nullable": true,
-            "example": "EFECTIVO"
-          }
-        },
-        "required": ["estado", "metodo"]
-      },
-      "ItemVentaResponse": {
-        "type": "object",
-        "properties": {
-          "nombre": {
-            "type": "string",
-            "example": "Almuerzo"
-          },
-          "esAlmuerzo": {
-            "type": "boolean"
-          },
-          "cantidad": {
-            "type": "number",
-            "example": 2
-          },
-          "precioUnitarioCentavos": {
-            "type": "number",
-            "example": 350
-          },
-          "subtotalCentavos": {
-            "type": "number",
-            "example": 700
-          }
-        },
-        "required": ["nombre", "esAlmuerzo", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
-      },
-      "VentaResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "public_id de la venta"
-          },
-          "ticket": {
-            "type": "number",
-            "example": 17,
-            "description": "Número de ticket del día"
-          },
-          "fecha": {
-            "type": "string",
-            "example": "2026-11-13"
-          },
-          "totalCentavos": {
-            "type": "number",
-            "example": 700,
-            "description": "Centavos"
-          },
-          "monedaCodigo": {
-            "type": "string",
-            "example": "USD"
-          },
-          "paraLlevar": {
-            "type": "boolean"
-          },
-          "mesaTexto": {
-            "type": "string",
-            "nullable": true,
-            "example": "Mesa 3"
-          },
-          "creadoEn": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "deshecha": {
-            "type": "boolean",
-            "description": "true si ya se deshizo (pago inverso registrado)"
-          },
-          "pago": {
-            "nullable": true,
-            "type": "object",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PagoVentaResponse"
-              }
-            ]
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ItemVentaResponse"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "ticket",
-          "fecha",
-          "totalCentavos",
-          "monedaCodigo",
-          "paraLlevar",
-          "mesaTexto",
-          "creadoEn",
-          "deshecha",
-          "pago",
-          "items"
-        ]
-      },
       "ItemVentaDto": {
         "type": "object",
         "properties": {
@@ -26928,13 +27249,14 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada; si no, queda pendiente"
+            "description": "Transferencia o Deuna ya verificada; si no, queda pendiente. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string"
           },
           "referenciaExterna": {
-            "type": "string"
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["items", "metodoPago"]
@@ -26961,14 +27283,45 @@
           "posCentavos": {
             "type": "number",
             "example": 1400,
-            "description": "Ventas sueltas, pedidos y ofertas, centavos"
+            "description": "Ventas sueltas, pedidos, ofertas y cuentas de cobro, centavos"
+          },
+          "cuentasCentavos": {
+            "type": "number",
+            "example": 500,
+            "description": "De `posCentavos`, lo cobrado en cuentas de cobro (QR, pedido, mesa) con este método, neto de reversos. No suma aparte."
+          },
+          "confirmadoPorCajeroCentavos": {
+            "type": "number",
+            "example": 1400,
+            "description": "De `totalCentavos`, lo que dejó CONFIRMADO un cajero (al cobrar o al confirmar), neto de reversos: un reverso resta del grupo de quien confirmó el pago original. No suma aparte."
+          },
+          "confirmadoPorDuenoCentavos": {
+            "type": "number",
+            "example": 3000,
+            "description": "De `totalCentavos`, lo que dejó CONFIRMADO el dueño, neto de reversos. No suma aparte."
+          },
+          "confirmadoSinRegistroCentavos": {
+            "type": "number",
+            "example": 0,
+            "description": "De `totalCentavos`, pagos de antes de registrar quién confirma (sin dato), netos de reversos. Cajero + dueño + sin registro = `totalCentavos`."
           },
           "totalCentavos": {
             "type": "number",
             "example": 4400
           }
         },
-        "required": ["metodo", "nombre", "esEfectivo", "planesCentavos", "posCentavos", "totalCentavos"]
+        "required": [
+          "metodo",
+          "nombre",
+          "esEfectivo",
+          "planesCentavos",
+          "posCentavos",
+          "cuentasCentavos",
+          "confirmadoPorCajeroCentavos",
+          "confirmadoPorDuenoCentavos",
+          "confirmadoSinRegistroCentavos",
+          "totalCentavos"
+        ]
       },
       "CuentasAbiertasResponse": {
         "type": "object",
@@ -26985,6 +27338,22 @@
           }
         },
         "required": ["cantidad", "saldoCentavos"]
+      },
+      "CuentasCobradasResponse": {
+        "type": "object",
+        "properties": {
+          "cantidad": {
+            "type": "number",
+            "example": 3,
+            "description": "Cuentas de cobro COBRADAS de ese día local"
+          },
+          "totalCentavos": {
+            "type": "number",
+            "example": 1200,
+            "description": "Cobrado en cuentas ese día (pagos CONFIRMADOS netos de reversos, todos los métodos), centavos. Ya está en `totalCentavos`."
+          }
+        },
+        "required": ["cantidad", "totalCentavos"]
       },
       "CierreRegistradoResponse": {
         "type": "object",
@@ -27059,11 +27428,13 @@
           },
           "almuerzosSueltos": {
             "type": "number",
-            "example": 6
+            "example": 6,
+            "description": "Almuerzos vendidos a precio suelto: POS más líneas de almuerzo de cuentas COBRADAS (QR sin plan o con recargo, pedidos y mesas). Los de cuentas ABIERTAS o ANULADAS no cuentan; los del plan van en `almuerzosConPlan`."
           },
           "almuerzosParaLlevar": {
             "type": "number",
-            "example": 3
+            "example": 3,
+            "description": "Para llevar: planes, POS y cuentas COBRADAS"
           },
           "pagosPendientes": {
             "type": "number",
@@ -27075,6 +27446,14 @@
             "allOf": [
               {
                 "$ref": "#/components/schemas/CuentasAbiertasResponse"
+              }
+            ]
+          },
+          "cuentasCobradas": {
+            "description": "Lo cobrado en cuentas de cobro ese día. Informativo: ya está en `efectivoEsperadoCentavos` (la parte en efectivo) y en `totalCentavos`.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CuentasCobradasResponse"
               }
             ]
           },
@@ -27100,6 +27479,7 @@
           "almuerzosParaLlevar",
           "pagosPendientes",
           "cuentasAbiertas",
+          "cuentasCobradas",
           "cierre"
         ]
       },
@@ -27430,7 +27810,7 @@
           },
           "pagoConfirmado": {
             "type": "boolean",
-            "description": "Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma."
+            "description": "Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no."
           },
           "comprobanteUrl": {
             "type": "string",
@@ -27438,7 +27818,7 @@
           },
           "referenciaExterna": {
             "type": "string",
-            "description": "Id del depósito o de Deuna. Repetida → 409 `REFERENCIA_PAGO_REPETIDA`"
+            "description": "Id del depósito o de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           },
           "metodoPago": {
             "type": "string",
@@ -27700,10 +28080,14 @@
         "properties": {
           "platos": {
             "description": "public_id de los platos elegidos del menú de hoy, uno por sección (JUGO, SOPA, FUERTE, POSTRE)",
-            "example": ["uuid-sopa", "uuid-fuerte"],
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "example": ["0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "41c0703f-3521-48eb-98ec-6d6d8efd5979"],
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         },
@@ -27714,10 +28098,11 @@
         "properties": {
           "plato": {
             "type": "string",
+            "format": "uuid",
             "description": "public_id del plato (con precio) del menú de hoy"
           },
           "cantidad": {
-            "type": "number",
+            "type": "integer",
             "example": 1,
             "minimum": 1,
             "maximum": 10
@@ -27725,40 +28110,130 @@
         },
         "required": ["plato", "cantidad"]
       },
+      "CartaItemDto": {
+        "type": "object",
+        "properties": {
+          "platoId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id de un plato de la carta fija del local (A_LA_CARTA, EXTRA o BEBIDA)"
+          },
+          "cantidad": {
+            "type": "integer",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": ["platoId", "cantidad"]
+      },
       "CrearPedidoDto": {
         "type": "object",
         "properties": {
           "restaurante": {
             "type": "string",
+            "format": "uuid",
             "description": "public_id del restaurante"
           },
           "paraLlevar": {
             "type": "boolean",
-            "description": "Suma el recargo para llevar del local al almuerzo"
+            "description": "Suma el recargo para llevar del local por cada unidad de almuerzo y de plato A_LA_CARTA (EXTRA y BEBIDA no lo pagan)"
           },
           "almuerzo": {
             "$ref": "#/components/schemas/AlmuerzoDto"
           },
           "extras": {
+            "maxItems": 10,
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtraDto"
             }
+          },
+          "cartaItems": {
+            "maxItems": 10,
+            "description": "Platos de la carta fija (no dependen del menú del día). Con `extras`, entre los dos suman a lo sumo 10 renglones; un mismo plato puede repetirse (cada renglón es una línea) y también estar a la vez en `extras` y en `cartaItems`.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CartaItemDto"
+            }
+          },
+          "horaLlegada": {
+            "type": "string",
+            "example": "2026-11-13T17:30:00Z",
+            "description": "Hora a la que el comensal piensa llegar (ISO 8601, de 5 minutos atrás a 12 horas adelante). Solo informativa: no cambia el vencimiento."
           }
         },
         "required": ["restaurante"]
+      },
+      "RestaurantePedido": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del restaurante"
+          },
+          "nombre": {
+            "type": "string",
+            "example": "Doña Rosa"
+          },
+          "slug": {
+            "type": "string",
+            "example": "dona-rosa"
+          }
+        },
+        "required": ["id", "nombre", "slug"]
+      },
+      "PlatoPedido": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "seccion": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE"]
+          }
+        },
+        "required": ["id", "nombre", "seccion"]
+      },
+      "AlmuerzoPedido": {
+        "type": "object",
+        "properties": {
+          "platos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatoPedido"
+            }
+          },
+          "precioCentavos": {
+            "type": "number",
+            "description": "Lo que se cobraría por el almuerzo: 0 si lo cubre el plan; si no, el precio guardado al pedir"
+          },
+          "cubiertoPorPlan": {
+            "type": "boolean",
+            "description": "El plan cubría el almuerzo al pedir (precioCentavos = 0)"
+          }
+        },
+        "required": ["platos", "precioCentavos", "cubiertoPorPlan"]
       },
       "ExtraPedido": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "nombre": {
             "type": "string"
           },
           "cantidad": {
-            "type": "number"
+            "type": "integer"
           },
           "precioUnitarioCentavos": {
             "type": "number"
@@ -27769,19 +28244,49 @@
         },
         "required": ["id", "nombre", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
       },
+      "CartaItemPedido": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "public_id del plato"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "categoria": {
+            "type": "string",
+            "enum": ["A_LA_CARTA", "EXTRA", "BEBIDA"]
+          },
+          "cantidad": {
+            "type": "integer"
+          },
+          "precioUnitarioCentavos": {
+            "type": "number",
+            "description": "Precio de la carta al pedir (congelado)"
+          },
+          "subtotalCentavos": {
+            "type": "number"
+          }
+        },
+        "required": ["id", "nombre", "categoria", "cantidad", "precioUnitarioCentavos", "subtotalCentavos"]
+      },
       "PedidoResponse": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
+            "format": "uuid",
             "description": "public_id del pedido"
           },
           "qr": {
             "type": "string",
+            "format": "uuid",
             "description": "Contenido del QR que la caja escanea: es el public_id del pedido"
           },
           "numero": {
-            "type": "number",
+            "type": "integer",
             "example": 7,
             "description": "\"Pedido #7\" del día"
           },
@@ -27790,12 +28295,7 @@
             "example": "2026-11-13"
           },
           "restaurante": {
-            "type": "object",
-            "example": {
-              "id": "uuid",
-              "nombre": "Doña Rosa",
-              "slug": "dona-rosa"
-            }
+            "$ref": "#/components/schemas/RestaurantePedido"
           },
           "estado": {
             "type": "string",
@@ -27805,24 +28305,27 @@
             "type": "boolean"
           },
           "almuerzo": {
+            "nullable": true,
+            "description": "null si no pidió almuerzo (solo extras o carta)",
             "type": "object",
-            "description": "null si solo pidió extras",
-            "example": {
-              "platos": [
-                {
-                  "id": "uuid",
-                  "nombre": "Seco de pollo",
-                  "seccion": "FUERTE"
-                }
-              ],
-              "precioCentavos": 0,
-              "cubiertoPorPlan": true
-            }
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlmuerzoPedido"
+              }
+            ]
           },
           "extras": {
+            "description": "Extras del menú del día",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtraPedido"
+            }
+          },
+          "cartaItems": {
+            "description": "Platos de la carta fija (vacío si no pidió ninguno)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CartaItemPedido"
             }
           },
           "recargoLlevarCentavos": {
@@ -27837,7 +28340,7 @@
             "example": "USD"
           },
           "cotizacion": {
-            "description": "Cotización estimada (informativa) con la regla de cobro objetivo (docs/spec-cobros.md). Para un pedido ya creado el precio del almuerzo sale de `subtotal − extras` y el plan se lee de hoy. Puede diferir de `totalCentavos`: por ahora solo si un extra del menú es un plato `A_LA_CARTA` pedido para llevar (la cotización suma el recargo por unidad; `totalCentavos` aún no). Cambia en el PR 7.",
+            "description": "Cotización estimada (informativa) con la regla de cobro (docs/spec-cobros.md). Para un pedido ya creado usa el precio del almuerzo guardado al pedir (`precio_almuerzo_centavos`; un pedido anterior sin él, `subtotal − extras − carta`), los precios y el recargo por unidad guardados en sus renglones, y el plan de hoy. Al crear, `totalCentavos` = `cotizacion.saldoPorCobrarCentavos` y `recargoLlevarCentavos` = `cotizacion.recargoCentavos`. Una cotización puede cambiar después si el plan cambia (se lee de hoy).",
             "allOf": [
               {
                 "$ref": "#/components/schemas/CotizacionResponse"
@@ -27851,22 +28354,31 @@
           "venceEn": {
             "format": "date-time",
             "type": "string",
-            "description": "creadoEn + 30 minutos"
+            "description": "max(creadoEn, horaLlegada) + 30 minutos (sin horaLlegada: creadoEn + 30). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA."
+          },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hora de llegada que mandó el comensal al pedir; null si no la mandó"
           },
           "canjeadoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null mientras no se canjee en caja"
           },
           "servidoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null mientras no se sirva"
           },
           "canceladoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null si no se canceló"
           }
         },
         "required": [
@@ -27877,13 +28389,19 @@
           "restaurante",
           "estado",
           "paraLlevar",
+          "almuerzo",
           "extras",
+          "cartaItems",
           "recargoLlevarCentavos",
           "totalCentavos",
           "monedaCodigo",
           "cotizacion",
           "creadoEn",
-          "venceEn"
+          "venceEn",
+          "horaLlegada",
+          "canjeadoEn",
+          "servidoEn",
+          "canceladoEn"
         ]
       },
       "PedidosResponse": {
@@ -27907,14 +28425,16 @@
         "properties": {
           "id": {
             "type": "string",
+            "format": "uuid",
             "description": "public_id del pedido"
           },
           "qr": {
             "type": "string",
+            "format": "uuid",
             "description": "Contenido del QR que la caja escanea: es el public_id del pedido"
           },
           "numero": {
-            "type": "number",
+            "type": "integer",
             "example": 7,
             "description": "\"Pedido #7\" del día"
           },
@@ -27923,12 +28443,7 @@
             "example": "2026-11-13"
           },
           "restaurante": {
-            "type": "object",
-            "example": {
-              "id": "uuid",
-              "nombre": "Doña Rosa",
-              "slug": "dona-rosa"
-            }
+            "$ref": "#/components/schemas/RestaurantePedido"
           },
           "estado": {
             "type": "string",
@@ -27938,24 +28453,27 @@
             "type": "boolean"
           },
           "almuerzo": {
+            "nullable": true,
+            "description": "null si no pidió almuerzo (solo extras o carta)",
             "type": "object",
-            "description": "null si solo pidió extras",
-            "example": {
-              "platos": [
-                {
-                  "id": "uuid",
-                  "nombre": "Seco de pollo",
-                  "seccion": "FUERTE"
-                }
-              ],
-              "precioCentavos": 0,
-              "cubiertoPorPlan": true
-            }
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlmuerzoPedido"
+              }
+            ]
           },
           "extras": {
+            "description": "Extras del menú del día",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtraPedido"
+            }
+          },
+          "cartaItems": {
+            "description": "Platos de la carta fija (vacío si no pidió ninguno)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CartaItemPedido"
             }
           },
           "recargoLlevarCentavos": {
@@ -27970,7 +28488,7 @@
             "example": "USD"
           },
           "cotizacion": {
-            "description": "Cotización estimada (informativa) con la regla de cobro objetivo (docs/spec-cobros.md). Para un pedido ya creado el precio del almuerzo sale de `subtotal − extras` y el plan se lee de hoy. Puede diferir de `totalCentavos`: por ahora solo si un extra del menú es un plato `A_LA_CARTA` pedido para llevar (la cotización suma el recargo por unidad; `totalCentavos` aún no). Cambia en el PR 7.",
+            "description": "Cotización estimada (informativa) con la regla de cobro (docs/spec-cobros.md). Para un pedido ya creado usa el precio del almuerzo guardado al pedir (`precio_almuerzo_centavos`; un pedido anterior sin él, `subtotal − extras − carta`), los precios y el recargo por unidad guardados en sus renglones, y el plan de hoy. Al crear, `totalCentavos` = `cotizacion.saldoPorCobrarCentavos` y `recargoLlevarCentavos` = `cotizacion.recargoCentavos`. Una cotización puede cambiar después si el plan cambia (se lee de hoy).",
             "allOf": [
               {
                 "$ref": "#/components/schemas/CotizacionResponse"
@@ -27984,22 +28502,31 @@
           "venceEn": {
             "format": "date-time",
             "type": "string",
-            "description": "creadoEn + 30 minutos"
+            "description": "max(creadoEn, horaLlegada) + 30 minutos (sin horaLlegada: creadoEn + 30). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA."
+          },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hora de llegada que mandó el comensal al pedir; null si no la mandó"
           },
           "canjeadoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null mientras no se canjee en caja"
           },
           "servidoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null mientras no se sirva"
           },
           "canceladoEn": {
             "format": "date-time",
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "null si no se canceló"
           },
           "comensal": {
             "type": "object",
@@ -28025,13 +28552,19 @@
           "restaurante",
           "estado",
           "paraLlevar",
+          "almuerzo",
           "extras",
+          "cartaItems",
           "recargoLlevarCentavos",
           "totalCentavos",
           "monedaCodigo",
           "cotizacion",
           "creadoEn",
           "venceEn",
+          "horaLlegada",
+          "canjeadoEn",
+          "servidoEn",
+          "canceladoEn",
           "comensal"
         ]
       },
@@ -28784,6 +29317,10 @@
           "comensalId": {
             "type": "string",
             "description": "Comensal con cuenta (public_id), si lo identifican. Sin él, es un canje de mostrador."
+          },
+          "referenciaExterna": {
+            "type": "string",
+            "description": "Número de la transferencia o id de Deuna. El cobro queda confirmado, así que el cajero que cobra con TRANSFERENCIA o DEUNA debe darla (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`"
           }
         },
         "required": ["metodoPago"]
@@ -28878,8 +29415,10 @@
               "planes": 1500,
               "ventas": 700,
               "ofertas": 900,
-              "pedidos": 0
-            }
+              "pedidos": 0,
+              "cuentas": 450
+            },
+            "description": "`cuentas` = pagos de cuentas de cobro (QR, pedido, mesa); `pedidos` = solo pagos antiguos ligados directo a un pedido. Cada pago cuenta en un solo origen."
           },
           "porMetodo": {
             "example": [
@@ -28925,6 +29464,28 @@
         },
         "required": ["tickets", "reversos", "totalCentavos", "almuerzos"]
       },
+      "CuentasDia": {
+        "type": "object",
+        "properties": {
+          "cobradas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS del día local"
+          },
+          "abiertas": {
+            "type": "number",
+            "description": "Cuentas que siguen ABIERTAS (no suman a ingresos)"
+          },
+          "saldoAbiertasCentavos": {
+            "type": "number",
+            "description": "Saldo pendiente de las ABIERTAS (centavos)"
+          },
+          "almuerzosSueltos": {
+            "type": "number",
+            "description": "Almuerzos a precio suelto en cuentas COBRADAS (los del plan van en `almuerzos`)"
+          }
+        },
+        "required": ["cobradas", "abiertas", "saldoAbiertasCentavos", "almuerzosSueltos"]
+      },
       "CantidadMonto": {
         "type": "object",
         "properties": {
@@ -28962,6 +29523,14 @@
           "ventasPos": {
             "$ref": "#/components/schemas/VentasPosDia"
           },
+          "cuentas": {
+            "description": "Cuentas de cobro del día; lo cobrado ya está en `ingresos`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CuentasDia"
+              }
+            ]
+          },
           "planesVendidos": {
             "description": "Planes vendidos ese día, sin los anulados ni las cartulinas migradas",
             "allOf": [
@@ -28988,7 +29557,18 @@
             "description": "Escaneos en caja"
           }
         },
-        "required": ["fecha", "zonaHoraria", "moneda", "almuerzos", "ingresos", "ventasPos", "planesVendidos", "ofertas", "escaneos"]
+        "required": [
+          "fecha",
+          "zonaHoraria",
+          "moneda",
+          "almuerzos",
+          "ingresos",
+          "ventasPos",
+          "cuentas",
+          "planesVendidos",
+          "ofertas",
+          "escaneos"
+        ]
       },
       "PlanVentas": {
         "type": "object",
@@ -29083,12 +29663,16 @@
             "type": "number",
             "description": "Tickets de ventas sueltas de esa hora (los deshechos no cuentan)"
           },
+          "cuentas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS creadas esa hora. Informativo: no entra en `total` (una cuenta con plan ya tiene su almuerzo en `almuerzos`)"
+          },
           "total": {
             "type": "number",
             "description": "almuerzos + ventas"
           }
         },
-        "required": ["hora", "almuerzos", "ventas", "total"]
+        "required": ["hora", "almuerzos", "ventas", "cuentas", "total"]
       },
       "HorasPicoResponse": {
         "type": "object",
@@ -29119,9 +29703,13 @@
           },
           "totalVentas": {
             "type": "number"
+          },
+          "totalCuentas": {
+            "type": "number",
+            "description": "Cuentas de cobro COBRADAS del rango (informativo)"
           }
         },
-        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas"]
+        "required": ["desde", "hasta", "zonaHoraria", "porHora", "totalAlmuerzos", "totalVentas", "totalCuentas"]
       },
       "PlatoRanking": {
         "type": "object",
@@ -29140,7 +29728,7 @@
           },
           "unidades": {
             "type": "number",
-            "description": "unidadesVentas + unidadesPedidos"
+            "description": "unidadesVentas + unidadesPedidos + unidadesCuentas"
           },
           "unidadesVentas": {
             "type": "number",
@@ -29150,12 +29738,16 @@
             "type": "number",
             "description": "Incluidas en pedidos de comensales ya canjeados"
           },
+          "unidadesCuentas": {
+            "type": "number",
+            "description": "Cobradas en cuentas de cobro del QR y de mesa (las cuentas de pedido no cuentan aquí: sus platos ya están en `unidadesPedidos`)"
+          },
           "ingresoCentavos": {
             "type": "number",
             "description": "Lo cobrado por ese plato (centavos); los platos dentro del almuerzo cuestan 0"
           }
         },
-        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "ingresoCentavos"]
+        "required": ["posicion", "plato", "unidades", "unidadesVentas", "unidadesPedidos", "unidadesCuentas", "ingresoCentavos"]
       },
       "RankingResponse": {
         "type": "object",

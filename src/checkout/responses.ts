@@ -109,6 +109,11 @@ class ItemVentaResponse {
 }
 
 class PagoVentaResponse {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'public_id del pago: con él se confirma o rechaza un pago PENDIENTE (`POST /v1/pagos/{id}/confirmar`)',
+  })
+  id!: string;
   @ApiProperty({ example: 'CONFIRMADO' }) estado!: string;
   @ApiProperty({ type: String, nullable: true, example: 'EFECTIVO' }) metodo!: string | null;
 }
@@ -132,7 +137,27 @@ class MetodoCierreResponse {
   @ApiProperty({ example: 'Efectivo' }) nombre!: string;
   @ApiProperty() esEfectivo!: boolean;
   @ApiProperty({ example: 3000, description: 'Cobros de planes, centavos' }) planesCentavos!: number;
-  @ApiProperty({ example: 1400, description: 'Ventas sueltas, pedidos y ofertas, centavos' }) posCentavos!: number;
+  @ApiProperty({ example: 1400, description: 'Ventas sueltas, pedidos, ofertas y cuentas de cobro, centavos' }) posCentavos!: number;
+  @ApiProperty({
+    example: 500,
+    description: 'De `posCentavos`, lo cobrado en cuentas de cobro (QR, pedido, mesa) con este método, neto de reversos. No suma aparte.',
+  })
+  cuentasCentavos!: number;
+  @ApiProperty({
+    example: 1400,
+    description:
+      'De `totalCentavos`, lo que dejó CONFIRMADO un cajero (al cobrar o al confirmar), neto de reversos: un reverso resta del grupo de quien ' +
+      'confirmó el pago original. No suma aparte.',
+  })
+  confirmadoPorCajeroCentavos!: number;
+  @ApiProperty({ example: 3000, description: 'De `totalCentavos`, lo que dejó CONFIRMADO el dueño, neto de reversos. No suma aparte.' })
+  confirmadoPorDuenoCentavos!: number;
+  @ApiProperty({
+    example: 0,
+    description:
+      'De `totalCentavos`, pagos de antes de registrar quién confirma (sin dato), netos de reversos. Cajero + dueño + sin registro = `totalCentavos`.',
+  })
+  confirmadoSinRegistroCentavos!: number;
   @ApiProperty({ example: 4400 }) totalCentavos!: number;
 }
 
@@ -156,6 +181,16 @@ class CuentasAbiertasResponse {
   saldoCentavos!: number;
 }
 
+class CuentasCobradasResponse {
+  @ApiProperty({ example: 3, description: 'Cuentas de cobro COBRADAS de ese día local' }) cantidad!: number;
+  @ApiProperty({
+    example: 1200,
+    description:
+      'Cobrado en cuentas ese día (pagos CONFIRMADOS netos de reversos, todos los métodos), centavos. Ya está en `totalCentavos`.',
+  })
+  totalCentavos!: number;
+}
+
 export class CierreCajaResponse {
   @ApiProperty({ example: '2026-11-13' }) fecha!: string;
   @ApiProperty({ example: 4400 }) efectivoEsperadoCentavos!: number;
@@ -163,8 +198,14 @@ export class CierreCajaResponse {
   @ApiProperty({ type: [MetodoCierreResponse] }) porMetodo!: MetodoCierreResponse[];
   @ApiProperty({ example: 20 }) almuerzosServidos!: number;
   @ApiProperty({ example: 14 }) almuerzosConPlan!: number;
-  @ApiProperty({ example: 6 }) almuerzosSueltos!: number;
-  @ApiProperty({ example: 3 }) almuerzosParaLlevar!: number;
+  @ApiProperty({
+    example: 6,
+    description:
+      'Almuerzos vendidos a precio suelto: POS más líneas de almuerzo de cuentas COBRADAS (QR sin plan o con recargo, pedidos y mesas). ' +
+      'Los de cuentas ABIERTAS o ANULADAS no cuentan; los del plan van en `almuerzosConPlan`.',
+  })
+  almuerzosSueltos!: number;
+  @ApiProperty({ example: 3, description: 'Para llevar: planes, POS y cuentas COBRADAS' }) almuerzosParaLlevar!: number;
   @ApiProperty({ example: 1, description: 'Pagos por confirmar ese día' }) pagosPendientes!: number;
   @ApiProperty({
     type: CuentasAbiertasResponse,
@@ -173,6 +214,12 @@ export class CierreCajaResponse {
       'totales: los pagos de cuentas ya están en `porMetodo` (en `posCentavos`), una sola vez.',
   })
   cuentasAbiertas!: CuentasAbiertasResponse;
+  @ApiProperty({
+    type: CuentasCobradasResponse,
+    description:
+      'Lo cobrado en cuentas de cobro ese día. Informativo: ya está en `efectivoEsperadoCentavos` (la parte en efectivo) y en `totalCentavos`.',
+  })
+  cuentasCobradas!: CuentasCobradasResponse;
   @ApiProperty({ type: CierreRegistradoResponse, nullable: true, description: 'null si la caja no se cerró' })
   cierre!: CierreRegistradoResponse | null;
 }
