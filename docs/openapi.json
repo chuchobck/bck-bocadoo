@@ -14508,7 +14508,8 @@
                     "plato": "texto",
                     "cantidad": 1
                   }
-                ]
+                ],
+                "horaLlegada": "2026-11-13T17:30:00Z"
               }
             }
           }
@@ -14605,6 +14606,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -14613,7 +14615,7 @@
             }
           },
           "400": {
-            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `ALMUERZO_INVALIDO`, `IDEMPOTENCY_KEY_INVALIDA`",
+            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`, `IDEMPOTENCY_KEY_INVALIDA`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14873,6 +14875,7 @@
                       },
                       "creadoEn": "2026-11-13T17:00:00.000Z",
                       "venceEn": "2026-11-13T17:00:00.000Z",
+                      "horaLlegada": "2026-11-13T17:00:00.000Z",
                       "canjeadoEn": "2026-11-13T17:00:00.000Z",
                       "servidoEn": "2026-11-13T17:00:00.000Z",
                       "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -14993,7 +14996,8 @@
                     "plato": "texto",
                     "cantidad": 1
                   }
-                ]
+                ],
+                "horaLlegada": "2026-11-13T17:30:00Z"
               }
             }
           }
@@ -15057,7 +15061,7 @@
             }
           },
           "400": {
-            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `ALMUERZO_INVALIDO`",
+            "description": "application/problem+json con `code`: `PEDIDO_VACIO`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15305,6 +15309,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -15523,6 +15528,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z"
@@ -15777,6 +15783,7 @@
                     },
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "venceEn": "2026-11-13T17:00:00.000Z",
+                    "horaLlegada": "2026-11-13T17:00:00.000Z",
                     "canjeadoEn": "2026-11-13T17:00:00.000Z",
                     "servidoEn": "2026-11-13T17:00:00.000Z",
                     "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -16012,6 +16019,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -16294,6 +16302,7 @@
                     },
                     "creadoEn": "2026-11-13T17:00:00.000Z",
                     "venceEn": "2026-11-13T17:00:00.000Z",
+                    "horaLlegada": "2026-11-13T17:00:00.000Z",
                     "canjeadoEn": "2026-11-13T17:00:00.000Z",
                     "servidoEn": "2026-11-13T17:00:00.000Z",
                     "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -16720,6 +16729,7 @@
                   },
                   "creadoEn": "2026-11-13T17:00:00.000Z",
                   "venceEn": "2026-11-13T17:00:00.000Z",
+                  "horaLlegada": "2026-11-13T17:00:00.000Z",
                   "canjeadoEn": "2026-11-13T17:00:00.000Z",
                   "servidoEn": "2026-11-13T17:00:00.000Z",
                   "canceladoEn": "2026-11-13T17:00:00.000Z",
@@ -27739,6 +27749,11 @@
             "items": {
               "$ref": "#/components/schemas/ExtraDto"
             }
+          },
+          "horaLlegada": {
+            "type": "string",
+            "example": "2026-11-13T17:30:00Z",
+            "description": "Hora a la que el comensal piensa llegar (ISO 8601, de 5 minutos atrás a 12 horas adelante). Solo informativa: no cambia el vencimiento."
           }
         },
         "required": ["restaurante"]
@@ -27848,6 +27863,12 @@
             "type": "string",
             "description": "creadoEn + 30 minutos"
           },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hora de llegada que mandó el comensal al pedir; null si no la mandó"
+          },
           "canjeadoEn": {
             "format": "date-time",
             "type": "string",
@@ -27878,7 +27899,8 @@
           "monedaCodigo",
           "cotizacion",
           "creadoEn",
-          "venceEn"
+          "venceEn",
+          "horaLlegada"
         ]
       },
       "PedidosResponse": {
@@ -27981,6 +28003,12 @@
             "type": "string",
             "description": "creadoEn + 30 minutos"
           },
+          "horaLlegada": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "Hora de llegada que mandó el comensal al pedir; null si no la mandó"
+          },
           "canjeadoEn": {
             "format": "date-time",
             "type": "string",
@@ -28027,6 +28055,7 @@
           "cotizacion",
           "creadoEn",
           "venceEn",
+          "horaLlegada",
           "comensal"
         ]
       },
