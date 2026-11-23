@@ -31,6 +31,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
+import { tipoDePlato } from '../cobro/adaptador';
 import { ApiProblems } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { CONFIRMADO_POR_COLS, confirmadoPorSql, errorReferenciaRepetida, exigirReferenciaAlConfirmar } from '../common/pago-confirmado';
@@ -67,7 +68,8 @@ class ItemVentaDto {
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(100) cantidad!: number;
   @ApiPropertyOptional({
     description:
-      'Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Solo el almuerzo paga recargo.',
+      'Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. ' +
+      'Paga recargo el almuerzo y el plato A_LA_CARTA (por su categoría o, suelto, por su sección); EXTRA y BEBIDA no.',
   })
   @IsOptional()
   @IsBoolean()
@@ -145,8 +147,13 @@ export class PosService {
           } else if (it.tipo === 'PLATO') {
             if (!it.platoId) throw new BadRequestException('Falta platoId en un item de tipo PLATO.');
             const p = (
-              await q.query<{ nombre: string; precio_centavos: string | null }>(
-                'SELECT nombre, precio_centavos FROM plato WHERE restaurante_id = app_tenant_id() AND plato_id = $1 AND activo',
+              await q.query<{
+                nombre: string;
+                precio_centavos: string | null;
+                categoria: 'ALMUERZO' | 'A_LA_CARTA' | 'EXTRA' | 'BEBIDA';
+                seccion: string | null;
+              }>(
+                'SELECT nombre, precio_centavos, categoria, seccion FROM plato WHERE restaurante_id = app_tenant_id() AND plato_id = $1 AND activo',
                 [it.platoId],
               )
             ).rows[0];
@@ -159,6 +166,10 @@ export class PosService {
               cantidad: it.cantidad,
               precio: Number(p.precio_centavos),
             });
+            if (llevar) {
+              const tipo = tipoDePlato(p.categoria, p.seccion);
+              if (tipo === 'ALMUERZO' || tipo === 'A_LA_CARTA') almuerzos += it.cantidad;
+            }
           } else {
             if (!it.nombre || it.precioUnitarioCentavos === undefined)
               throw new BadRequestException('Un item LIBRE necesita nombre y precioUnitarioCentavos.');
