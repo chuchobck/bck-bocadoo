@@ -8,6 +8,24 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 8: el cierre y los reportes incluyen lo cobrado en cuentas (solo campos nuevos)
+
+**Sin migración.** Todo es aditivo (campos nuevos de respuesta); `pnpm openapi:breaking` limpio. Hay **dos cambios de valor** que conviene conocer (abajo). Detalle: [`docs/spec-cobros.md`](./spec-cobros.md) H.1 (PR 8).
+
+Qué cuenta una cuenta de cobro: **ABIERTA** no suma (solo se informa en `cuentasAbiertas`); **COBRADA** suma por el método de sus pagos `CONFIRMADO`; un pago `PENDIENTE` o `RECHAZADO` no suma dinero; **ANULADA** no suma (sus pagos inversos la dejan en 0).
+
+| Dónde                                                          | Campo nuevo / cambio                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET/POST /v1/caja/cierre/{fecha}` (y reabrir)                 | **`cuentasCobradas: { cantidad, totalCentavos }`**: cuentas COBRADAS del día y lo cobrado en ellas. Informativo: ya está en `efectivoEsperadoCentavos` (la parte en efectivo) y en `totalCentavos`.                                                         |
+| `porMetodo[].cuentasCentavos`                                  | De `posCentavos`, lo cobrado en cuentas con ese método. **No suma aparte**: `totalCentavos = planesCentavos + posCentavos`, como siempre.                                                                                                                   |
+| `almuerzosSueltos`, `almuerzosServidos`, `almuerzosParaLlevar` | **Cambio de valor** (mismo tipo): ahora suman los almuerzos a precio suelto de cuentas **COBRADAS** (QR sin plan o con saldo, pedidos, mesas). Antes solo el POS. Los de cuentas ABIERTAS o ANULADAS no cuentan; los del plan siguen en `almuerzosConPlan`. |
+| `GET /v1/reportes/resumen-diario`                              | **`ingresos.porOrigen.cuentas`** (pagos de cuentas). **Cambio de valor:** `pedidos` queda solo con pagos antiguos ligados directo a un pedido; antes mezclaba ahí los pagos de cuentas QR/mesa/pedido. `ingresos.totalCentavos` no cambia.                  |
+| `resumen-diario`                                               | **`cuentas: { cobradas, abiertas, saldoAbiertasCentavos, almuerzosSueltos }`**. `ventasPos.almuerzos` sigue siendo solo POS: el total de sueltos del cierre = `ventasPos.almuerzos + cuentas.almuerzosSueltos`.                                             |
+| `GET /v1/reportes/ranking-platos`                              | **`items[].unidadesCuentas`** (cuentas COBRADAS de QR y mesa; las de origen pedido no cuentan aquí porque sus platos ya van en `unidadesPedidos`). `unidades` e `ingresoCentavos` lo incluyen.                                                              |
+| `GET /v1/reportes/horas-pico`                                  | **`porHora[].cuentas`** y **`totalCuentas`**: cuentas COBRADAS creadas esa hora. Informativo: **no** entra en `total` ni en `horaPico` (una cuenta con plan ya tiene su almuerzo en `almuerzos`).                                                           |
+
+Reglas de día: los pagos cuentan en el día de cada pago (un reverso resta el día en que se hace) y los almuerzos y platos de una cuenta en el día local de su línea (`creada_en`), igual que consumos y POS. Una cuenta que se cobra con un pago `PENDIENTE` (Deuna o transferencia sin confirmar) queda `COBRADA`: su almuerzo cuenta como suelto, pero el dinero no suma hasta confirmar el pago; si se rechaza, la cuenta vuelve a `ABIERTA` y el almuerzo deja de contar.
+
 ### Fix de dinero: reclamos y pagos POS pendientes
 
 **Sin migración.** Cambios aditivos y un código de error nuevo; `openapi:breaking` marca 2 errores (`oneOf` ampliado en `pagos/{id}/confirmar` y `/rechazar`): conviene la etiqueta `cambio-incompatible` en la PR.
@@ -3948,7 +3966,7 @@ Response `200`:
 - **Rol:** dueño, cajero · con `Authorization` y `x-restaurant-id`
 - **Estado:** Estable
 
-Efectivo esperado = cobros confirmados en efectivo del día (planes + ventas sueltas + pedidos + ofertas), menos reversos.
+Efectivo esperado = cobros confirmados en efectivo del día (planes + ventas sueltas + pedidos + ofertas + cuentas de cobro), menos reversos.
 
 > `{fecha}` es `hoy` o `AAAA-MM-DD`.
 
@@ -3966,6 +3984,7 @@ Response `200`:
       "esEfectivo": true,
       "planesCentavos": 1500,
       "posCentavos": 600,
+      "cuentasCentavos": 0,
       "totalCentavos": 2100
     }
   ],
@@ -3978,9 +3997,15 @@ Response `200`:
     "cantidad": 0,
     "saldoCentavos": 0
   },
+  "cuentasCobradas": {
+    "cantidad": 0,
+    "totalCentavos": 0
+  },
   "cierre": null
 }
 ```
+
+> **Novedad (PR 8):** `cuentasCobradas` y `porMetodo[].cuentasCentavos` desglosan lo cobrado en cuentas (informativo, ya está en los totales), y los almuerzos de cuentas COBRADAS suman a `almuerzosSueltos` y `almuerzosParaLlevar`. Ver [Novedades](#novedades).
 
 > **Novedad (PR 5b):** `cuentasAbiertas` cuenta las cuentas de cobro `ABIERTA` de ese día local y suma lo que falta cobrarles (`saldoCentavos`). Es informativo: no cambia `efectivoEsperadoCentavos`, `totalCentavos` ni `porMetodo`. Los pagos de cuentas ya entran en `porMetodo[].posCentavos`, una vez cada uno.
 
@@ -5980,7 +6005,7 @@ Response `200`:
   "almuerzos": { "servidos": 2, "paraLlevar": 1, "porCanal": { "QR": 0, "MANUAL": 2, "PREORDEN": 0, "MESA": 0 } },
   "ingresos": {
     "totalCentavos": 7100,
-    "porOrigen": { "planes": 5500, "ventas": 700, "ofertas": 900, "pedidos": 0 },
+    "porOrigen": { "planes": 5500, "ventas": 700, "ofertas": 900, "pedidos": 0, "cuentas": 0 },
     "porMetodo": [
       { "metodo": "DEUNA", "centavos": 3400 },
       { "metodo": "EFECTIVO", "centavos": 3700 }
@@ -5988,6 +6013,7 @@ Response `200`:
     "pendientesPorConfirmar": { "cantidad": 1, "centavos": 1500 }
   },
   "ventasPos": { "tickets": 2, "reversos": 1, "totalCentavos": 700, "almuerzos": 2 },
+  "cuentas": { "cobradas": 0, "abiertas": 1, "saldoAbiertasCentavos": 25, "almuerzosSueltos": 0 },
   "planesVendidos": { "cantidad": 4, "centavos": 7000 },
   "ofertas": { "unidades": 2, "centavos": 900 },
   "escaneos": { "total": 4, "validos": 3, "rechazados": 1 }
@@ -5996,6 +6022,8 @@ Response `200`:
 
 - `almuerzos.servidos`: almuerzos descontados de planes **netos** de devoluciones (igual que el cierre de caja).
 - `ingresos`: cobros `CONFIRMADO` del día **netos** de reversos; los `PENDIENTE` (transferencia o Deuna sin confirmar) van aparte y no suman al total.
+- `ingresos.porOrigen.cuentas` (PR 8): pagos de cuentas de cobro (QR, pedido, mesa); coincide con `cuentasCobradas.totalCentavos` del cierre del mismo día. `pedidos` queda solo con pagos antiguos ligados directo a un pedido.
+- `cuentas` (PR 8): cuentas COBRADAS y ABIERTAS del día, saldo de las abiertas y almuerzos a precio suelto de las cobradas. `ventasPos.almuerzos + cuentas.almuerzosSueltos` = `almuerzosSueltos` del cierre.
 - `planesVendidos`: planes de venta (no cartulinas migradas) comprados ese día local, sin los anulados.
 
 #### `GET /v1/reportes/ventas-planes`
@@ -6045,17 +6073,18 @@ Response `200`:
   "hasta": "2026-11-13",
   "zonaHoraria": "America/Guayaquil",
   "porHora": [
-    { "hora": 0, "almuerzos": 0, "ventas": 0, "total": 0 },
-    { "hora": 12, "almuerzos": 3, "ventas": 2, "total": 5 },
-    { "hora": 13, "almuerzos": 2, "ventas": 0, "total": 2 }
+    { "hora": 0, "almuerzos": 0, "ventas": 0, "cuentas": 0, "total": 0 },
+    { "hora": 12, "almuerzos": 3, "ventas": 2, "cuentas": 1, "total": 5 },
+    { "hora": 13, "almuerzos": 2, "ventas": 0, "cuentas": 0, "total": 2 }
   ],
   "horaPico": 12,
   "totalAlmuerzos": 7,
-  "totalVentas": 3
+  "totalVentas": 3,
+  "totalCuentas": 1
 }
 ```
 
-(El ejemplo omite las demás horas.) `horaPico` es la hora con más `total` (la más temprana si hay empate) y `null` si no hubo movimiento.
+(El ejemplo omite las demás horas.) `cuentas` (PR 8) cuenta las cuentas de cobro COBRADAS creadas esa hora y es informativo: no entra en `total`. `horaPico` es la hora con más `total` (la más temprana si hay empate) y `null` si no hubo movimiento.
 
 #### `GET /v1/reportes/ranking-platos`
 
@@ -6081,13 +6110,14 @@ Response `200`:
       "unidades": 5,
       "unidadesVentas": 3,
       "unidadesPedidos": 2,
+      "unidadesCuentas": 0,
       "ingresoCentavos": 375
     }
   ]
 }
 ```
 
-`plato.id` es el `public_id` del plato. Los platos dentro del almuerzo cuestan 0 (los cubre el plan o el precio del almuerzo), por eso su `ingresoCentavos` es 0.
+`unidadesCuentas` (PR 8) son las unidades cobradas en cuentas de QR y mesa (COBRADAS); las cuentas de pedido no cuentan ahí porque sus platos ya están en `unidadesPedidos`. `plato.id` es el `public_id` del plato. Los platos dentro del almuerzo cuestan 0 (los cubre el plan o el precio del almuerzo), por eso su `ingresoCentavos` es 0.
 
 #### `GET /v1/reportes/almuerzos-pendientes`
 

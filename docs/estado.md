@@ -21,6 +21,24 @@ Fix de dinero (rama `fix/dinero-claims-y-pago-pos`, sin migración): **(1)** ace
 
 Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; **PR 7a** (carta fija en pedidos y recargo por unidad, abajo) en la rama `feat/pedidos-carta-recargo`, con una migración **pendiente en Neon**; siguen ofertas en pedidos y mesas, POS y canje de oferta (PR 7b en adelante, H.1).
 
+## Reportes y cierre con cuentas de cobro (entrega D, PR 8; rama `feat/reportes-cuentas`)
+
+**Sin migración**, solo campos nuevos (`pnpm openapi:breaking` limpio). El cierre de caja y los reportes del dueño incluyen lo cobrado en cuentas. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+- [x] **Hallazgo:** el dinero de las cuentas ya entraba en el cierre (los pagos de cuentas van en `porMetodo[].posCentavos`, una vez cada uno por `ck_pago_origen_unico`). Lo que faltaba eran los almuerzos sueltos de cuentas, el desglose, y en el resumen diario los pagos de cuentas salían como `pedidos` (`CASE … ELSE 'pedidos'`).
+- [x] Una sola definición para cierre y reportes: `src/cobro/resumen-dia.ts` (`resumenCuentasDia`). Reglas: ABIERTA no suma (se informa); COBRADA suma por el método de sus pagos CONFIRMADOS; PENDIENTE y RECHAZADO no suman dinero; ANULADA no suma. Almuerzos sueltos = líneas `CAJA` de tipo `ALMUERZO` no omitidas de cuentas COBRADAS (las `PLAN` ya están en `consumo_almuerzo`), por el día local de la línea.
+- [x] Cierre: `cuentasCobradas { cantidad, totalCentavos }`, `porMetodo[].cuentasCentavos`; `almuerzosSueltos`, `almuerzosServidos` y `almuerzosParaLlevar` suman los de cuentas COBRADAS. `efectivoEsperadoCentavos` y `totalCentavos` no cambian de fórmula.
+- [x] `resumen-diario`: `ingresos.porOrigen.cuentas` (y `pedidos` deja de mezclarlas) y `cuentas { cobradas, abiertas, saldoAbiertasCentavos, almuerzosSueltos }`. `ranking-platos`: `unidadesCuentas` (QR y mesa; las de pedido se excluyen porque ya están en `orden_detalle`). `horas-pico`: `cuentas` y `totalCuentas`, informativos (no entran en `total`).
+- [x] `test/integration/reportes-cuentas.int.ts` (7): QR sin plan cobrado en efectivo y por transferencia; para llevar; ABIERTA solo en `cuentasAbiertas`; ANULADA y pago RECHAZADO (y PENDIENTE) no suman; sin doble conteo con POS y plan; reporte = cierre del mismo día (con una cuenta de pedido); aislamiento entre locales. Ajustadas las pruebas que comparaban estas respuestas con igualdad estricta.
+
+Decisiones (consultadas): `porOrigen.cuentas` sale de `pedidos`; solo COBRADAS cuentan en almuerzos y ranking; los almuerzos y platos van por el día de su línea; ranking sin cuentas de pedido.
+
+Límites conocidos:
+
+- Una cuenta cobrada con un pago `PENDIENTE` queda `COBRADA`: su almuerzo cuenta como suelto aunque el dinero aún no esté en el arqueo; al rechazarse el pago vuelve a `ABIERTA` y deja de contar.
+- `almuerzosParaLlevar` usa `cuenta.para_llevar` (una marca por cuenta): en una cuenta de mesa `INVITO_YO` con miembros mixtos cuenta todos o ninguno.
+- Anular una cuenta de un día ya cerrado resta sus almuerzos de ese día en el reporte (cuenta COBRADA → ANULADA), mientras el dinero se revierte el día de la anulación; `movimientosDespuesDelCierre` solo mira el efectivo.
+
 ## Carta fija en pedidos y recargo por unidad (entrega D, PR 7a; rama `feat/pedidos-carta-recargo`)
 
 `POST /v1/mis/pedidos` y `POST /v1/mis/pedidos/cotizar` aceptan `cartaItems` (carta fija), el recargo para llevar pasa a ser por unidad de `ALMUERZO` y `A_LA_CARTA`, y `totalCentavos` / `recargoLlevarCentavos` del pedido salen de lo guardado y coinciden con la cotización. **Una migración aditiva** (`20261122200000_orden_detalle_es_carta`: `orden_detalle.es_carta BOOLEAN NOT NULL DEFAULT false`), probada solo en `bocadoo-test-pg` (up, rollback y up); **falta aplicarla en Neon** con `pnpm db:migrate --remoto` antes del merge. Las columnas de dinero (`recargo_unitario_centavos`, `precio_almuerzo_centavos`) ya existían desde el PR 4 y `orden_cabecera` no tiene columna ni FK del menú que sea `NOT NULL`: el pedido solo de carta no necesita más esquema. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
