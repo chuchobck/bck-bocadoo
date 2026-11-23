@@ -1116,7 +1116,7 @@ export class CanjearPedidoDto {
     type: CobroDto,
     description:
       'Opcional. Sin `cobro`, si el saldo final es > 0 se abre la cuenta `ABIERTA` del pedido sin pago (desde el PR 6c); con saldo 0, sin cuenta. ' +
-      'Con `cobro` (aunque sea `{}`) siempre crea la cuenta del pedido; con `metodoPago`, registra el pago en la misma transacción. ' +
+      'Con `cobro`, la cuenta del pedido se crea también solo si el saldo final es > 0 (saldo 0 = sin cuenta, así el canje se puede deshacer en 10 s); con `metodoPago`, registra el pago en la misma transacción. ' +
       'Con o sin `cobro`, si el saldo final no es `saldoEsperadoCentavos` (o, sin él, el `totalCentavos` del pedido: la estimación al pedir) ' +
       '→ 409 `SALDO_CAMBIO` sin descontar el plan, tomar stock de ofertas ni cobrar nada (oferta caída, plan sin saldo, día no válido). ' +
       'La caja reenvía con `cobro.saldoEsperadoCentavos` igual al saldo nuevo para confirmarlo (basta `cobro` sin `metodoPago` si es 0).',
@@ -1351,11 +1351,11 @@ export class StaffOrdersService {
     }
 
     let cuenta: CuentaResponse | null = null;
-    // Con `cobro` siempre hay cuenta (5a). Sin `cobro` (PR 6c, misma regla que el QR del 6b): si la cotización final
-    // deja saldo > 0 la cuenta ABIERTA se abre igual, para que el almuerzo suelto, el recargo y los extras nunca queden
-    // sin registrar; con saldo 0, sin cuenta. A esta altura el saldo ya coincide con lo esperado (SALDO_CAMBIO de arriba).
+    // Con o sin `cobro`: si la cotización final deja saldo > 0 hay cuenta (con `cobro.metodoPago`, además, su pago), para que el
+    // almuerzo suelto, el recargo y los extras nunca queden sin registrar. Con saldo 0 y sin pagos, sin cuenta: una cuenta
+    // COBRADA con la unidad del plan bloquearía deshacer el canje en 10 s (CUENTA_COBRADA). A esta altura el saldo ya coincide con lo esperado (SALDO_CAMBIO de arriba).
     // P = 0 sin plan → `cot` null, como antes (I-12).
-    if (cot && (cobro || cot.saldoPorCobrarCentavos > 0)) {
+    if (cot && cot.saldoPorCobrarCentavos > 0) {
       const esperado = cot.saldoPorCobrarCentavos;
       const finalCot = cot;
       const cuentaId = await persistirCuenta(q, {
