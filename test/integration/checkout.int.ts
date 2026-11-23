@@ -192,6 +192,22 @@ describe('Fase 7: caja', () => {
       expect((await validar(o, { clienteId: c, mesaLocalId: '99999999' })).statusCode).toBe(400);
     });
 
+    it('con cobro y plan que cubre todo: saldo 0 → sin cuenta (como en el canje de pedido, 7b); deshacer sigue funcionando', async () => {
+      const o = await h.owner('Validar Saldo Cero');
+      await h.publishMenu(o);
+      const c = await withPlan(o);
+      // Sin paraLlevar ni items: el plan cubre el almuerzo entero, saldo 0. Con `cobro` igual no debe abrir cuenta
+      // (el mismo hueco que el 7b cerró en `POST /v1/caja/pedidos/{id}/canjear`): una cuenta COBRADA de saldo 0
+      // bloqueaba el deshacer de 10 s con 409 CUENTA_COBRADA.
+      const r = await validar(o, { clienteId: c, cobro: { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: 0 } });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({ resultado: 'OK', descontado: true, cuenta: null });
+      expect(r.json().cotizacion).toMatchObject({ saldoPorCobrarCentavos: 0 });
+      const u = await as(o).post(`/v1/caja/consumos/${r.json().consumo.id}/deshacer`);
+      expect(u.statusCode, u.body).toBe(200);
+      expect(await saldo(o, c)).toBe(5);
+    });
+
     it('FIFO: descuenta del plan que vence primero, aunque se haya comprado después', async () => {
       const o = await h.owner('FIFO');
       await h.publishMenu(o);
