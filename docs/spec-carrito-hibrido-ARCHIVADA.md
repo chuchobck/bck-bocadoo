@@ -1,6 +1,29 @@
-# Spec pendiente: Carrito híbrido (split-tender) + sincronización de carta en tiempo real
+# [ARCHIVADA] Spec: Carrito híbrido (split-tender) + sincronización de carta en tiempo real
 
-> Recibida de Chucho/frontend el 22 nov 2026. **En cola**: se implementa después del bloque de seguridad y operación y de los PR 7/8/9 de la entrega D (ver `ESTADO_BACKEND.md` sección 0). Frontend (Flutter) ya la da por hecha de su lado, a la espera de estos contratos.
+> Recibida de Chucho/frontend el 22 nov 2026, **antes** de que este backend tuviera construida la Entrega D (cuentas
+> de cobro). Se archiva el 23 nov 2026: todo lo que pedía ya está cubierto, pero con una forma distinta a la que
+> describía (`cuenta_cobro` en vez de columnas nuevas en `Pedido`/`PedidoItem`). Se deja el documento completo abajo
+> como referencia histórica; el estado real de cada punto es:
+>
+> - **1.A** (`GET /v1/restaurantes/{slug}/carta`): ya existe desde la entrega C ("carta fija"), con el header
+>   anti-caché pedido. El campo `seccion` que le faltaba se agregó en el PR #52 (23 nov). El punto de "POSTRE con
+>   `precioCentavos > 0`" no aplica tal cual: `categoria` es un enum (`ALMUERZO`/`A_LA_CARTA`/`EXTRA`/`BEBIDA`) y
+>   `seccion` (`POSTRE` entre otras) solo tiene sentido dentro de `ALMUERZO`; un postre que se vende suelto se crea
+>   como `EXTRA`, que la carta ya incluye.
+> - **1.B** (`POST`/`PATCH /v1/menu/platos`): ya aceptaba y persistía categoría, precio y `agotado` antes de esta
+>   spec; no hizo falta ningún cambio.
+> - **2** (columnas nuevas en `Pedido`/`PedidoItem`): **no se implementó así**. La Entrega D resolvió lo mismo con
+>   `cuenta_cobro` + `cuenta_cobro_linea` (ver `docs/spec-cobros.md`): un libro de solo-inserción por pagador, en vez
+>   de columnas sueltas en la cabecera del pedido. `cash_to_collect_cents` ↔ `cuenta.saldoCentavos`;
+>   `plan_credits_used` se deriva de las líneas con `fuente: 'PLAN'`; `balance_payment_channel` no se construyó
+>   (todavía no hay canal digital de cobro del saldo, solo caja).
+> - **3** (`POST /v1/mis/pedidos` con almuerzo + carta mezclados): implementado tal cual se pedía (`dto.almuerzo` +
+>   `dto.cartaItems` en la misma petición, ver `src/orders/orders.ts`), solo que el cobro resultante se resuelve con
+>   `cotizar()`/`cuenta_cobro` en vez de las columnas de la sección 2.
+>
+> Para trabajo nuevo en este tema, usar `docs/spec-cobros.md` y `ESTADO_BACKEND.md`, no este documento.
+
+---
 
 ## 1. Catálogo y sincronización en tiempo real (dueño ↔ comensal)
 
