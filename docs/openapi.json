@@ -338,6 +338,25 @@
               }
             }
           },
+          "403": {
+            "description": "application/problem+json con `code`: `REGISTRO_CERRADO`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "code": "REGISTRO_CERRADO",
+                  "detail": "No tienes acceso a este restaurante o tu rol no permite esta acción.",
+                  "instance": "/v1/ejemplo",
+                  "requestId": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10"
+                }
+              }
+            }
+          },
           "409": {
             "description": "application/problem+json con `code`: `CONFLICT`",
             "content": {
@@ -2898,7 +2917,7 @@
     },
     "/v1/restaurante/personal/cajeros": {
       "post": {
-        "description": "La persona debe haberse registrado antes. Límite de intentos por hora.",
+        "description": "La persona debe haberse registrado antes. Límite de intentos por hora (por IP y por usuario).",
         "operationId": "StaffController_invite",
         "parameters": [
           {
@@ -6883,7 +6902,7 @@
     },
     "/v1/clientes/{id}/vincular": {
       "post": {
-        "description": "Por el correo de la cuenta. Límite de intentos por hora.",
+        "description": "Por el correo de la cuenta. Límite de intentos por hora (por IP y por usuario).",
         "operationId": "CustomersController_link",
         "parameters": [
           {

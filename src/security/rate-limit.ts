@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Inject, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AuthedRequest } from '../authz/current-user';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
 
@@ -72,6 +73,16 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * Tope por usuario autenticado (ventana de 1 hora) para altas que buscan cuentas por correo. Lo llama
+   * `UserRateLimitGuard`, que corre después de JwtAuthGuard (este guard global corre antes y aún no ve al usuario).
+   * Comparte el mapa y el tope `MAX_ENTRIES`; la clave solo se crea para un usuario ya autenticado.
+   */
+  hitUser(userId: string, reply: FastifyReply, now = Date.now()): void {
+    const retry = this.hit(`u:${userId}`, this.env.USER_INVITE_RATE_LIMIT_MAX, 3600, now);
+    if (retry > 0) this.block(reply, retry);
+  }
+
   /** Cuenta una petición contra `key`; devuelve en cuántos segundos reintentar, o 0 si todavía no se excede. */
   private hit(key: string, max: number, windowSeconds: number, now: number): number {
     let b = this.buckets.get(key);
@@ -94,5 +105,18 @@ export class RateLimitGuard implements CanActivate {
   private block(reply: FastifyReply, retryAfter: number): never {
     void reply.header('retry-after', String(retryAfter));
     throw new HttpException('Demasiadas solicitudes. Intenta de nuevo más tarde.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
+/** Máximo `USER_INVITE_RATE_LIMIT_MAX` por hora y usuario, además del tope por IP del preset `invite`. Va con `@UseGuards`. */
+@Injectable()
+export class UserRateLimitGuard implements CanActivate {
+  constructor(private readonly limiter: RateLimitGuard) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<AuthedRequest>();
+    // Sin usuario no se crea clave (JwtAuthGuard ya habría respondido 401); así solo cuentas reales ocupan memoria.
+    if (req.user) this.limiter.hitUser(req.user.userId, context.switchToHttp().getResponse<FastifyReply>());
+    return true;
   }
 }

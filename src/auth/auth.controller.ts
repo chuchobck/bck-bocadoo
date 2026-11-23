@@ -1,14 +1,26 @@
-import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, CanActivate, Controller, Get, HttpCode, Inject, Injectable, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Public } from '../authz/public.decorator';
-import { ApiProblems } from '../common/errors';
+import { ApiProblems, forbidden } from '../common/errors';
+import { ENV } from '../config/config.module';
+import type { Env } from '../config/env';
 import { DbService } from '../db/db.service';
 import { RateLimit } from '../security/rate-limit';
 import { AuthService } from './auth.service';
 import { LoginDto, MeResponseDto, RefreshDto, RegisterDto, RegisterOwnerDto, RegisterResponseDto, TokenResponseDto } from './dto';
 import { SessionsService } from './sessions.service';
+
+/** Cierra `register-owner` con `REGISTER_OWNER_ENABLED=false`. Es un guard para responder 403 antes de validar el body y sin crear nada. */
+@Injectable()
+export class RegisterOwnerEnabledGuard implements CanActivate {
+  constructor(@Inject(ENV) private readonly env: Env) {}
+  canActivate(): boolean {
+    if (!this.env.REGISTER_OWNER_ENABLED) throw forbidden('REGISTRO_CERRADO', 'El registro de dueños está cerrado por ahora.');
+    return true;
+  }
+}
 
 const info = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'] });
 
@@ -34,11 +46,12 @@ export class AuthController {
 
   @Public()
   @RateLimit('signup')
+  @UseGuards(RegisterOwnerEnabledGuard)
   @Post('register-owner')
   @HttpCode(201)
   @ApiOperation({ summary: 'Registrar una cuenta de dueño con su restaurante (en borrador)' })
   @ApiCreatedResponse({ type: RegisterResponseDto })
-  @ApiProblems({ 400: ['BAD_REQUEST'], 409: ['CONFLICT'], 429: ['TOO_MANY_REQUESTS'] })
+  @ApiProblems({ 400: ['BAD_REQUEST'], 403: ['REGISTRO_CERRADO'], 409: ['CONFLICT'], 429: ['TOO_MANY_REQUESTS'] })
   registerOwner(@Body() dto: RegisterOwnerDto, @Req() req: FastifyRequest): Promise<RegisterResponseDto> {
     return this.auth.registerOwner(dto, info(req));
   }

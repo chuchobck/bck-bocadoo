@@ -63,9 +63,9 @@ describe.skipIf(!scratch)('PR 6: cobro de mesa con peticiones simultáneas', () 
     (await k.as(l.o).get(`/v1/clientes/${d.clienteId}`)).json().almuerzosDisponibles as number;
 
   it('validar y salir a la vez: o sale antes (no se le cobra nada) o la caja valida antes (salir → 409 MESA_CERRADA y se le cobra)', async () => {
-    const l = await local();
     const vistos = new Set<string>();
     for (let i = 0; i < 6; i++) {
+      const l = await local(); // un dueño por vuelta: vincular tiene tope de 10 por usuario y hora
       const { id, guest } = await mesa(l);
       const [v, s] = await Promise.all([
         k.as(l.o).post(`/v1/caja/mesas/${id}/validar`, undefined, randomUUID()),
@@ -131,8 +131,8 @@ describe.skipIf(!scratch)('PR 6: cobro de mesa con peticiones simultáneas', () 
   });
 
   it('elegir y salir a la vez: nunca queda selección de quien salió', async () => {
-    const l = await local();
     for (let i = 0; i < 6; i++) {
+      const l = await local(); // un dueño por vuelta: vincular tiene tope de 10 por usuario y hora
       const { id, guest } = await mesa(l);
       const [sel, s] = await Promise.all([
         k.as(guest).put(`/v1/mis/mesas/${id}/seleccion`, { extras: [{ plato: l.cola, cantidad: 3 }] }),
