@@ -152,6 +152,32 @@ describe.skipIf(!probe)('Carta fija: platos de carta, agotado por plato y lectur
     expect((await k.as({}).get('/v1/restaurantes/Mal_Slug!/carta')).statusCode).toBe(404);
   });
 
+  it('sin caché: Cache-Control no-store en 200 y 404, y un agotado se ve en la siguiente lectura', async () => {
+    const NO_CACHE = 'no-store, no-cache, must-revalidate';
+    const o = await k.activeOwner();
+    const c = await k.h.cashier(o.restaurante);
+    const cola = await dish(o, { categoria: 'BEBIDA', nombre: 'Cola', precioCentavos: 100 });
+
+    const antes = await k.as({}).get(`/v1/restaurantes/${o.slug}/carta`);
+    expect(antes.statusCode, antes.body).toBe(200);
+    // Un solo valor (nada más lo pisa ni lo duplica) y Helmet sigue poniendo las suyas.
+    expect(antes.headers['cache-control']).toBe(NO_CACHE);
+    expect(antes.headers['x-content-type-options']).toBe('nosniff');
+    expect(antes.json().items).toEqual([expect.objectContaining({ nombre: 'Cola', agotado: false })]);
+
+    expect((await k.as(c).patch(`/v1/menu/platos/${cola.id}/agotado`, { agotado: true })).statusCode).toBe(200);
+    const despues = await k.as({}).get(`/v1/restaurantes/${o.slug}/carta`);
+    expect(despues.headers['cache-control']).toBe(NO_CACHE);
+    expect(despues.json().items).toEqual([expect.objectContaining({ nombre: 'Cola', agotado: true })]);
+
+    for (const slug of ['no-existe', 'Mal_Slug!']) {
+      const nf = await k.as({}).get(`/v1/restaurantes/${slug}/carta`);
+      expect(nf.statusCode).toBe(404);
+      expect(nf.json().code).toBe('RESTAURANTE_NO_ENCONTRADO');
+      expect(nf.headers['cache-control']).toBe(NO_CACHE);
+    }
+  });
+
   it('la carta de un local no incluye platos de otro', async () => {
     const a = await k.activeOwner();
     const b = await k.activeOwner();
