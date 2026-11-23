@@ -272,7 +272,7 @@ describe.skipIf(!probe)('PR 6c: huecos de cobro', () => {
       const b = await pedido({ o: a.o, cola: false });
       expect((await canjear(b.o, b.p.id, { cobro: { saldoEsperadoCentavos: 0 } })).json()).toMatchObject({
         almuerzo: { resultado: 'LIMITE_SAAS' },
-        cuenta: { estado: 'COBRADA', saldoCentavos: 0 }, // con `cobro` siempre hay cuenta (nace COBRADA con saldo 0)
+        cuenta: null, // saldo 0 y sin pagos: sin cuenta, también con `cobro`
         porCobrarCentavos: 0,
       });
     });

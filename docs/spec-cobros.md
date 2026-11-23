@@ -15,7 +15,7 @@ Convenciones del documento:
   **E** = `EXTRA`, **B** = `BEBIDA`, **O** = precio de una oferta flash.
 
 Decisiones ya tomadas que esta spec aplica (no se discuten): D1 centavos enteros · D2 recargo por unidad a `ALMUERZO` y
-`A_LA_CARTA` · D3 `paraLlevar` por línea solo en el POS · D4 oferta vs plan se decide por `ofertaId` · D5 el plan solo
+`A_LA_CARTA` · D3 Con saldo final 0 y sin pagos el canje **no crea cuenta, tampoco con `cobro`** (decisión posterior a la spec: E.3 «Con `cobro` (aunque sea `{}`): crea la cuenta» queda así corregida; una cuenta COBRADA con la unidad del plan bloquearía deshacer el canje en 10 s con `CUENTA_COBRADA`). `paraLlevar` por línea solo en el POS · D4 oferta vs plan se decide por `ofertaId` · D5 el plan solo
 cubre `ALMUERZO` · D6 `INVITO_YO` paga el anfitrión, `CADA_UNO` cada miembro · D7 `momentoCobro` sigue configurable ·
 D8 la selección de mesa se convierte en cobro.
 
