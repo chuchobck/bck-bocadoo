@@ -2,7 +2,7 @@ import { HttpException } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import { describe, expect, it } from 'vitest';
 import { loadEnv } from '../../src/config/env';
-import { RateLimitGuard } from '../../src/security/rate-limit';
+import { RateLimitGuard, UserRateLimitGuard } from '../../src/security/rate-limit';
 
 const base = { DATABASE_URL: 'postgresql://a:b@h/db', DATABASE_SERVICE_URL: 'postgresql://a:b@h/db' };
 const env = loadEnv({ ...base, RATE_LIMIT_MAX: '3', AUTH_RATE_LIMIT_MAX: '2', AUTH_RATE_LIMIT_WINDOW_SECONDS: '900' } as NodeJS.ProcessEnv);
@@ -85,5 +85,34 @@ describe('RateLimitGuard', () => {
     // La clave más reciente sigue viva y sigue contando correctamente (no se reinició a 0 por accidente).
     const ultimaIp = `10.${((MAX_ENTRIES - 1) >> 16) & 255}.${((MAX_ENTRIES - 1) >> 8) & 255}.${(MAX_ENTRIES - 1) & 255}`;
     expect(buckets(guard).has(`g:${ultimaIp}`)).toBe(true);
+  });
+});
+
+describe('UserRateLimitGuard', () => {
+  const userCtx = (userId: string | undefined) => {
+    const headers: Record<string, string> = {};
+    const req = { ip: '1.1.1.1', user: userId ? { publicId: 'x', userId } : undefined };
+    const reply = { header: (n: string, v: string) => (headers[n] = v) };
+    return {
+      ctx: { switchToHttp: () => ({ getRequest: () => req, getResponse: () => reply }) } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      headers,
+    };
+  };
+
+  it('deja pasar 10 por usuario y hora y bloquea la 11 con Retry-After; otro usuario tiene su propio contador', () => {
+    const limiter = new RateLimitGuard(reflector(undefined), env);
+    const guard = new UserRateLimitGuard(limiter);
+    for (let i = 0; i < 10; i++) expect(guard.canActivate(userCtx('7').ctx)).toBe(true);
+    const { ctx, headers } = userCtx('7');
+    expect(() => guard.canActivate(ctx)).toThrow(HttpException);
+    expect(Number(headers['retry-after'])).toBeGreaterThan(0);
+    expect(guard.canActivate(userCtx('8').ctx)).toBe(true);
+  });
+
+  it('sin usuario autenticado no crea ninguna clave', () => {
+    const limiter = new RateLimitGuard(reflector(undefined), env);
+    const guard = new UserRateLimitGuard(limiter);
+    expect(guard.canActivate(userCtx(undefined).ctx)).toBe(true);
+    expect(buckets(limiter).size).toBe(0);
   });
 });

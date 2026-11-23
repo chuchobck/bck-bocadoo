@@ -16,7 +16,7 @@ Fase 4 (`v0.4.0`). Complementa el [ADR 0001](adr/0001-acceso-a-datos-y-tenancy.m
 
 ### Registro
 
-`POST /v1/auth/register` (comensal) y `POST /v1/auth/register-owner` (dueño + restaurante en `BORRADOR`). Contraseña de 10 a 128 caracteres, hash **argon2id** (19 MiB, 2 pasadas). Un dato duplicado responde un 409 genérico. Límite: 10 registros por IP y hora.
+`POST /v1/auth/register` (comensal) y `POST /v1/auth/register-owner` (dueño + restaurante en `BORRADOR`). Contraseña de 10 a 128 caracteres, hash **argon2id** (19 MiB, 2 pasadas). Un dato duplicado responde un 409 genérico. Límite: 10 registros por IP y hora. `register-owner` se puede cerrar con `REGISTER_OWNER_ENABLED=false` (ver «Endurecimiento para el piloto»).
 
 ### Login
 
@@ -46,20 +46,20 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 
 ## Amenazas consideradas
 
-| Amenaza                                                                                                | Mitigación                                                                                       | Prueba                                 |
-| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------- |
-| Fuerza bruta de contraseñas                                                                            | 5 intentos por IP+cuenta cada 15 min, 20 por cuenta (anti rotación de IP), 429 con `Retry-After` | `abuse.int.ts`                         |
-| Enumeración de cuentas                                                                                 | Misma respuesta y tiempo similar; registro duplicado genérico                                    | `auth.int.ts`                          |
-| Robo de refresh token                                                                                  | Rotación, hash en base, detección de reutilización, logout-all                                   | `auth.int.ts`                          |
-| JWT `alg: none`, firma alterada, HS256 con la pública, `kid` falso, audiencia o emisor ajenos, vencido | `jose` con `algorithms: ['ES256']`, `kid` en lista cerrada, `iss`/`aud`/`typ` obligatorios       | `auth.int.ts`, `token.service.spec.ts` |
-| Escalada de privilegios (cajero → dueño)                                                               | `RolesGuard` + evento                                                                            | `authz.int.ts`                         |
-| Acceso entre restaurantes cambiando ids                                                                | `TenantGuard` por pertenencia + RLS como segunda barrera                                         | `authz.int.ts`, `rls.int.ts`           |
-| Inyección SQL                                                                                          | Solo consultas parametrizadas; ids de contexto validados por regex                               | `rls.int.ts`                           |
-| Campos extra / mass assignment                                                                         | `ValidationPipe` con `whitelist` + `forbidNonWhitelisted`                                        | `abuse.int.ts`                         |
-| Cuerpos enormes                                                                                        | Límite de 100 kB → 413                                                                           | `abuse.int.ts`                         |
-| Otros orígenes en el navegador                                                                         | CORS con lista blanca (`CORS_ORIGINS`)                                                           | `abuse.int.ts`                         |
-| IP falsificada con `x-forwarded-for` para esquivar rate limits                                         | `trustProxy` por número de saltos (`TRUST_PROXY_HOPS`), no `true`                                | `trust-proxy.spec.ts`                  |
-| Filtración de secretos en logs                                                                         | pino redacta `authorization`, `password`, `refreshToken`, `accessToken`                          | prueba manual                          |
+| Amenaza                                                                                                | Mitigación                                                                                                              | Prueba                                 |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Fuerza bruta de contraseñas                                                                            | 5 intentos por IP+cuenta cada 15 min, 20 por cuenta (anti rotación de IP), 429 con `Retry-After`                        | `abuse.int.ts`                         |
+| Enumeración de cuentas                                                                                 | Misma respuesta y tiempo similar; registro duplicado genérico                                                           | `auth.int.ts`                          |
+| Robo de refresh token                                                                                  | Rotación, hash en base, detección de reutilización, logout-all                                                          | `auth.int.ts`                          |
+| JWT `alg: none`, firma alterada, HS256 con la pública, `kid` falso, audiencia o emisor ajenos, vencido | `jose` con `algorithms: ['ES256']`, `kid` en lista cerrada, `iss`/`aud`/`typ` obligatorios                              | `auth.int.ts`, `token.service.spec.ts` |
+| Escalada de privilegios (cajero → dueño)                                                               | `RolesGuard` + evento                                                                                                   | `authz.int.ts`                         |
+| Acceso entre restaurantes cambiando ids                                                                | `TenantGuard` por pertenencia + RLS como segunda barrera                                                                | `authz.int.ts`, `rls.int.ts`           |
+| Inyección SQL                                                                                          | Solo consultas parametrizadas; ids de contexto validados por regex                                                      | `rls.int.ts`                           |
+| Campos extra / mass assignment                                                                         | `ValidationPipe` con `whitelist` + `forbidNonWhitelisted`                                                               | `abuse.int.ts`                         |
+| Cuerpos enormes                                                                                        | Límite de 100 kB → 413                                                                                                  | `abuse.int.ts`                         |
+| Otros orígenes en el navegador                                                                         | CORS con lista blanca (`CORS_ORIGINS`)                                                                                  | `abuse.int.ts`                         |
+| IP falsificada con `x-forwarded-for` para esquivar rate limits                                         | `trustProxy` por número de saltos (`TRUST_PROXY_HOPS`), no `true`                                                       | `trust-proxy.spec.ts`                  |
+| Filtración de secretos en logs                                                                         | pino redacta `authorization`, `password`, `refreshToken`, `accessToken`; la línea de log lleva la ruta sin query string | `log-privacy.spec.ts`                  |
 
 ## QR del comensal (fase 7)
 
@@ -122,8 +122,6 @@ En producción `JWT_PRIVATE_KEY` es obligatoria (la app no arranca sin ella). En
 
 Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierra sesiones.
 
-<<<<<<< HEAD
-
 ## Hallazgo abierto: invitar cajero / vincular cliente filtran si un correo existe (auditoría OWASP, 22 nov 2026)
 
 **MEDIO, sin arreglar a propósito: necesita una decisión de producto, no solo de seguridad.**
@@ -134,7 +132,6 @@ Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierr
   1. **Invitación pendiente con aceptación:** el cajero/cliente queda en un estado "pendiente" hasta que la persona invitada lo acepta desde su propia sesión. Cierra el problema de raíz (ya no hay asociación sin consentimiento, y se puede hacer la respuesta genérica sin romper la UX legítima). Necesita una tabla y migración nuevas, 2-3 endpoints nuevos (listar, aceptar, rechazar invitaciones propias) y que el frontend (Flutter) construya la pantalla correspondiente.
   2. **Mitigación parcial sin cambiar el flujo:** limitar también por cuenta de dueño (no solo por IP) y endurecer el límite de `invite`; no cierra el oráculo ni la asociación sin consentimiento, solo lo encarece.
 - **Queda para que lo decida Oe** (dueño del proyecto): si el piloto puede convivir con esto un tiempo más, o si vale la pena construir la opción 1 antes del piloto con locales reales.
-  \=======
 
 ## Rate limiting: memoria acotada (auditoría OWASP, 22 nov 2026)
 
@@ -145,7 +142,13 @@ Hallazgo ALTO cerrado: el guard evaluaba todos los checks del preset (p. ej. `a:
 - Cubre tanto el ataque de una sola IP (el guard corta temprano) como una botnet con miles de IPs/identificadores distintos (el tope duro acota la memoria de todas formas).
 - Pruebas: `test/unit/rate-limit.spec.ts` (reproduce el ataque: 200 intentos con identificadores distintos tras agotar el tope de la IP no crean ninguna clave nueva; confirma el tope de 100 000 y el orden de expulsión).
 
-> > > > > > > origin/main
+## Endurecimiento para el piloto (22 nov 2026)
+
+Mitigación parcial del hallazgo abierto de arriba (opción 2): encarece el sondeo de correos, pero **no cierra el oráculo ni la asociación sin consentimiento**; eso sigue necesitando la invitación con aceptación.
+
+- **Registro de dueños cerrable:** `REGISTER_OWNER_ENABLED` (por defecto `true`). Con `false`, `POST /v1/auth/register-owner` responde 403 `REGISTRO_CERRADO` antes de validar el body y sin crear nada. `POST /v1/auth/register` (comensal) no cambia. Para el piloto, ponerla en `false` en Render y dar de alta a los dueños por otra vía.
+- **Tope por cuenta:** `POST /v1/restaurante/personal/cajeros` y `POST /v1/clientes/{id}/vincular` admiten como máximo `USER_INVITE_RATE_LIMIT_MAX` (10) por usuario autenticado y hora, además del tope por IP (20). 429 con `Retry-After`. Lo aplica `UserRateLimitGuard` (guard de método, porque `RateLimitGuard` global corre antes que el JWT y no conoce al usuario). Comparte el mapa y el tope `MAX_ENTRIES` del guard global, y solo crea la clave para un usuario ya autenticado (sin token → 401, sin clave), así que no reabre el hallazgo de memoria. Pruebas: `rate-limit.spec.ts`, `endurecimiento.int.ts`.
+- **Logs sin datos personales:** la línea `request completed` registra la ruta **sin query string** (`/v1/clientes?q=0991234567` → `/v1/clientes`) más `requestId`, `method`, `statusCode` y `ms`. Prueba: `test/unit/log-privacy.spec.ts`.
 
 ## Límites conocidos (a revisar)
 

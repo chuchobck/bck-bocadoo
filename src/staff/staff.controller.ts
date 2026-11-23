@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
 import { UuidPipe } from '../common/pipes';
-import { RateLimit } from '../security/rate-limit';
+import { RateLimit, UserRateLimitGuard } from '../security/rate-limit';
 import { Email, Text } from '../security/sanitize';
 import { StaffService } from './staff.service';
 import { PersonalResponse } from './responses';
@@ -37,10 +37,11 @@ export class StaffController {
 
   @Roles('DUENO')
   @RateLimit('invite')
+  @UseGuards(UserRateLimitGuard)
   @Post('cajeros')
   @ApiOperation({
     summary: 'Agregar un cajero por su correo',
-    description: 'La persona debe haberse registrado antes. Límite de intentos por hora.',
+    description: 'La persona debe haberse registrado antes. Límite de intentos por hora (por IP y por usuario).',
   })
   @ApiCreatedResponse({ type: PersonalResponse })
   invite(@Body() dto: InviteCashierDto) {

@@ -1081,6 +1081,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `PEDIDO_VACIO`                | 400  | `POST /v1/mis/pedidos`                                                                                                                                                                                                                                                                                                                                            |
 | `SOLO_CUENTAS_DEL_DIA`        | 403  | `POST /v1/caja/cuentas/{id}/anular` (cajero; PR 5a)                                                                                                                                                                                                                                                                                                               |
 | `SOLO_ANFITRION`              | 403  | `POST /v1/mis/mesas/{id}/cancelar`                                                                                                                                                                                                                                                                                                                                |
+| `REGISTRO_CERRADO`            | 403  | `POST /v1/auth/register-owner` cuando el servidor tiene `REGISTER_OWNER_ENABLED=false` (registro de dueños cerrado)                                                                                                                                                                                                                                               |
 | `CLIENTE_NO_ENCONTRADO`       | 404  | `GET /v1/clientes/{id}/sellos`; `POST /v1/clientes/{id}/sellos/canjear`                                                                                                                                                                                                                                                                                           |
 | `CUENTA_NO_ENCONTRADA`        | 404  | `GET /v1/caja/cuentas/{id}`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/caja/cuentas/{id}/anular` (PR 5a); `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b)                                                                                                                                                         |
 | `LINEA_NO_ENCONTRADA`         | 404  | `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (la línea no existe o ya se quitó; PR 5b)                                                                                                                                                                                                                                                                        |
@@ -1179,6 +1180,7 @@ Por IP, en memoria de la instancia y **solo se enteran por el status 429** (no h
 | `POST /v1/auth/login`                                                      | 5 por IP y cuenta; 20 por cuenta desde cualquier IP | 15 minutos |
 | `POST /v1/auth/register`, `/register-owner`                                | 10 por IP (compartido)                              | 1 hora     |
 | `POST /v1/restaurante/personal/cajeros`, `POST /v1/clientes/{id}/vincular` | 20 por IP (compartido)                              | 1 hora     |
+| Esos mismos dos endpoints                                                  | 10 por usuario autenticado (compartido)             | 1 hora     |
 
 - El límite de login cuenta **todos** los intentos, no solo los fallidos.
 - Respuesta: `429` `TOO_MANY_REQUESTS` con la cabecera **`retry-after`** (segundos). Espera ese tiempo; no reintentes en automático un login.
@@ -1269,6 +1271,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 #### `POST /v1/auth/register-owner`
 
 **Registrar una cuenta de dueño con su restaurante (en borrador)**
+
+> **Puede estar cerrado:** si el servidor tiene `REGISTER_OWNER_ENABLED=false`, responde **403 `REGISTRO_CERRADO`** (sin validar el body ni crear nada). La app debe mostrar "El registro de dueños está cerrado por ahora". `POST /v1/auth/register` (comensal) no cambia.
 
 - **Rol:** Público (sin token)
 - **Estado:** Estable
