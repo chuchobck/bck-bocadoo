@@ -21,6 +21,11 @@ class HoraPico {
   @ApiProperty({ minimum: 0, maximum: 23, description: 'Hora local del restaurante (0 = 00:00–00:59)' }) hora!: number;
   @ApiProperty({ description: 'Almuerzos de planes servidos esa hora (los devueltos no cuentan)' }) almuerzos!: number;
   @ApiProperty({ description: 'Tickets de ventas sueltas de esa hora (los deshechos no cuentan)' }) ventas!: number;
+  @ApiProperty({
+    description:
+      'Cuentas de cobro COBRADAS creadas esa hora. Informativo: no entra en `total` (una cuenta con plan ya tiene su almuerzo en `almuerzos`)',
+  })
+  cuentas!: number;
   @ApiProperty({ description: 'almuerzos + ventas' }) total!: number;
 }
 class HorasPicoResponse {
@@ -36,6 +41,7 @@ class HorasPicoResponse {
   horaPico!: number | null;
   @ApiProperty() totalAlmuerzos!: number;
   @ApiProperty() totalVentas!: number;
+  @ApiProperty({ description: 'Cuentas de cobro COBRADAS del rango (informativo)' }) totalCuentas!: number;
 }
 
 class PlatoRanking {
@@ -44,9 +50,14 @@ class PlatoRanking {
     id: string;
     nombre: string;
   };
-  @ApiProperty({ description: 'unidadesVentas + unidadesPedidos' }) unidades!: number;
+  @ApiProperty({ description: 'unidadesVentas + unidadesPedidos + unidadesCuentas' }) unidades!: number;
   @ApiProperty({ description: 'Vendidas sueltas en caja (netas de tickets deshechos)' }) unidadesVentas!: number;
   @ApiProperty({ description: 'Incluidas en pedidos de comensales ya canjeados' }) unidadesPedidos!: number;
+  @ApiProperty({
+    description:
+      'Cobradas en cuentas de cobro del QR y de mesa (las cuentas de pedido no cuentan aquí: sus platos ya están en `unidadesPedidos`)',
+  })
+  unidadesCuentas!: number;
   @ApiProperty({ description: 'Lo cobrado por ese plato (centavos); los platos dentro del almuerzo cuestan 0' }) ingresoCentavos!: number;
 }
 class RankingResponse {
@@ -93,7 +104,7 @@ export class OperationsService {
     return this.db.forRequest(
       async (q) => {
         const { desde, hasta, zonaHoraria } = await resolveRange(q, f.desde, f.hasta);
-        const rows = await q.query<{ hora: number; almuerzos: number; ventas: number }>(
+        const rows = await q.query<{ hora: number; almuerzos: number; ventas: number; cuentas: number }>(
           `SELECT h AS hora,
                   COALESCE((SELECT count(*) FROM consumo_almuerzo k
                              WHERE k.restaurante_id = app_tenant_id() AND k.fecha_local BETWEEN $1 AND $2 AND k.cantidad = 1
@@ -102,11 +113,20 @@ export class OperationsService {
                   COALESCE((SELECT count(*) FROM venta_pos_cabecera v
                              WHERE v.restaurante_id = app_tenant_id() AND v.fecha_local BETWEEN $1 AND $2 AND v.revierte_a_venta_pos_id IS NULL
                                AND EXTRACT(HOUR FROM v.creado_en AT TIME ZONE $3) = h
-                               AND NOT EXISTS (SELECT 1 FROM venta_pos_cabecera x WHERE x.revierte_a_venta_pos_id = v.venta_pos_id)), 0)::int AS ventas
+                               AND NOT EXISTS (SELECT 1 FROM venta_pos_cabecera x WHERE x.revierte_a_venta_pos_id = v.venta_pos_id)), 0)::int AS ventas,
+                  COALESCE((SELECT count(*) FROM cuenta_cobro c
+                             WHERE c.restaurante_id = app_tenant_id() AND c.fecha_local BETWEEN $1 AND $2 AND c.estado = 'COBRADA'
+                               AND EXTRACT(HOUR FROM c.creada_en AT TIME ZONE $3) = h), 0)::int AS cuentas
              FROM generate_series(0, 23) AS h ORDER BY h`,
           [desde, hasta, zonaHoraria],
         );
-        const porHora = rows.rows.map((r) => ({ hora: r.hora, almuerzos: r.almuerzos, ventas: r.ventas, total: r.almuerzos + r.ventas }));
+        const porHora = rows.rows.map((r) => ({
+          hora: r.hora,
+          almuerzos: r.almuerzos,
+          ventas: r.ventas,
+          cuentas: r.cuentas,
+          total: r.almuerzos + r.ventas,
+        }));
         const max = Math.max(...porHora.map((h) => h.total));
         return {
           desde,
@@ -116,6 +136,7 @@ export class OperationsService {
           horaPico: max > 0 ? porHora.find((h) => h.total === max)!.hora : null,
           totalAlmuerzos: porHora.reduce((s, h) => s + h.almuerzos, 0),
           totalVentas: porHora.reduce((s, h) => s + h.ventas, 0),
+          totalCuentas: porHora.reduce((s, h) => s + h.cuentas, 0),
         };
       },
       { readOnly: true },
@@ -126,7 +147,14 @@ export class OperationsService {
     return this.db.forRequest(
       async (q) => {
         const { desde, hasta, zonaHoraria, moneda } = await resolveRange(q, f.desde, f.hasta);
-        const r = await q.query<{ public_id: string; nombre: string; u_ventas: number; u_pedidos: number; ingreso: string }>(
+        const r = await q.query<{
+          public_id: string;
+          nombre: string;
+          u_ventas: number;
+          u_pedidos: number;
+          u_cuentas: number;
+          ingreso: string;
+        }>(
           `WITH ventas AS (
              SELECT d.plato_id, sum(d.cantidad)::int AS u, sum(d.subtotal_centavos) AS ing
                FROM venta_pos_detalle d
@@ -138,12 +166,22 @@ export class OperationsService {
                FROM orden_detalle d
                JOIN orden_cabecera o ON o.restaurante_id = d.restaurante_id AND o.orden_id = d.orden_id
               WHERE d.restaurante_id = app_tenant_id() AND o.estado IN ('CANJEADA', 'SERVIDA') AND o.fecha_local BETWEEN $1 AND $2
-              GROUP BY d.plato_id)
-           SELECT p.public_id, p.nombre, COALESCE(v.u, 0) AS u_ventas, COALESCE(o.u, 0) AS u_pedidos,
-                  COALESCE(v.ing, 0) + COALESCE(o.ing, 0) AS ingreso
+              GROUP BY d.plato_id),
+           cuentas AS (
+             SELECT l.plato_id, sum(l.cantidad)::int AS u, sum(l.subtotal_centavos) AS ing
+               FROM cuenta_cobro_linea l
+               JOIN cuenta_cobro c ON c.restaurante_id = l.restaurante_id AND c.cuenta_id = l.cuenta_id
+               JOIN restaurante r ON r.restaurante_id = l.restaurante_id
+              WHERE l.restaurante_id = app_tenant_id() AND l.plato_id IS NOT NULL AND l.fuente = 'CAJA' AND l.omitida IS NULL
+                AND c.estado = 'COBRADA' AND c.orden_id IS NULL
+                AND (l.creada_en AT TIME ZONE r.zona_horaria)::date BETWEEN $1 AND $2
+              GROUP BY l.plato_id)
+           SELECT p.public_id, p.nombre, COALESCE(v.u, 0) AS u_ventas, COALESCE(o.u, 0) AS u_pedidos, COALESCE(k.u, 0) AS u_cuentas,
+                  COALESCE(v.ing, 0) + COALESCE(o.ing, 0) + COALESCE(k.ing, 0) AS ingreso
              FROM plato p LEFT JOIN ventas v ON v.plato_id = p.plato_id LEFT JOIN pedidos o ON o.plato_id = p.plato_id
-            WHERE p.restaurante_id = app_tenant_id() AND COALESCE(v.u, 0) + COALESCE(o.u, 0) > 0
-            ORDER BY COALESCE(v.u, 0) + COALESCE(o.u, 0) DESC, p.nombre, p.public_id
+                  LEFT JOIN cuentas k ON k.plato_id = p.plato_id
+            WHERE p.restaurante_id = app_tenant_id() AND COALESCE(v.u, 0) + COALESCE(o.u, 0) + COALESCE(k.u, 0) > 0
+            ORDER BY COALESCE(v.u, 0) + COALESCE(o.u, 0) + COALESCE(k.u, 0) DESC, p.nombre, p.public_id
             LIMIT $3`,
           [desde, hasta, f.limit ?? 10],
         );
@@ -155,9 +193,10 @@ export class OperationsService {
           items: r.rows.map((p, i) => ({
             posicion: i + 1,
             plato: { id: p.public_id, nombre: p.nombre },
-            unidades: p.u_ventas + p.u_pedidos,
+            unidades: p.u_ventas + p.u_pedidos + p.u_cuentas,
             unidadesVentas: p.u_ventas,
             unidadesPedidos: p.u_pedidos,
+            unidadesCuentas: p.u_cuentas,
             ingresoCentavos: num(p.ingreso),
           })),
         };

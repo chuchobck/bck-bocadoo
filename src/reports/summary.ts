@@ -2,11 +2,12 @@ import { Controller, Get, Injectable, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../authz/roles.decorator';
 import { ApiProblems } from '../common/errors';
+import { resumenCuentasDia } from '../cobro/resumen-dia';
 import { DbService } from '../db/db.service';
 import { DayQuery, RangeQuery, num, resolveRange } from './common';
 
 const CANALES = ['QR', 'MANUAL', 'PREORDEN', 'MESA'] as const;
-const ORIGENES = ['planes', 'ventas', 'ofertas', 'pedidos'] as const;
+const ORIGENES = ['planes', 'ventas', 'ofertas', 'pedidos', 'cuentas'] as const;
 
 class AlmuerzosDia {
   @ApiProperty({ description: 'Almuerzos descontados de planes, netos de devoluciones' }) servidos!: number;
@@ -15,7 +16,12 @@ class AlmuerzosDia {
 }
 class IngresosDia {
   @ApiProperty({ description: 'Cobros confirmados del día, netos de reversos (centavos)' }) totalCentavos!: number;
-  @ApiProperty({ example: { planes: 1500, ventas: 700, ofertas: 900, pedidos: 0 } }) porOrigen!: Record<(typeof ORIGENES)[number], number>;
+  @ApiProperty({
+    example: { planes: 1500, ventas: 700, ofertas: 900, pedidos: 0, cuentas: 450 },
+    description:
+      '`cuentas` = pagos de cuentas de cobro (QR, pedido, mesa); `pedidos` = solo pagos antiguos ligados directo a un pedido. Cada pago cuenta en un solo origen.',
+  })
+  porOrigen!: Record<(typeof ORIGENES)[number], number>;
   @ApiProperty({ example: [{ metodo: 'EFECTIVO', centavos: 2400 }] }) porMetodo!: { metodo: string; centavos: number }[];
   @ApiProperty({ example: { cantidad: 1, centavos: 1500 }, description: 'Transferencias o Deuna sin confirmar (no están en el total)' })
   pendientesPorConfirmar!: { cantidad: number; centavos: number };
@@ -25,6 +31,13 @@ class VentasPosDia {
   @ApiProperty({ description: 'Tickets deshechos' }) reversos!: number;
   @ApiProperty({ description: 'Neto de reversos (centavos)' }) totalCentavos!: number;
   @ApiProperty({ description: 'Almuerzos sueltos vendidos, netos' }) almuerzos!: number;
+}
+class CuentasDia {
+  @ApiProperty({ description: 'Cuentas de cobro COBRADAS del día local' }) cobradas!: number;
+  @ApiProperty({ description: 'Cuentas que siguen ABIERTAS (no suman a ingresos)' }) abiertas!: number;
+  @ApiProperty({ description: 'Saldo pendiente de las ABIERTAS (centavos)' }) saldoAbiertasCentavos!: number;
+  @ApiProperty({ description: 'Almuerzos a precio suelto en cuentas COBRADAS (los del plan van en `almuerzos`)' })
+  almuerzosSueltos!: number;
 }
 class CantidadMonto {
   @ApiProperty() cantidad!: number;
@@ -37,6 +50,7 @@ class ResumenDiarioResponse {
   @ApiProperty({ type: AlmuerzosDia }) almuerzos!: AlmuerzosDia;
   @ApiProperty({ type: IngresosDia }) ingresos!: IngresosDia;
   @ApiProperty({ type: VentasPosDia }) ventasPos!: VentasPosDia;
+  @ApiProperty({ type: CuentasDia, description: 'Cuentas de cobro del día; lo cobrado ya está en `ingresos`' }) cuentas!: CuentasDia;
   @ApiProperty({ type: CantidadMonto, description: 'Planes vendidos ese día, sin los anulados ni las cartulinas migradas' })
   planesVendidos!: CantidadMonto;
   @ApiProperty({ example: { unidades: 3, centavos: 1350 }, description: 'Canjes de ofertas flash' }) ofertas!: {
@@ -110,13 +124,15 @@ export class SummaryService {
         ).rows[0]!.n;
         const pagos = await q.query<{ origen: string; estado: string; metodo: string; centavos: string; n: number }>(
           `SELECT CASE WHEN p.suscripcion_id IS NOT NULL THEN 'planes' WHEN p.venta_pos_id IS NOT NULL THEN 'ventas'
-                       WHEN p.canje_oferta_id IS NOT NULL THEN 'ofertas' ELSE 'pedidos' END AS origen,
+                       WHEN p.canje_oferta_id IS NOT NULL THEN 'ofertas'
+                       WHEN p.cuenta_cobro_id IS NOT NULL THEN 'cuentas' ELSE 'pedidos' END AS origen,
                   p.estado, m.codigo AS metodo, sum(p.monto_centavos) AS centavos, count(*)::int AS n
              FROM transaccion_pago p JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
             WHERE p.restaurante_id = app_tenant_id() AND p.fecha_local = $1 AND p.estado <> 'RECHAZADO'
             GROUP BY 1, 2, 3`,
           [fecha],
         );
+        const cuentas = await resumenCuentasDia(q, fecha);
         const planes = (
           await q.query<{ n: number; centavos: string }>(
             `SELECT count(*)::int AS n, COALESCE(sum(precio_pagado_centavos), 0) AS centavos
@@ -173,6 +189,12 @@ export class SummaryService {
             pendientesPorConfirmar: pendientes,
           },
           ventasPos: { tickets: pos.tickets, reversos: pos.reversos, totalCentavos: num(pos.total), almuerzos: posAlmuerzos },
+          cuentas: {
+            cobradas: cuentas.cobradas,
+            abiertas: cuentas.abiertas,
+            saldoAbiertasCentavos: cuentas.saldoAbiertasCentavos,
+            almuerzosSueltos: cuentas.almuerzosSueltos,
+          },
           planesVendidos: { cantidad: planes.n, centavos: num(planes.centavos) },
           ofertas: { unidades: ofertas.unidades, centavos: num(ofertas.centavos) },
           escaneos: { total: escaneos.total, validos: escaneos.validos, rechazados: escaneos.total - escaneos.validos },
