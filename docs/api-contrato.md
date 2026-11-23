@@ -10,7 +10,7 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ### Fix de dinero: reclamos y pagos POS pendientes
 
-**Sin migración.** Solo cambios aditivos o de error; `openapi:breaking` sin errores.
+**Sin migración.** Cambios aditivos y un código de error nuevo; `openapi:breaking` marca 2 errores (`oneOf` ampliado en `pagos/{id}/confirmar` y `/rechazar`): conviene la etiqueta `cambio-incompatible` en la PR.
 
 | Dónde                                               | Qué cambia                                                                                                                                                                                          |
 | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
