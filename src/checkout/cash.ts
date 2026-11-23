@@ -40,6 +40,9 @@ interface MethodRow {
   planes: string;
   pos: string;
   cuentas: string;
+  cajero: string;
+  dueno: string;
+  sin_registro: string;
 }
 
 @Injectable()
@@ -113,14 +116,21 @@ export class CashService {
    * `planes` = cobros de planes; `pos` = todo lo demás (ventas sueltas, pedidos, ofertas y pagos de cuentas de cobro; `cuentas` es
    * la parte de `pos` que viene de cuentas). Los almuerzos de cuentas COBRADAS suman a los sueltos (`resumen-dia.ts`). Cada pago
    * tiene un solo origen (`ck_pago_origen_unico`): el pago de una cuenta nunca es también el de su pedido, así que no se cuenta dos veces.
+   * Quién confirmó (`cajero`, `dueno`, `sin_registro` = pagos de antes de guardarlo): un reverso resta del grupo de su pago original,
+   * así que los tres suman siempre lo mismo que `planes + pos` del método.
    */
   private async summary(q: Queryable, date: string) {
     const pay = await q.query<MethodRow>(
       `SELECT m.metodo_pago_id, m.codigo, m.nombre, m.es_efectivo,
               COALESCE(sum(p.monto_centavos) FILTER (WHERE p.suscripcion_id IS NOT NULL), 0) AS planes,
               COALESCE(sum(p.monto_centavos) FILTER (WHERE p.suscripcion_id IS NULL), 0) AS pos,
-              COALESCE(sum(p.monto_centavos) FILTER (WHERE p.cuenta_cobro_id IS NOT NULL), 0) AS cuentas
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE p.cuenta_cobro_id IS NOT NULL), 0) AS cuentas,
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE x.rol = 'CAJERO'), 0) AS cajero,
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE x.rol = 'DUENO'), 0) AS dueno,
+              COALESCE(sum(p.monto_centavos) FILTER (WHERE x.rol IS NULL), 0) AS sin_registro
          FROM transaccion_pago p JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+         LEFT JOIN transaccion_pago o ON o.restaurante_id = p.restaurante_id AND o.pago_id = p.revierte_a_pago_id
+         CROSS JOIN LATERAL (SELECT CASE WHEN p.revierte_a_pago_id IS NULL THEN p.confirmado_por_rol ELSE o.confirmado_por_rol END AS rol) x
         WHERE p.restaurante_id = app_tenant_id() AND p.fecha_local = $1 AND p.estado = 'CONFIRMADO'
         GROUP BY m.metodo_pago_id, m.codigo, m.nombre, m.es_efectivo ORDER BY m.metodo_pago_id`,
       [date],
@@ -180,6 +190,9 @@ export class CashService {
         planesCentavos: Number(m.planes),
         posCentavos: Number(m.pos),
         cuentasCentavos: Number(m.cuentas),
+        confirmadoPorCajeroCentavos: Number(m.cajero),
+        confirmadoPorDuenoCentavos: Number(m.dueno),
+        confirmadoSinRegistroCentavos: Number(m.sin_registro),
         totalCentavos: Number(m.planes) + Number(m.pos),
       })),
       almuerzosServidos: s.almuerzosServidos,

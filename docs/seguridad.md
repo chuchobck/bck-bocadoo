@@ -133,6 +133,21 @@ Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierr
   2. **Mitigación parcial sin cambiar el flujo:** limitar también por cuenta de dueño (no solo por IP) y endurecer el límite de `invite`; no cierra el oráculo ni la asociación sin consentimiento, solo lo encarece.
 - **Queda para que lo decida Oe** (dueño del proyecto): si el piloto puede convivir con esto un tiempo más, o si vale la pena construir la opción 1 antes del piloto con locales reales.
 
+## Hallazgo cerrado: el cajero autoconfirmaba transferencias y pagos Deuna (auditoría de seguridad, 22 nov 2026)
+
+**MEDIO, cerrado** (rama `fix/cajero-confirma-pagos`, migración `20261122210000_pago_confirmado_por`).
+
+- **Qué pasaba:** un CAJERO podía mandar `pagoConfirmado: true` con `TRANSFERENCIA` o `DEUNA` y dejar `CONFIRMADO` un depósito inventado, sin referencia y sin rastro de quién lo confirmó. En el canje de ofertas (`POST /v1/ofertas/{id}/canjear`) era peor: el cobro nacía siempre `CONFIRMADO` con cualquier método y ni siquiera aceptaba referencia. El dinero entraba al cierre como cobrado.
+- **Decisión de producto (del dueño):** el cajero conserva `pagoConfirmado` (en caja hace falta), pero (1) con `referenciaExterna` obligatoria al confirmar TRANSFERENCIA o DEUNA, (2) queda guardado quién confirmó (usuario y rol) y (3) el cierre separa lo confirmado por cajero de lo confirmado por el dueño. Efectivo no cambia.
+- **Arreglo:**
+  - Regla en la API (`src/common/pago-confirmado.ts`, `exigirReferenciaAlConfirmar`) en todos los puntos donde un pago nace confirmado: venta y cobro de planes, POS, pago de cuentas (cobrar, validar con `cobro`, canje de pedido con `cobro`) y canje de oferta. Sin referencia → 422 `REFERENCIA_PAGO_REQUERIDA` y la transacción se deshace entera. El rol sale de `TenantGuard` (fila de `personal_restaurante`), no del cuerpo.
+  - La referencia no se puede repetir en el local (`uq_pago_referencia_externa`, por restaurante y método): un mismo depósito no paga dos veces → 409 `REFERENCIA_PAGO_REPETIDA`, ahora igual en todos los cobros.
+  - `transaccion_pago.confirmado_por_usuario_id`, `confirmado_por_rol` y `confirmado_en`, llenadas en SQL desde la sesión (`app_user_id()` y el rol de `personal_restaurante`). La base impide reescribirlas: `fn_pago_solo_cambia_estado` solo deja tocarlas en el UPDATE que confirma un `PENDIENTE`, y `ck_pago_confirmado_por` exige las tres juntas y solo en un pago `CONFIRMADO`. Un pago ya confirmado no cambia.
+  - Confirmar después (`POST /v1/pagos/{id}/confirmar`) sigue siendo solo del dueño.
+  - Cierre de caja: `porMetodo[].confirmadoPorCajeroCentavos` / `confirmadoPorDuenoCentavos` / `confirmadoSinRegistroCentavos`, para que el dueño revise contra el banco lo que confirmó el cajero.
+- **Riesgo que queda:** un cajero todavía puede inventar una referencia con formato válido; el sistema no la verifica contra el banco. Lo que cambia es que queda a su nombre, no se puede repetir y el dueño la ve separada en el cierre.
+- **Pruebas:** `test/integration/pago-confirmado-por.int.ts` (roles, referencia, 409, cierre, aislamiento entre locales y barreras de la base como `bck_api`).
+
 ## Rate limiting: memoria acotada (auditoría OWASP, 22 nov 2026)
 
 Hallazgo ALTO cerrado: el guard evaluaba todos los checks del preset (p. ej. `a:ip:identificador`, `c:identificador` del login) aunque el tope general por IP ya hubiera rechazado la petición, creando una clave nueva por cada intento con un identificador inventado. Con suficientes intentos desde una sola IP, el mapa crecía sin límite real hasta agotar la memoria del proceso (`sweep()` recorría todo el mapa sin liberar nada mientras la ventana de 15 min seguía activa). Arreglo en `src/security/rate-limit.ts`:

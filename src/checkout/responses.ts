@@ -143,6 +143,21 @@ class MetodoCierreResponse {
     description: 'De `posCentavos`, lo cobrado en cuentas de cobro (QR, pedido, mesa) con este método, neto de reversos. No suma aparte.',
   })
   cuentasCentavos!: number;
+  @ApiProperty({
+    example: 1400,
+    description:
+      'De `totalCentavos`, lo que dejó CONFIRMADO un cajero (al cobrar o al confirmar), neto de reversos: un reverso resta del grupo de quien ' +
+      'confirmó el pago original. No suma aparte.',
+  })
+  confirmadoPorCajeroCentavos!: number;
+  @ApiProperty({ example: 3000, description: 'De `totalCentavos`, lo que dejó CONFIRMADO el dueño, neto de reversos. No suma aparte.' })
+  confirmadoPorDuenoCentavos!: number;
+  @ApiProperty({
+    example: 0,
+    description:
+      'De `totalCentavos`, pagos de antes de registrar quién confirma (sin dato), netos de reversos. Cajero + dueño + sin registro = `totalCentavos`.',
+  })
+  confirmadoSinRegistroCentavos!: number;
   @ApiProperty({ example: 4400 }) totalCentavos!: number;
 }
 

@@ -1285,7 +1285,7 @@ export class StaffOrdersController {
       'REFERENCIA_PAGO_REPETIDA',
       'ALMUERZO_SIN_PRECIO',
     ],
-    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO', 'REFERENCIA_PAGO_REQUERIDA'],
   })
   redeem(@Param('id', UuidPipe) id: string, @Body() dto: CanjearPedidoDto, @IdempotencyKey() key: string) {
     return this.svc.redeem(id, key, dto);

@@ -31,7 +31,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Roles } from '../authz/roles.decorator';
+import { ApiProblems } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
+import { CONFIRMADO_POR_COLS, confirmadoPorSql, errorReferenciaRepetida, exigirReferenciaAlConfirmar } from '../common/pago-confirmado';
 import { UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { Text } from '../security/sanitize';
@@ -79,12 +81,23 @@ export class VentaDto {
   @IsBoolean()
   paraLlevar?: boolean;
   @ApiPropertyOptional({ example: 'Mesa 3' }) @IsOptional() @Text() @IsString() @Length(1, 20) mesaTexto?: string;
-  @ApiPropertyOptional({ description: 'Transferencia o Deuna ya verificada; si no, queda pendiente' })
+  @ApiPropertyOptional({
+    description:
+      'Transferencia o Deuna ya verificada; si no, queda pendiente. El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.',
+  })
   @IsOptional()
   @IsBoolean()
   pagoConfirmado?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(500) comprobanteUrl?: string;
-  @ApiPropertyOptional() @IsOptional() @Text() @IsString() @Length(1, 100) referenciaExterna?: string;
+  @ApiPropertyOptional({
+    description:
+      'Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`',
+  })
+  @IsOptional()
+  @Text()
+  @IsString()
+  @Length(1, 100)
+  referenciaExterna?: string;
 }
 
 interface Line {
@@ -160,6 +173,8 @@ export class PosService {
           )
         ).rows[0];
         if (!m) throw new BadRequestException('Método de pago no disponible.');
+        const confirmado = m.es_efectivo || Boolean(dto.pagoConfirmado);
+        exigirReferenciaAlConfirmar({ esEfectivo: m.es_efectivo, confirmado, referenciaExterna: dto.referenciaExterna });
 
         const ventaId = await this.insertHeader(q, {
           total,
@@ -171,12 +186,13 @@ export class PosService {
         for (const l of lines) await this.insertLine(q, ventaId, l, 1);
         await q.query(
           `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, venta_pos_id, cobrado_por_personal_id,
-               fecha_local, comprobante_url, referencia_externa, clave_idempotencia)
-           SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7 FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
+               fecha_local, comprobante_url, referencia_externa, clave_idempotencia, ${CONFIRMADO_POR_COLS})
+           SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7, ${confirmadoPorSql(confirmado)}
+             FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
           [
             m.metodo_pago_id,
             total,
-            m.es_efectivo || dto.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE',
+            confirmado ? 'CONFIRMADO' : 'PENDIENTE',
             ventaId,
             dto.comprobanteUrl ?? null,
             dto.referenciaExterna ?? null,
@@ -187,9 +203,8 @@ export class PosService {
       });
     } catch (err) {
       const e = err as { code?: string; constraint?: string };
-      if (e.code === '23505' && e.constraint === 'uq_pago_referencia_externa') {
-        throw new ConflictException('Esa referencia de pago ya se registró: no se puede usar el mismo depósito dos veces.');
-      }
+      const referencia = errorReferenciaRepetida(err);
+      if (referencia !== err) throw referencia;
       // Misma clave en dos peticiones simultáneas: gana una y la otra devuelve esa misma venta.
       if (e.code === '23505' && e.constraint?.includes('clave_idempotencia')) {
         const again = await this.db.forRequest((q) => this.byKey(q, key), { readOnly: true });
@@ -422,9 +437,12 @@ export class PosController {
   @ApiIdempotent()
   @ApiOperation({
     summary: 'Registrar una venta suelta (sin plan)',
-    description: 'Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado.',
+    description:
+      'Los precios de almuerzo y platos los pone el servidor. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado ' +
+      '(el cajero, solo con `referenciaExterna`).',
   })
   @ApiCreatedResponse({ type: VentaResponse })
+  @ApiProblems({ 409: ['REFERENCIA_PAGO_REPETIDA'], 422: ['REFERENCIA_PAGO_REQUERIDA'] })
   sell(@Body() dto: VentaDto, @IdempotencyKey() key: string) {
     return this.pos.sell(dto, key);
   }

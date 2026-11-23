@@ -643,6 +643,10 @@ describe('Fase 7: caja', () => {
           planesCentavos: 1500,
           posCentavos: 600,
           cuentasCentavos: 0,
+          // El plan que vendió el cajero (+1500) lo deshizo el dueño (−1500): el reverso resta del grupo del cajero.
+          confirmadoPorCajeroCentavos: 0,
+          confirmadoPorDuenoCentavos: 2100,
+          confirmadoSinRegistroCentavos: 0,
           totalCentavos: 2100,
         },
         {
@@ -652,6 +656,9 @@ describe('Fase 7: caja', () => {
           planesCentavos: 1500,
           posCentavos: 0,
           cuentasCentavos: 0,
+          confirmadoPorCajeroCentavos: 0,
+          confirmadoPorDuenoCentavos: 1500,
+          confirmadoSinRegistroCentavos: 0,
           totalCentavos: 1500,
         },
       ]);

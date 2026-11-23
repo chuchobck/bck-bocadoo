@@ -18,6 +18,13 @@ import {
 } from '../billing/tipos';
 import { deriveKey } from '../common/derive-key';
 import { conflict, forbidden, notFound, unprocessable } from '../common/errors';
+import {
+  CONFIRMADO_POR_COLS,
+  confirmadoPorSql,
+  errorReferenciaRepetida,
+  exigirReferenciaAlConfirmar,
+  resolverEstadoPago,
+} from '../common/pago-confirmado';
 import { HOY_TENANT, PERSONAL_ACTUAL } from '../common/sql';
 import type { Queryable } from '../db/db.service';
 import { RequestContextStore } from '../tenancy/request-context';
@@ -345,15 +352,17 @@ export async function registrarPago(q: Queryable, cuentaId: string, p: PagoCuent
     )
   ).rows[0];
   if (!m) throw unprocessable('METODO_PAGO_NO_DISPONIBLE', 'Ese método de pago no está disponible en este local.');
+  const confirmado = m.es_efectivo || Boolean(p.pagoConfirmado);
+  exigirReferenciaAlConfirmar({ esEfectivo: m.es_efectivo, confirmado, referenciaExterna: p.referenciaExterna });
   await q.query(
     `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, cuenta_cobro_id, cobrado_por_personal_id,
-         fecha_local, comprobante_url, referencia_externa, clave_idempotencia)
-     SELECT app_tenant_id(), $1, $2, c.moneda_codigo, $3, c.cuenta_id, ${PERSONAL_ACTUAL}, ${HOY_TENANT}, $4, $5, $6
+         fecha_local, comprobante_url, referencia_externa, clave_idempotencia, ${CONFIRMADO_POR_COLS})
+     SELECT app_tenant_id(), $1, $2, c.moneda_codigo, $3, c.cuenta_id, ${PERSONAL_ACTUAL}, ${HOY_TENANT}, $4, $5, $6, ${confirmadoPorSql(confirmado)}
        FROM cuenta_cobro c WHERE c.restaurante_id = app_tenant_id() AND c.cuenta_id = $7`,
     [
       m.metodo_pago_id,
       monto,
-      m.es_efectivo || p.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE',
+      confirmado ? 'CONFIRMADO' : 'PENDIENTE',
       p.comprobanteUrl ?? null,
       p.referenciaExterna ?? null,
       clave,
@@ -365,10 +374,7 @@ export async function registrarPago(q: Queryable, cuentaId: string, p: PagoCuent
 
 /** Traduce los choques de índices de un pago a errores de negocio (fuera de la transacción, que ya abortó). */
 export function errorDePago(err: unknown): unknown {
-  const e = err as { code?: string; constraint?: string };
-  if (e?.code === '23505' && e.constraint === 'uq_pago_referencia_externa')
-    return conflict('REFERENCIA_PAGO_REPETIDA', 'Esa referencia de pago ya se registró: no se puede usar el mismo depósito dos veces.');
-  return err;
+  return errorReferenciaRepetida(err);
 }
 
 /**
@@ -388,7 +394,7 @@ export async function resolverPagoDeCuenta(q: Queryable, cuentaId: string, pagoI
     if (pago.estado === accion) return;
     throw conflict('CONFLICT', `Ese pago ya está ${pago.estado.toLowerCase()}.`);
   }
-  await q.query('UPDATE transaccion_pago SET estado = $2 WHERE pago_id = $1', [pagoId, accion]);
+  await resolverEstadoPago(q, pagoId, accion);
   await actualizarEstado(q, cuentaId);
 }
 
