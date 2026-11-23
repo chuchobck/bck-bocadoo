@@ -5395,6 +5395,7 @@
                     {
                       "id": "0b6f3c1e-8c1a-4f0e-9d5a-6f1c2f7a9e10",
                       "categoria": "A_LA_CARTA",
+                      "seccion": "JUGO",
                       "nombre": "Encebollado",
                       "descripcion": "texto",
                       "fotoUrl": "https://cdn.ejemplo.com/imagen.png",
@@ -25685,6 +25686,12 @@
             "type": "string",
             "enum": ["A_LA_CARTA", "EXTRA", "BEBIDA"]
           },
+          "seccion": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["JUGO", "SOPA", "FUERTE", "POSTRE", "ADICIONAL", null],
+            "description": "Sección habitual dentro del almuerzo; casi siempre null fuera de ese contexto."
+          },
           "nombre": {
             "type": "string",
             "example": "Encebollado"
@@ -25719,7 +25726,7 @@
             "description": "Orden de aparición dentro de su categoría"
           }
         },
-        "required": ["id", "categoria", "nombre", "descripcion", "fotoUrl", "etiquetas", "precioCentavos", "agotado", "orden"]
+        "required": ["id", "categoria", "seccion", "nombre", "descripcion", "fotoUrl", "etiquetas", "precioCentavos", "agotado", "orden"]
       },
       "CartaResponse": {
         "type": "object",

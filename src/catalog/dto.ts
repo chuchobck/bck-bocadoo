@@ -123,6 +123,13 @@ export class CodigoPaseResponse {
 export class PlatoCartaResponse {
   @ApiProperty({ format: 'uuid', description: 'public_id del plato' }) id!: string;
   @ApiProperty({ enum: ['A_LA_CARTA', 'EXTRA', 'BEBIDA'] }) categoria!: string;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    enum: ['JUGO', 'SOPA', 'FUERTE', 'POSTRE', 'ADICIONAL', null],
+    description: 'Sección habitual dentro del almuerzo; casi siempre null fuera de ese contexto.',
+  })
+  seccion!: string | null;
   @ApiProperty({ example: 'Encebollado' }) nombre!: string;
   @ApiProperty({ type: String, nullable: true }) descripcion!: string | null;
   @ApiProperty({ type: String, nullable: true }) fotoUrl!: string | null;
