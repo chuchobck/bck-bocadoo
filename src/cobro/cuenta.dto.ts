@@ -40,7 +40,9 @@ class PagoBaseDto {
   @Max(MONTO_MAX)
   montoCentavos?: number;
   @ApiPropertyOptional({
-    description: 'Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma.',
+    description:
+      'Transferencia o Deuna ya verificada; si no, el pago queda PENDIENTE. Efectivo siempre se confirma. El cajero que la confirma ' +
+      'debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.',
   })
   @IsOptional()
   @IsBoolean()
@@ -50,7 +52,10 @@ class PagoBaseDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(500)
   comprobanteUrl?: string;
-  @ApiPropertyOptional({ description: 'Id del depósito o de Deuna. Repetida → 409 `REFERENCIA_PAGO_REPETIDA`' })
+  @ApiPropertyOptional({
+    description:
+      'Id del depósito o de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`',
+  })
   @IsOptional()
   @Text()
   @IsString()

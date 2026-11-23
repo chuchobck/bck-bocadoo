@@ -148,13 +148,14 @@ export class CuentasController {
       '`saldoEsperadoCentavos` es el saldo que la caja vio: si el real es otro → 409 `SALDO_CAMBIO` (trae `saldoCentavos`) y no se cobra nada. ' +
       '`montoCentavos` permite pagos parciales (por defecto, todo el saldo); varios métodos en la misma cuenta. Sin saldo la cuenta pasa a ' +
       'COBRADA. Transferencia o Deuna sin `pagoConfirmado` quedan PENDIENTE (cuentan para el saldo; el dueño las confirma o rechaza en ' +
-      '`POST /v1/pagos/{id}/confirmar|rechazar`). Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.',
+      '`POST /v1/pagos/{id}/confirmar|rechazar`). Con `pagoConfirmado`, el cajero debe dar `referenciaExterna` (si no, 422 ' +
+      '`REFERENCIA_PAGO_REQUERIDA`); el dueño no. Repetir con la misma llave devuelve la cuenta sin cobrar otra vez.',
   })
   @ApiOkResponse({ type: CuentaResponse })
   @ApiProblems({
     404: ['CUENTA_NO_ENCONTRADA'],
     409: ['CUENTA_CERRADA', 'SALDO_CAMBIO', 'REFERENCIA_PAGO_REPETIDA', 'IDEMPOTENCY_KEY_REUTILIZADA'],
-    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO'],
+    422: ['METODO_PAGO_NO_DISPONIBLE', 'MONTO_EXCEDE_SALDO', 'REFERENCIA_PAGO_REQUERIDA'],
   })
   cobrar(@Param('id', UuidPipe) id: string, @Body() dto: CobrarCuentaDto, @IdempotencyKey() key: string) {
     return this.svc.cobrar(id, dto, key);

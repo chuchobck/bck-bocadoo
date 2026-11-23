@@ -27,6 +27,13 @@ import { renderCuenta, resolverPagoDeCuenta } from '../cobro/aplicar';
 import { CuentaResponse } from '../cobro/cuenta.dto';
 import { SolicitudPlanCreadaResponse } from '../catalog/dto';
 import { ApiProblems } from '../common/errors';
+import {
+  CONFIRMADO_POR_COLS,
+  confirmadoPorSql,
+  errorReferenciaRepetida,
+  exigirReferenciaAlConfirmar,
+  resolverEstadoPago,
+} from '../common/pago-confirmado';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUrl, Length, Matches, MaxLength } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
@@ -47,7 +54,8 @@ class CobroDto {
   @ApiProperty({ enum: METODOS }) @IsIn(METODOS) metodoPago!: (typeof METODOS)[number];
   @ApiPropertyOptional({
     description:
-      'Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma.',
+      'Transferencia o Deuna ya verificada. Si no, queda PENDIENTE hasta que el dueño la confirme. Efectivo siempre se confirma. ' +
+      'El cajero que la confirma debe dar `referenciaExterna` (sin ella → 422 `REFERENCIA_PAGO_REQUERIDA`); el dueño no.',
   })
   @IsOptional()
   @IsBoolean()
@@ -57,7 +65,10 @@ class CobroDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(500)
   comprobanteUrl?: string;
-  @ApiPropertyOptional({ description: 'Número de la transferencia o id de Deuna' })
+  @ApiPropertyOptional({
+    description:
+      'Número de la transferencia o id de Deuna. Obligatoria si un cajero envía `pagoConfirmado`. Repetida en el local → 409 `REFERENCIA_PAGO_REPETIDA`',
+  })
   @IsOptional()
   @Text()
   @IsString()
@@ -86,10 +97,8 @@ const IDEMP_CONSTRAINT = 'transaccion_pago_restaurante_id_clave_idempotencia_key
 
 /** Un mismo depósito (referencia de transferencia/Deuna) no puede pagar dos planes: el esquema lo impide con un índice único. */
 function assertNotDuplicateReference(err: unknown) {
-  const e = err as { code?: string; constraint?: string };
-  if (e.code === '23505' && e.constraint === 'uq_pago_referencia_externa') {
-    throw new ConflictException('Esa referencia de pago ya se registró: no se puede usar el mismo depósito dos veces.');
-  }
+  const traducido = errorReferenciaRepetida(err);
+  if (traducido !== err) throw traducido;
 }
 
 interface SellInput extends CobroDto {
@@ -189,7 +198,8 @@ export class SalesService {
     );
     const metodo = m.rows[0];
     if (!metodo) throw new BadRequestException('Método de pago no disponible.');
-    const estadoPago = metodo.es_efectivo || input.pagoConfirmado ? 'CONFIRMADO' : 'PENDIENTE';
+    const confirmado = metodo.es_efectivo || Boolean(input.pagoConfirmado);
+    exigirReferenciaAlConfirmar({ esEfectivo: metodo.es_efectivo, confirmado, referenciaExterna: input.referenciaExterna });
 
     // Cada plan vence por su cuenta (desde hoy + vigencia): dos planes del mismo cliente NO suman vencimientos.
     const s = await q.query<{ suscripcion_id: string }>(
@@ -204,10 +214,18 @@ export class SalesService {
     const subId = s.rows[0]!.suscripcion_id;
     await q.query(
       `INSERT INTO transaccion_pago (restaurante_id, metodo_pago_id, monto_centavos, moneda_codigo, estado, suscripcion_id, cobrado_por_personal_id,
-           fecha_local, comprobante_url, referencia_externa, clave_idempotencia)
-       SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7
+           fecha_local, comprobante_url, referencia_externa, clave_idempotencia, ${CONFIRMADO_POR_COLS})
+       SELECT app_tenant_id(), $1, $2, r.moneda_codigo, $3, $4, ${PERSONAL_ACTUAL}, ${HOY}, $5, $6, $7, ${confirmadoPorSql(confirmado)}
          FROM restaurante r WHERE r.restaurante_id = app_tenant_id()`,
-      [metodo.metodo_pago_id, tpl.precio_centavos, estadoPago, subId, input.comprobanteUrl ?? null, input.referenciaExterna ?? null, key],
+      [
+        metodo.metodo_pago_id,
+        tpl.precio_centavos,
+        confirmado ? 'CONFIRMADO' : 'PENDIENTE',
+        subId,
+        input.comprobanteUrl ?? null,
+        input.referenciaExterna ?? null,
+        key,
+      ],
     );
     return subId;
   }
@@ -256,7 +274,7 @@ export class SalesService {
         if (pago.estado === accion) return this.renderSub(q, pago.suscripcion_id);
         throw new ConflictException(`Ese pago ya está ${pago.estado.toLowerCase()}.`);
       }
-      await q.query('UPDATE transaccion_pago SET estado = $2 WHERE pago_id = $1', [pago.pago_id, accion]);
+      await resolverEstadoPago(q, String(pago.pago_id), accion);
       if (accion === 'RECHAZADO') {
         await q.query(
           `UPDATE suscripcion_plan SET estado = 'ANULADA', anulada_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP,
@@ -279,7 +297,7 @@ export class SalesService {
         [pagoId],
       )
     ).rows[0]!;
-    if (p.estado === 'PENDIENTE') await q.query('UPDATE transaccion_pago SET estado = $2 WHERE pago_id = $1', [pagoId, accion]);
+    if (p.estado === 'PENDIENTE') await resolverEstadoPago(q, pagoId, accion);
     else if (p.estado !== accion) throw new ConflictException(`Ese pago ya está ${p.estado.toLowerCase()}.`);
     return renderVenta(q, ventaId);
   }
@@ -482,9 +500,11 @@ export class SalesController {
   @ApiOperation({
     summary: 'Vender un plan a un cliente',
     description:
-      'Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado.',
+      'Crea el plan y el pago en una sola transacción. Efectivo queda confirmado; transferencia/Deuna, pendiente salvo pagoConfirmado ' +
+      '(el cajero, solo con `referenciaExterna`).',
   })
   @ApiCreatedResponse({ type: PlanVendidoResponse })
+  @ApiProblems({ 409: ['REFERENCIA_PAGO_REPETIDA'], 422: ['REFERENCIA_PAGO_REQUERIDA'] })
   sell(@Param('id', IdPipe) clienteId: string, @Body() dto: VenderPlanDto, @IdempotencyKey() key: string) {
     return this.sales.sell({ ...dto, clienteId }, key);
   }
@@ -553,6 +573,7 @@ export class SalesController {
   @ApiIdempotent()
   @ApiOperation({ summary: 'Cobrar una solicitud: vende el plan y la marca cobrada' })
   @ApiOkResponse({ type: PlanVendidoResponse })
+  @ApiProblems({ 409: ['REFERENCIA_PAGO_REPETIDA'], 422: ['REFERENCIA_PAGO_REQUERIDA'] })
   charge(@Param('id', IdPipe) id: string, @Body() dto: CobroDto, @IdempotencyKey() key: string) {
     return this.sales.chargeRequest(id, dto, key);
   }
