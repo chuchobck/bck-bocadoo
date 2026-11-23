@@ -8,6 +8,28 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 7a: carta fija en pedidos, recargo por unidad y totales de lo guardado
+
+Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (B, C, D, E.2, E.3). **Una migración aditiva** (`20261122200000_orden_detalle_es_carta`: `orden_detalle.es_carta BOOLEAN NOT NULL DEFAULT false`; lo histórico queda como extra, no se reescribe nada). `pnpm openapi:breaking` marca 16 errores que son **correcciones de un contrato mal documentado** (el servidor ya validaba todo eso: `minItems: 1`, `maxItems: 4` y `uniqueItems` de `almuerzo.platos`, `maxItems: 10` de `extras`, `cantidad` entera, `format: uuid`); la PR lleva la etiqueta `cambio-incompatible`. Los cambios de comportamiento van marcados con **⚠ comportamiento**.
+
+| Dónde                                                                                                          | Qué cambia                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/mis/pedidos` y `POST /v1/mis/pedidos/cotizar` (cuerpo)                                               | **Campo opcional nuevo `cartaItems`**: `[{ "platoId": "<uuid>", "cantidad": 1..10 }]`, hasta 10. `platoId` es el `id` (UUID) del plato en `GET /v1/restaurantes/{slug}/carta`. El plato debe ser de la carta fija del local (`A_LA_CARTA`, `EXTRA`, `BEBIDA`), activo y no agotado hoy. Agotado → 409 `PLATO_AGOTADO`; no existe, es de otro local, está inactivo o es de categoría `ALMUERZO` → 422 `PLATO_NO_DISPONIBLE`. El precio es el de la carta hoy y queda congelado en el pedido. |
+| Mismos endpoints: tope y duplicados                                                                            | **Tope combinado:** `extras` + `cartaItems` suman a lo sumo **10 renglones** (y cada lista, a lo sumo 10); más → 400 `PEDIDO_DEMASIADOS_ITEMS`. **Duplicados:** igual que en `extras`, un mismo plato puede repetirse (cada renglón es una línea) y puede estar a la vez en `extras` (precio del menú) y en `cartaItems` (precio de la carta).                                                                                                                                              |
+| Mismos endpoints: menú del día                                                                                 | **⚠ comportamiento:** un pedido **solo de carta** se acepta sin menú publicado (antes 409 `MENU_NO_PUBLICADO`). El menú se exige solo si el pedido lleva `almuerzo` o `extras`. `PEDIDO_VACIO` cuenta `cartaItems`.                                                                                                                                                                                                                                                                         |
+| `PedidoResponse` (mis pedidos) y `PedidoCaja` (lista, detalle, `canjear` → `pedido`, `servir`; cajero y dueño) | **Campo nuevo `cartaItems`**: `[{ id, nombre, categoria, cantidad, precioUnitarioCentavos, subtotalCentavos }]` (siempre presente; `[]` si no hay). `extras` **no cambia** (solo los extras del menú del día).                                                                                                                                                                                                                                                                              |
+| Recargo para llevar (`paraLlevar: true`)                                                                       | **⚠ comportamiento:** el recargo es **por unidad de `ALMUERZO` y de `A_LA_CARTA`** (un `EXTRA` y una `BEBIDA` no lo pagan). Antes se cobraba una sola vez y solo con almuerzo. Un extra del menú de categoría `A_LA_CARTA` (o un plato `ALMUERZO` suelto de sección `SOPA`/`FUERTE`) pedido para llevar también paga. Cada línea guarda su recargo unitario: no cambia si el local lo modifica después.                                                                                     |
+| `totalCentavos` y `recargoLlevarCentavos` del pedido                                                           | **⚠ comportamiento:** salen de lo guardado y, al crear, son **iguales a `cotizacion.saldoPorCobrarCentavos` y `cotizacion.recargoCentavos`** (se cierra la divergencia del PR 3). Pueden subir respecto de antes en pedidos para llevar con un `A_LA_CARTA`. Los pedidos anteriores no se tocan: se leen con la regla vieja.                                                                                                                                                                |
+| `cotizacion` de un pedido creado                                                                               | Incluye las líneas de carta: `tipo` `A_LA_CARTA`, `EXTRA` o `BEBIDA` según la categoría, `fuente: "CAJA"`, `ref` estable `carta:0`, `carta:1`… (los extras siguen siendo `extra:0`…). Usa el precio del almuerzo y el recargo guardados al pedir.                                                                                                                                                                                                                                           |
+| `POST /v1/mis/pedidos`: almuerzo gratis                                                                        | **⚠ comportamiento:** con el precio suelto del local en 0 y sin plan que cubra el almuerzo → **409 `ALMUERZO_SIN_PRECIO`**, igual que `cotizar` (antes guardaba el almuerzo en 0). No pasa en un local `ACTIVO` salvo datos inconsistentes (I-12). El plan se estima igual en crear y en cotizar (cuenta `almuerzos_restantes` y `dias_validos`).                                                                                                                                           |
+| `POST /v1/mis/pedidos/cotizar`: pedido en camino                                                               | **⚠ comportamiento:** ya **no responde 409 `PEDIDO_ACTIVO`** (es un cálculo sin efectos). Crear conserva el 409.                                                                                                                                                                                                                                                                                                                                                                            |
+| `POST /v1/caja/pedidos/{id}/canjear`                                                                           | Un pedido **solo de carta** no toca el plan (`almuerzo: null`) y, como el resto, abre la cuenta `ABIERTA` con el saldo (se cobra por `POST /v1/caja/cuentas/{id}/cobrar`); servir funciona igual. Con almuerzo + carta, el plan solo cubre el almuerzo. El canje usa el recargo unitario guardado en el pedido.                                                                                                                                                                             |
+| OpenAPI                                                                                                        | Esquemas tipados de `restaurante` (`{ id, nombre, slug }`) y `almuerzo` (`nullable`), `format: uuid`, `cantidad` entera, `canjeadoEn`/`servidoEn`/`canceladoEn` ahora `required` (siempre venían, con `null`), `BAD_REQUEST` en el 400 de los dos POST.                                                                                                                                                                                                                                     |
+
+Ejemplo (almuerzo cubierto por el plan + un plato a la carta para llevar): `{ "restaurante": "…", "paraLlevar": true, "almuerzo": { "platos": ["…"] }, "cartaItems": [{ "platoId": "…", "cantidad": 1 }] }` con un plato de 600 → `recargoLlevarCentavos` 50 (almuerzo + plato), `totalCentavos` 650 = `cotizacion.saldoPorCobrarCentavos`.
+
+**Qué debe hacer frontend:** mandar el carrito híbrido con `almuerzo`, `extras` y `cartaItems` en el mismo `POST`; mostrar `totalCentavos` (ya es lo que se paga y coincide con la cotización); pintar `cartaItems` aparte de `extras`; manejar `PLATO_AGOTADO` y `PLATO_NO_DISPONIBLE` por plato de carta y `PEDIDO_DEMASIADOS_ITEMS`; no esperar `PEDIDO_ACTIVO` al cotizar.
+
 ### Pedido con hora de llegada (`horaLlegada`, opcional)
 
 **Solo campos nuevos** (`pnpm openapi:breaking`: 0 errores) y una migración aditiva (`20261122190000_orden_hora_llegada`: columna `orden_cabecera.hora_llegada`, nullable, sin default ni backfill).
@@ -936,7 +958,7 @@ Siempre `estimada: true` en esta entrega: es una estimación con el precio y el 
 
 #### `POST /v1/mis/pedidos/cotizar`
 
-Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras del menú de hoy, `paraLlevar`), pero **sin `Idempotency-Key` y sin efectos**: no crea el pedido, no toma número del día y no toca el plan. Para mostrar el total antes de pedir. Carta y ofertas llegan en el PR 7.
+Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras del menú de hoy, `paraLlevar`), pero **sin `Idempotency-Key` y sin efectos**: no crea el pedido, no toma número del día y no toca el plan. Para mostrar el total antes de pedir. Desde el PR 7a también cotiza `cartaItems` (ver [Novedades](#novedades)); las ofertas llegan después.
 
 ```json
 {
@@ -947,14 +969,15 @@ Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras
 }
 ```
 
-→ `200` con la `Cotizacion` de arriba (comensal con un plan que vale hoy). Errores: los de crear pedido (`PEDIDO_VACIO`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`, `RESTAURANTE_NO_ENCONTRADO`, `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`) y 409 `ALMUERZO_SIN_PRECIO` (local con almuerzo en 0 y sin plan; no puede pasar en un local `ACTIVO`). Sin token, 401.
+→ `200` con la `Cotizacion` de arriba (comensal con un plan que vale hoy). Errores: los de crear pedido (`PEDIDO_VACIO`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`, `RESTAURANTE_NO_ENCONTRADO`, `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`, `PEDIDO_DEMASIADOS_ITEMS`) **salvo `PEDIDO_ACTIVO`** (desde el PR 7a cotizar ya no lo responde) y 409 `ALMUERZO_SIN_PRECIO` (local con almuerzo en 0 y sin plan; no puede pasar en un local `ACTIVO`; desde el PR 7a crear lo responde igual). Sin token, 401.
 
 #### Pedidos: `cotizacion` y su relación con `totalCentavos`
 
-- **`totalCentavos`, `recargoLlevarCentavos` y `almuerzo.precioCentavos` siguen con la regla de hoy** (sin cambios).
+- **Actualizado en el PR 7a:** `totalCentavos` y `recargoLlevarCentavos` de los pedidos nuevos salen de lo guardado y son iguales a `cotizacion.saldoPorCobrarCentavos` y `cotizacion.recargoCentavos` (la «diferencia conocida» de abajo ya no existe para pedidos nuevos). Los anteriores conservan lo descrito aquí.
+- **`totalCentavos`, `recargoLlevarCentavos` y `almuerzo.precioCentavos` seguían con la regla de entonces** (PR 3).
 - Para un pedido ya creado todavía no existe el snapshot del precio del almuerzo: se toma `subtotal − extras`. Un almuerzo guardado en 0 (lo cubrió el plan al pedir) se muestra como `PLAN` con precio 0, así que `subtotalCentavos`, `totalCentavos` y `cubiertoPorPlanCentavos` de ese pedido son menores que los de `POST /v1/mis/pedidos/cotizar` por el precio del almuerzo; `saldoPorCobrarCentavos` es el mismo.
 - La cotización de un pedido se recalcula en cada lectura con el plan de **hoy** del comensal (si el pedido se guardó con el almuerzo cobrado y después el comensal compra un plan, la cotización lo cubrirá; `totalCentavos` no cambia).
-- **Diferencia conocida, cambia en el PR 7:** si un extra del menú es un plato `A_LA_CARTA` (o un plato `ALMUERZO` con precio pedido como extra cuya sección es `SOPA` o `FUERTE`; un `JUGO` cuenta como bebida y un `POSTRE` o `ADICIONAL` como extra, y no pagan recargo) y el pedido es `paraLlevar`, la cotización suma el recargo **por unidad** (decisión D2) y `totalCentavos` aún no. Ejemplo: almuerzo + 1 plato a la carta de 600 para llevar, sin plan → `totalCentavos` 975 (`recargoLlevarCentavos` 25) y `cotizacion.saldoPorCobrarCentavos` 1000 (`recargoCentavos` 50). Hasta el PR 7 el frontend debe mostrar `totalCentavos` como lo que se paga; la `cotizacion` es informativa.
+- **Diferencia conocida (resuelta en el PR 7a para pedidos nuevos; sigue en los anteriores):** si un extra del menú es un plato `A_LA_CARTA` (o un plato `ALMUERZO` con precio pedido como extra cuya sección es `SOPA` o `FUERTE`; un `JUGO` cuenta como bebida y un `POSTRE` o `ADICIONAL` como extra, y no pagan recargo) y el pedido es `paraLlevar`, la cotización suma el recargo **por unidad** (decisión D2) y `totalCentavos` aún no. Ejemplo: almuerzo + 1 plato a la carta de 600 para llevar, sin plan → `totalCentavos` 975 (`recargoLlevarCentavos` 25) y `cotizacion.saldoPorCobrarCentavos` 1000 (`recargoCentavos` 50). Hasta el PR 7 el frontend debe mostrar `totalCentavos` como lo que se paga; la `cotizacion` es informativa.
 
 #### Qué debe hacer frontend con esto
 
@@ -1044,6 +1067,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `POST /v1/mis/pedidos/cotizar`                                                                                                                                                                                                                                                                                      |
 | `IDEMPOTENCY_KEY_INVALIDA`    | 400  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/reclamo`; `POST /v1/mis/mesas` y 1 más                                                                                                                                                                                                                                                          |
 | `OPINION_VACIA`               | 400  | `POST /v1/mis/consumos/{id}/opinion`                                                                                                                                                                                                                                                                                                                              |
+| `PEDIDO_DEMASIADOS_ITEMS`     | 400  | `POST /v1/mis/pedidos`; `POST /v1/mis/pedidos/cotizar` (`extras` + `cartaItems` > 10 renglones; PR 7a)                                                                                                                                                                                                                                                            |
 | `PEDIDO_VACIO`                | 400  | `POST /v1/mis/pedidos`                                                                                                                                                                                                                                                                                                                                            |
 | `SOLO_CUENTAS_DEL_DIA`        | 403  | `POST /v1/caja/cuentas/{id}/anular` (cajero; PR 5a)                                                                                                                                                                                                                                                                                                               |
 | `SOLO_ANFITRION`              | 403  | `POST /v1/mis/mesas/{id}/cancelar`                                                                                                                                                                                                                                                                                                                                |
@@ -1057,7 +1081,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `PEDIDO_NO_ENCONTRADO`        | 404  | `GET /v1/caja/pedidos/{id}`; `GET /v1/mis/pedidos/{id}`; `POST /v1/caja/pedidos/{id}/canjear` y 2 más                                                                                                                                                                                                                                                             |
 | `RESTAURANTE_NO_ENCONTRADO`   | 404  | `GET /v1/pase`; `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `GET /v1/restaurantes/{slug}/carta`                                                                                                                                                                                                                                                                 |
 | `TARJETA_NO_CONFIGURADA`      | 404  | `GET /v1/clientes/{id}/sellos`; `GET /v1/sellos/config`; `POST /v1/clientes/{id}/sellos/canjear`                                                                                                                                                                                                                                                                  |
-| `ALMUERZO_SIN_PRECIO`         | 409  | `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b); `POST /v1/caja/mesas/{id}/validar` (PR 6a)                                                                                                                                                                                                            |
+| `ALMUERZO_SIN_PRECIO`         | 409  | `POST /v1/mis/pedidos` y `POST /v1/mis/pedidos/cotizar` (PR 7a); `POST /v1/caja/pedidos/{id}/canjear` con `cobro` (PR 5a); `POST /v1/caja/validar` con `items`/`cobro` (5b); `POST /v1/caja/mesas/{id}/validar` (PR 6a)                                                                                                                                           |
 | `ANFITRION_NO_PUEDE_SALIR`    | 409  | `POST /v1/mis/mesas/{id}/salir` (PR 6a; el anfitrión puede cancelar la mesa)                                                                                                                                                                                                                                                                                      |
 | `CUENTA_CERRADA`              | 409  | `POST /v1/caja/cuentas/{id}/cobrar` (PR 5a); `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b)                                                                                                                                                                                                                           |
 | `CUENTA_COBRADA`              | 409  | `POST /v1/caja/consumos/{id}/deshacer` (almuerzo de una cuenta cobrada o con pagos; PR 5a)                                                                                                                                                                                                                                                                        |
@@ -4295,13 +4319,13 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 
 #### `POST /v1/mis/pedidos`
 
-**Hacer una preorden del menú de hoy**
+**Hacer una preorden (menú del día, carta fija o ambos)**
 
 - **Rol:** Usuario con sesión (`Authorization`), sin `x-restaurant-id`
 - **Estado:** En revisión (fase 8)
 - **Idempotency-Key:** obligatoria (UUID)
 
-El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. Un pedido en camino a la vez por local.
+El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. Desde el PR 7a el cuerpo acepta también `cartaItems` (carta fija, sin exigir menú publicado) y el total sale de la cotización. Un pedido en camino a la vez por local.
 
 > `almuerzo.platos` y `extras[].plato` son los `id` (UUID) del menú de hoy en la vitrina. El precio lo calcula el servidor. Un pedido activo por local; vence a los 30 minutos. `qr` es el mismo `id`.
 >
@@ -4322,10 +4346,13 @@ Request:
       "cantidad": 1
     }
   ],
+  "cartaItems": [{ "platoId": "0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55", "cantidad": 1 }],
   "horaLlegada": "2026-11-13T04:05:00Z"
 }
 ```
 
+> **Novedad (PR 7a):** `cartaItems` (hasta 10; `extras` + `cartaItems` ≤ 10 renglones en total) y, en la respuesta, `cartaItems[]` con `categoria`. Reglas y errores en [Novedades](#novedades).
+>
 > **Novedad (PR 3):** la respuesta suma `cotizacion` (ver [Novedades](#novedades)). `totalCentavos` y `recargoLlevarCentavos` no cambian. Para saber el total antes de pedir: `POST /v1/mis/pedidos/cotizar`.
 
 Response `201`:
@@ -4363,8 +4390,18 @@ Response `201`:
       "subtotalCentavos": 75
     }
   ],
+  "cartaItems": [
+    {
+      "id": "0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55",
+      "nombre": "Seco de chivo",
+      "categoria": "A_LA_CARTA",
+      "cantidad": 1,
+      "precioUnitarioCentavos": 600,
+      "subtotalCentavos": 600
+    }
+  ],
   "recargoLlevarCentavos": 0,
-  "totalCentavos": 75,
+  "totalCentavos": 675,
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:48:38.964Z",
   "venceEn": "2026-11-13T04:18:38.964Z",
@@ -4382,8 +4419,11 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | 400  | `ALMUERZO_INVALIDO`           | —                                                 |
 | 400  | `HORA_LLEGADA_INVALIDA`       | La hora de llegada debe estar entre ahora y …     |
 | 400  | `IDEMPOTENCY_KEY_INVALIDA`    | —                                                 |
-| 400  | `PEDIDO_VACIO`                | Pide un almuerzo, extras o ambos.                 |
+| 400  | `BAD_REQUEST`                 | `cartaItems.0.cantidad` fuera de 1–10, UUID malo  |
+| 400  | `PEDIDO_VACIO`                | Pide un almuerzo, extras, platos de la carta …    |
+| 400  | `PEDIDO_DEMASIADOS_ITEMS`     | Entre extras y platos de la carta, a lo sumo 10   |
 | 404  | `RESTAURANTE_NO_ENCONTRADO`   | —                                                 |
+| 409  | `ALMUERZO_SIN_PRECIO`         | Local con P = 0 y ningún plan cubre el almuerzo   |
 | 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | —                                                 |
 | 409  | `LOCAL_LLENO_SOLO_LLEVAR`     | Local lleno y la preorden no es para llevar       |
 | 409  | `MENU_NO_PUBLICADO`           | —                                                 |

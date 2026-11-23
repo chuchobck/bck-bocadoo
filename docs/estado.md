@@ -17,7 +17,42 @@
 | 9   | Ofertas, reportes y SaaS     | 🔶     | `v0.9.0`      | ver abajo; migraciones aplicadas en Neon, mezclada en `main`; falta el tag               |
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
-Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; siguen PR 7 en adelante (H.1).
+Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; **PR 7a** (carta fija en pedidos y recargo por unidad, abajo) en la rama `feat/pedidos-carta-recargo`, con una migración **pendiente en Neon**; siguen ofertas en pedidos y mesas, POS y canje de oferta (PR 7b en adelante, H.1).
+
+## Carta fija en pedidos y recargo por unidad (entrega D, PR 7a; rama `feat/pedidos-carta-recargo`)
+
+`POST /v1/mis/pedidos` y `POST /v1/mis/pedidos/cotizar` aceptan `cartaItems` (carta fija), el recargo para llevar pasa a ser por unidad de `ALMUERZO` y `A_LA_CARTA`, y `totalCentavos` / `recargoLlevarCentavos` del pedido salen de lo guardado y coinciden con la cotización. **Una migración aditiva** (`20261122200000_orden_detalle_es_carta`: `orden_detalle.es_carta BOOLEAN NOT NULL DEFAULT false`), probada solo en `bocadoo-test-pg` (up, rollback y up); **falta aplicarla en Neon** con `pnpm db:migrate --remoto` antes del merge. Las columnas de dinero (`recargo_unitario_centavos`, `precio_almuerzo_centavos`) ya existían desde el PR 4 y `orden_cabecera` no tiene columna ni FK del menú que sea `NOT NULL`: el pedido solo de carta no necesita más esquema. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] `cartaItems: [{ platoId, cantidad }]` (hasta 10, cantidad entera 1–10) en crear y cotizar. Reglas: `platoAgotadoSql` → 409 `PLATO_AGOTADO`; inexistente, de otro local, inactivo o de categoría `ALMUERZO` → 422 `PLATO_NO_DISPONIBLE`; sin precio → 422 `PLATO_SIN_PRECIO`.
+- [x] Tope combinado `extras` + `cartaItems` ≤ 10 renglones (400 `PEDIDO_DEMASIADOS_ITEMS`); los duplicados de `platoId` se permiten (un renglón por entrada, como en `extras`) y el mismo plato puede ir en `extras` y en `cartaItems`.
+- [x] Un pedido solo de carta no exige menú publicado; `assertMenuPublicado` solo con almuerzo o extras. `PEDIDO_VACIO` cuenta `cartaItems`.
+- [x] Líneas con precio congelado: cada renglón guarda `precio_unitario_centavos` y `recargo_unitario_centavos`, calculados por `cotizar` (misma regla y mismo mapeo por categoría; `src/billing` sigue puro). El recargo del almuerzo (una unidad) va en su primer renglón de plato.
+- [x] `totalCentavos` = `cotizacion.saldoPorCobrarCentavos` y `recargoLlevarCentavos` = `cotizacion.recargoCentavos` al crear; `create` verifica que lo que va a insertar coincide con la cotización y falla si no. Pedidos viejos (todo en 0) siguen con la regla vieja y no se reescriben.
+- [x] `cartaItems` en `PedidoResponse` y `PedidoCaja` (lista, detalle, `canjear`, `servir`; dueño y cajero); `extras` no cambia; la cotización de un pedido creado trae las líneas de carta (`carta:i`).
+- [x] Canje: un pedido solo de carta no toca el plan, abre la cuenta `ABIERTA` y se cobra por cuentas; con almuerzo + carta el plan solo cubre el almuerzo. El canje y la lectura usan el recargo unitario guardado en el pedido.
+- [x] `POST /v1/mis/pedidos` con P = 0 y sin plan → 409 `ALMUERZO_SIN_PRECIO` como cotizar (un solo cálculo compartido: `cotizacionDelPedido`).
+- [x] `cotizar` ya no responde 409 `PEDIDO_ACTIVO`; crear lo conserva.
+- [x] OpenAPI corregido y `docs/openapi.json` regenerado (`openapi:lint` limpio; `openapi:breaking` marca 16 errores que son correcciones de contrato ya validado por el servidor: ver la nota de la sección Novedades; etiqueta `cambio-incompatible`).
+- [x] `test/integration/pedidos-carta.int.ts` (11 casos): carta sin menú, plan + A_LA_CARTA para llevar (total = saldo), tope y duplicados, validaciones, menú solo con almuerzo/extras, canje de carta sola y de almuerzo + carta, recargo congelado, pedido anterior, P = 0 y `PEDIDO_ACTIVO`. Se actualizaron los 3 casos de `cotizaciones.int.ts` que fijaban la divergencia y el 409 de cotizar. Unitaria de `entradaPedido` con carta.
+
+### Decisiones
+
+- **Marcador `es_carta`:** carta y extras del menú quedan iguales en `orden_detalle` (sin sección, con precio); hacía falta una marca para sacar `cartaItems` aparte sin cambiar `extras`. Decidido con migración aditiva en vez de inferir por categoría (que habría movido extras del menú y pedidos históricos).
+- **Plan al crear:** ahora se estima con `cargarPlanes` (suma `almuerzos_restantes` y exige `dias_validos`, igual que cotizar). Antes `create` solo miraba que hubiera un plan vigente, aunque no tuviera saldo.
+- **Recargo congelado:** si algún renglón guardó recargo > 0, ese es R; si todos están en 0 se usa el del local de hoy (un pedido anterior, o uno hecho con R = 0).
+
+### Huecos de dinero que se vieron (no se cambiaron)
+
+- Un pedido hecho con R = 0 para llevar y después con R subido: su `cotizacion` informativa y el canje usan el R de hoy (no hay forma de distinguir «R = 0 congelado» de «pedido anterior»); el `totalCentavos` guardado no cambia y el canje con `cobro` puede dar `SALDO_CAMBIO`, que la caja confirma.
+- `GET /v1/caja/movimientos`: un pedido solo de carta sale con `platoNombre: null` (solo junta los platos del almuerzo) y su `monto` sigue siendo `total_centavos` (lo por cobrar al pedir), como antes.
+- Un plato de la carta que se agota o se desactiva después de pedir se canjea igual (el pedido ya congeló plato y precio); no hay revalidación en caja.
+- Canje sin `cobro` de un almuerzo sin precio (P = 0 sin plan) sigue sin cuenta (I-12, PR 6c).
+
+### Límites
+
+- **No entra aquí:** ofertas en pedidos ni en mesas, `paraLlevar` por línea (POS), regla completa de `SALDO_CAMBIO`, cambios de `venceEn` o `horaLlegada`, retirar o deprecar `extras`, retirar `aplicarSeleccion`, reportes.
 
 ## Hora de llegada en pedidos (rama `feat/pedido-hora-llegada`)
 
@@ -37,7 +72,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 - Informativa: no cambia `venceEn` (30 min desde que se pide) ni el cobro, y la caja no ordena ni filtra por ella.
 - Un reintento con la misma `Idempotency-Key` devuelve el pedido guardado sin revalidar la ventana.
 - Se acepta cualquier ISO 8601 con zona (como en mesas), no solo `Z`; la respuesta siempre sale en UTC.
-- **No entra aquí** (PR 7a): `cartaItems`, recargo por unidad, ofertas ni campos derivados.
+- **No entra aquí** (entró en el PR 7a, arriba): `cartaItems`, recargo por unidad, ofertas ni campos derivados.
 
 ## Carta sin caché (rama `feat/carta-sin-cache`)
 
