@@ -18,6 +18,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   Matches,
   Max,
@@ -61,6 +62,7 @@ import {
 import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion.dto';
 import { CobroDto, CuentaResponse } from '../cobro/cuenta.dto';
 import { huella } from '../common/derive-key';
+import { horaLlegadaEnVentana } from '../common/hora-llegada';
 import { cargarPlanes, claveCliente, planVigenteHoySql } from '../cobro/planes';
 import { cotizar } from '../billing/cotizar';
 import { type Cotizacion, CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
@@ -119,6 +121,14 @@ export class CrearPedidoDto {
   @ValidateNested({ each: true })
   @Type(() => ExtraDto)
   extras?: ExtraDto[];
+  @ApiPropertyOptional({
+    example: '2026-11-13T17:30:00Z',
+    description:
+      'Hora a la que el comensal piensa llegar (ISO 8601, de 5 minutos atrás a 12 horas adelante). Solo informativa: no cambia el vencimiento.',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  horaLlegada?: string;
 }
 
 class PlatoPedido {
@@ -163,6 +173,8 @@ export class PedidoResponse {
   cotizacion!: CotizacionResponse;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
+  @ApiProperty({ type: Date, nullable: true, description: 'Hora de llegada que mandó el comensal al pedir; null si no la mandó' })
+  horaLlegada!: Date | null;
   @ApiPropertyOptional({ type: Date, nullable: true }) canjeadoEn!: Date | null;
   @ApiPropertyOptional({ type: Date, nullable: true }) servidoEn!: Date | null;
   @ApiPropertyOptional({ type: Date, nullable: true }) canceladoEn!: Date | null;
@@ -189,6 +201,7 @@ export interface OrderRow {
   canjeada_en: Date | null;
   servida_en: Date | null;
   cancelada_en: Date | null;
+  hora_llegada: Date | null;
   cliente_id: string | null;
   usuario_id: string;
   usuario_nombre: string;
@@ -222,7 +235,7 @@ interface PreciosRow {
 
 export const ORDER_SELECT = `SELECT o.orden_id, o.restaurante_id, o.public_id, o.numero_dia, o.fecha_local::text AS fecha_local, ${ESTADO_EFECTIVO} AS estado, o.tipo,
        o.subtotal_centavos, o.recargo_llevar_centavos, o.total_centavos, o.moneda_codigo, o.creada_en, o.vence_en,
-       o.canjeada_en, o.servida_en, o.cancelada_en, o.cliente_id, o.usuario_id, u.nombre AS usuario_nombre, o.precio_almuerzo_centavos,
+       o.canjeada_en, o.servida_en, o.cancelada_en, o.hora_llegada, o.cliente_id, o.usuario_id, u.nombre AS usuario_nombre, o.precio_almuerzo_centavos,
        EXISTS (SELECT 1 FROM consumo_almuerzo k WHERE k.restaurante_id = o.restaurante_id AND k.orden_id = o.orden_id AND k.cantidad = 1
                   AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)) AS con_consumo,
        r.public_id AS restaurante_public_id, r.nombre AS restaurante_nombre, r.slug AS restaurante_slug,
@@ -337,6 +350,7 @@ export async function renderOrders(q: Queryable, rows: OrderRow[]): Promise<Pedi
       cotizacion: aRespuesta(cotizacion, o.moneda_codigo),
       creadoEn: o.creada_en,
       venceEn: o.vence_en,
+      horaLlegada: o.hora_llegada,
       canjeadoEn: o.canjeada_en,
       servidoEn: o.servida_en,
       canceladoEn: o.cancelada_en,
@@ -395,6 +409,7 @@ export class DinerOrdersService {
   /** Todo lo que se valida antes de pedir (compartido con `cotizar`): local, menú de hoy, aforo y platos. No escribe nada. */
   private async resolve(q: Queryable, dto: CrearPedidoDto, restaurante: string) {
     if (!dto.almuerzo && !dto.extras?.length) throw badRequest('PEDIDO_VACIO', 'Pide un almuerzo, extras o ambos.');
+    const horaLlegada = dto.horaLlegada === undefined ? null : horaLlegadaEnVentana(dto.horaLlegada);
     const rest = (
       await q.query<{
         restaurante_id: string;
@@ -425,7 +440,7 @@ export class DinerOrdersService {
       if (o && occupancy(o.personas, o.puestos, o.lleno_manual, o.concurrido_manual).nivel === 'LLENO')
         throw conflict('LOCAL_LLENO_SOLO_LLEVAR', 'El local está lleno: por ahora solo se aceptan pedidos para llevar.');
     }
-    return { rest, menu };
+    return { rest, menu, horaLlegada };
   }
 
   /** Un pedido en camino a la vez por local. */
@@ -523,7 +538,7 @@ export class DinerOrdersService {
     // El reintento pudo terminar entre la primera lectura y esta transacción: antes de "un pedido a la vez", la clave.
     const replay = await this.byKeyIn(q, key, restaurante);
     if (replay) return replay;
-    const { rest, menu } = await this.resolve(q, dto, restaurante);
+    const { rest, menu, horaLlegada } = await this.resolve(q, dto, restaurante);
     // Toma el número del día primero: bloquea por local y día, así la comprobación de abajo ve los pedidos ya confirmados
     // de peticiones simultáneas (dos envíos con claves distintas no dejan dos pedidos en camino).
     const numero = (await q.query<{ n: number }>('SELECT fn_siguiente_numero_orden($1, $2::date) AS n', [rest.restaurante_id, rest.hoy]))
@@ -547,8 +562,9 @@ export class DinerOrdersService {
     const o = (
       await q.query<{ orden_id: string }>(
         `INSERT INTO orden_cabecera (restaurante_id, usuario_id, cliente_id, numero_dia, fecha_local, tipo, subtotal_centavos,
-                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos)
-         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11, $12)
+                                     recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos,
+                                     hora_llegada)
+         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11, $12, $13)
          RETURNING orden_id`,
         [
           rest.restaurante_id,
@@ -564,6 +580,7 @@ export class DinerOrdersService {
           key,
           // Snapshot de P (INC-06): lo que vale el almuerzo si la caja lo cobra, aunque al pedir lo cubra un plan.
           Number(rest.precio),
+          horaLlegada,
         ],
       )
     ).rows[0]!;
@@ -650,7 +667,7 @@ export class DinerOrdersController {
   })
   @ApiCreatedResponse({ type: PedidoResponse })
   @ApiProblems({
-    400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO', 'IDEMPOTENCY_KEY_INVALIDA'],
+    400: ['PEDIDO_VACIO', 'HORA_LLEGADA_INVALIDA', 'ALMUERZO_INVALIDO', 'IDEMPOTENCY_KEY_INVALIDA'],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
     409: [
       'RESTAURANTE_PAUSADO',
@@ -677,7 +694,7 @@ export class DinerOrdersController {
   })
   @ApiOkResponse({ type: CotizacionResponse })
   @ApiProblems({
-    400: ['PEDIDO_VACIO', 'ALMUERZO_INVALIDO'],
+    400: ['PEDIDO_VACIO', 'HORA_LLEGADA_INVALIDA', 'ALMUERZO_INVALIDO'],
     404: ['RESTAURANTE_NO_ENCONTRADO'],
     409: ['RESTAURANTE_PAUSADO', 'LOCAL_LLENO_SOLO_LLEVAR', 'MENU_NO_PUBLICADO', 'PEDIDO_ACTIVO', 'PLATO_AGOTADO', 'ALMUERZO_SIN_PRECIO'],
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO'],
