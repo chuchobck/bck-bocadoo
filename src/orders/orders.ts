@@ -65,6 +65,7 @@ import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion
 import { CobroDto, CuentaResponse } from '../cobro/cuenta.dto';
 import { huella } from '../common/derive-key';
 import { horaLlegadaEnVentana } from '../common/hora-llegada';
+import { PREORDER_MINUTES, venceEn } from './vencimiento';
 import { cargarPlanes, claveCliente, planVigenteHoySql } from '../cobro/planes';
 import { cotizar } from '../billing/cotizar';
 import { type Cotizacion, CotizarError, type MomentoCobro, type PlanPersona } from '../billing/tipos';
@@ -80,8 +81,6 @@ import {
   restauranteRef,
 } from '../diner/common';
 
-/** Minutos que vive una preorden: después la caja ya no la canjea. */
-export const PREORDER_MINUTES = 30;
 /** Secciones que forman el almuerzo; el resto del menú se pide como extra con su precio. */
 const LUNCH_SECTIONS = ['JUGO', 'SOPA', 'FUERTE', 'POSTRE'];
 /** Estado visto desde afuera: un pedido EN_CAMINO cuyo plazo pasó ya está EXPIRADA aunque nadie lo haya tocado. */
@@ -218,7 +217,10 @@ export class PedidoResponse {
   })
   cotizacion!: CotizacionResponse;
   @ApiProperty() creadoEn!: Date;
-  @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
+  @ApiProperty({
+    description: `max(creadoEn, horaLlegada) + ${PREORDER_MINUTES} minutos (sin horaLlegada: creadoEn + ${PREORDER_MINUTES}). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA.`,
+  })
+  venceEn!: Date;
   @ApiProperty({ type: Date, nullable: true, description: 'Hora de llegada que mandó el comensal al pedir; null si no la mandó' })
   horaLlegada!: Date | null;
   @ApiProperty({ type: Date, nullable: true, description: 'null mientras no se canjee en caja' }) canjeadoEn!: Date | null;
@@ -723,12 +725,14 @@ export class DinerOrdersService {
     if (recargo !== cot.recargoCentavos || subtotal + recargo !== cot.saldoPorCobrarCentavos)
       throw new Error(`pedido: lo guardado (${subtotal} + ${recargo}) no coincide con la cotización (${cot.saldoPorCobrarCentavos})`);
 
+    // Mismo reloj que el default de creada_en (CURRENT_TIMESTAMP de la transacción), así vence_en > creada_en siempre.
+    const creadaEn = (await q.query<{ ahora: Date }>('SELECT CURRENT_TIMESTAMP AS ahora')).rows[0]!.ahora;
     const o = (
       await q.query<{ orden_id: string }>(
         `INSERT INTO orden_cabecera (restaurante_id, usuario_id, cliente_id, numero_dia, fecha_local, tipo, subtotal_centavos,
                                      recargo_llevar_centavos, total_centavos, moneda_codigo, vence_en, clave_idempotencia, precio_almuerzo_centavos,
                                      hora_llegada)
-         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + make_interval(mins => $10), $11, $12, $13)
+         VALUES ($1, app_user_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING orden_id`,
         [
           rest.restaurante_id,
@@ -740,7 +744,7 @@ export class DinerOrdersService {
           recargo,
           subtotal + recargo,
           rest.moneda,
-          PREORDER_MINUTES,
+          venceEn(creadaEn, horaLlegada),
           key,
           // Snapshot de P (INC-06): lo que vale el almuerzo si la caja lo cobra, aunque al pedir lo cubra un plan.
           Number(rest.precio),
@@ -819,7 +823,7 @@ export class DinerOrdersController {
   @ApiOperation({
     summary: 'Hacer una preorden (menú del día, carta fija o ambos)',
     description:
-      `El pedido vence a los ${PREORDER_MINUTES} minutos. Su QR es el public_id (\`qr\`): la caja lo escanea y descuenta el almuerzo ` +
+      `El pedido vence ${PREORDER_MINUTES} minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (\`qr\`): la caja lo escanea y descuenta el almuerzo ` +
       'del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún ' +
       'plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los ' +
       '`extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.',

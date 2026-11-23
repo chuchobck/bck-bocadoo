@@ -69,7 +69,7 @@ Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spe
 
 ### Límites
 
-- Informativa: no cambia `venceEn` (30 min desde que se pide) ni el cobro, y la caja no ordena ni filtra por ella.
+- Fija el vencimiento: `venceEn = max(creadoEn, horaLlegada) + 30 min` (helper `src/orders/vencimiento.ts`; sin hora, `creadoEn + 30 min`; pedidos ya creados no cambian). No cambia el cobro, y la caja no ordena ni filtra por ella.
 - Un reintento con la misma `Idempotency-Key` devuelve el pedido guardado sin revalidar la ventana.
 - Se acepta cualquier ISO 8601 con zona (como en mesas), no solo `Z`; la respuesta siempre sale en UTC.
 - **No entra aquí** (entró en el PR 7a, arriba): `cartaItems`, recargo por unidad, ofertas ni campos derivados.
@@ -559,7 +559,7 @@ Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm t
 - [x] Hacia afuera solo `public_id` (pruebas con `expectOnlyPublicIds`); `plato` ganó `public_id` para poder pedir platos sin ids internos
 - [x] Entradas con DTO y whitelist; errores `application/problem+json` con `code` de negocio estable (`PEDIDO_NO_ENCONTRADO`, `MESA_LLENA`, `OPINION_VENCIDA`…)
 - [x] `Idempotency-Key` obligatoria en los POST que crean recursos (pedidos, mesas, opiniones, reclamos, canje en caja y de sellos); misma llave → misma respuesta; repetir con otra llave → 409 (`OPINION_YA_ENVIADA`, `RECLAMO_YA_EXISTE`, `PEDIDO_ACTIVO`); en pedidos, mesas y sellos, la llave usada para otro recurso → `IDEMPOTENCY_KEY_REUTILIZADA`
-- [x] Pre-pedidos: vencen a los 30 min; el QR del pedido es su `public_id`; un pedido activo por local
+- [x] Pre-pedidos: vencen 30 min después de la hora de llegada (o de crearlos, sin hora); el QR del pedido es su `public_id`; un pedido activo por local
 - [x] Mesa compartida: el link (`public_id` de la mesa) se valida antes de unirse (vencida, llena, cancelada, ya miembro)
 - [x] Opiniones: solo sobre consumos propios no revertidos, una por almuerzo, desde 25 min hasta 24 h; descartar cuenta como la única
 - [x] Reclamos: sobre consumos propios, uno por almuerzo, dentro de 7 días
@@ -573,7 +573,7 @@ Resultado al cerrar la fase (base local): `pnpm typecheck`, `pnpm lint`, `pnpm t
 | ---------------------------------------------------------------- | ------------------- | ----------------------------------------------------------- |
 | `GET /v1/pase`                                                   | comensal            | Pase con QR rotativo, planes vigentes y almuerzos restantes |
 | `GET /v1/mis/consumos`, `GET …/:id`                              | comensal            | Historial de almuerzos (cursor)                             |
-| `GET·POST /v1/mis/pedidos`, `GET …/:id`, `POST …/:id/cancelar`   | comensal            | Pre-pedidos (vencen a los 30 min)                           |
+| `GET·POST /v1/mis/pedidos`, `GET …/:id`, `POST …/:id/cancelar`   | comensal            | Pre-pedidos (vencen 30 min tras llegar)                     |
 | `GET /v1/caja/pedidos`, `GET …/:id`, `POST …/:id/canjear·servir` | dueño, cajero       | Pedidos de comensales; canjear descuenta el almuerzo        |
 | `GET·POST /v1/mis/mesas`, `GET …/:id`, `POST …/:id/cancelar`     | comensal            | Mesas compartidas que creo o donde estoy                    |
 | `GET /v1/mesas/invitacion/:id`, `POST …/:id/unirse`              | comensal            | Ver el link de invitación y unirse                          |

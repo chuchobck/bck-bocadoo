@@ -14477,7 +14477,7 @@
     },
     "/v1/mis/pedidos": {
       "post": {
-        "description": "El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los `extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.",
+        "description": "El pedido vence 30 minutos después de la hora de llegada (o de crearlo, si no hay hora o ya pasó). Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los `extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.",
         "operationId": "DinerOrdersController_create",
         "parameters": [
           {
@@ -28071,7 +28071,7 @@
           "venceEn": {
             "format": "date-time",
             "type": "string",
-            "description": "creadoEn + 30 minutos"
+            "description": "max(creadoEn, horaLlegada) + 30 minutos (sin horaLlegada: creadoEn + 30). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA."
           },
           "horaLlegada": {
             "format": "date-time",
@@ -28219,7 +28219,7 @@
           "venceEn": {
             "format": "date-time",
             "type": "string",
-            "description": "creadoEn + 30 minutos"
+            "description": "max(creadoEn, horaLlegada) + 30 minutos (sin horaLlegada: creadoEn + 30). Hasta ese instante el pedido sigue EN_CAMINO y la caja lo puede canjear; después es EXPIRADA."
           },
           "horaLlegada": {
             "format": "date-time",
