@@ -218,7 +218,7 @@ describe.skipIf(!probe)('Fase 8: preórdenes del comensal', () => {
       for (const h of ['mañana', '2026-13-45T25:00:00Z', 1700000000000, '']) {
         const r = await order(d, body(h));
         expect(r.statusCode, String(h)).toBe(400);
-        expect(r.json().code).not.toBe('HORA_LLEGADA_INVALIDA');
+        expect(r.json().code).toBe('BAD_REQUEST');
       }
       const n = await probe!.sql(
         'SELECT count(*)::int AS n FROM orden_cabecera o JOIN usuario u USING (usuario_id) WHERE u.public_id = $1',
