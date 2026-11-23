@@ -343,6 +343,8 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
       // Solo el dueño confirma o rechaza.
       const cajero = await k.h.cashier(o.restaurante);
       expect((await k.as(cajero).post(`/v1/pagos/${pago}/rechazar`)).statusCode).toBe(403);
+      // La cuenta pendiente aparece en el listado unificado del dueño (INC-xx: ya no es solo de planes).
+      expect((await k.as(o).get('/v1/pagos/pendientes')).json()).toMatchObject([{ origen: 'CUENTA', pagoId: pago, origenId: c.id }]);
 
       const rech = await k.as(o).post(`/v1/pagos/${pago}/rechazar`);
       expect(rech.statusCode, rech.body).toBe(200);
@@ -361,8 +363,8 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
       expect(conf.statusCode, conf.body).toBe(200);
       expect(conf.json()).toMatchObject({ estado: 'COBRADA', saldoCentavos: 0 });
       expect(conf.json().pagos.find((x: { id: string }) => x.id === pago2).estado).toBe('CONFIRMADO');
-      // Los pagos de cuentas no se mezclan con la lista de planes por confirmar.
-      expect((await k.as(o).get('/v1/pagos/pendientes')).json().every((x: { id: string }) => x.id !== pago2)).toBe(true);
+      // pago2 ya quedó CONFIRMADO: no debe seguir en el listado de pendientes (que ahora incluye planes, POS y cuentas).
+      expect((await k.as(o).get('/v1/pagos/pendientes')).json().every((x: { pagoId: string }) => x.pagoId !== pago2)).toBe(true);
     });
 
     it('anular con un pago pendiente lo rechaza (no hay dinero que devolver)', async () => {

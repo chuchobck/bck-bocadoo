@@ -45,7 +45,7 @@ import { RequestContextStore } from '../tenancy/request-context';
 import { renderVenta } from '../checkout/pos';
 import { SUBS_SELECT, SubRow, toSub } from './subscriptions';
 import { VentaResponse } from '../checkout/responses';
-import { PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
+import { PagoPendienteResponse, PlanVendidoResponse, SolicitudPendienteResponse, SolicitudRechazadaResponse } from './responses';
 
 const METODOS = ['EFECTIVO', 'TRANSFERENCIA', 'DEUNA'] as const;
 const ID = /^[1-9][0-9]{0,17}$/;
@@ -232,13 +232,57 @@ export class SalesService {
 
   // --- Pagos pendientes ------------------------------------------------------------------------------------------
 
+  /** Transferencias/Deuna pendientes de plan, venta suelta (POS) y cuenta de cobro, en un solo listado para el dueño. */
   pendingPayments() {
     return this.db.forRequest(
       async (q) => {
-        const r = await q.query<SubRow>(
-          `${SUBS_SELECT} WHERE s.restaurante_id = app_tenant_id() AND p.estado = 'PENDIENTE' ORDER BY p.creado_en`,
+        const r = await q.query<{
+          origen: 'PLAN' | 'POS' | 'CUENTA';
+          pago_id: string;
+          origen_id: string;
+          monto_centavos: string;
+          metodo: string;
+          fecha: string;
+          comprobante_url: string | null;
+          creado_en: Date;
+          cliente_nombre: string | null;
+          referencia: string;
+        }>(
+          `SELECT 'PLAN' AS origen, p.public_id AS pago_id, s.public_id AS origen_id, p.monto_centavos, m.codigo AS metodo,
+                  p.fecha_local::text AS fecha, p.comprobante_url, p.creado_en, c.nombre AS cliente_nombre, s.nombre_plan AS referencia
+             FROM transaccion_pago p
+             JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+             JOIN suscripcion_plan s ON s.restaurante_id = p.restaurante_id AND s.suscripcion_id = p.suscripcion_id
+             JOIN cliente_restaurante c ON c.restaurante_id = s.restaurante_id AND c.cliente_id = s.cliente_id
+            WHERE p.restaurante_id = app_tenant_id() AND p.estado = 'PENDIENTE' AND p.suscripcion_id IS NOT NULL
+           UNION ALL
+           SELECT 'POS', p.public_id, v.public_id, p.monto_centavos, m.codigo, p.fecha_local::text, p.comprobante_url, p.creado_en, NULL,
+                  CASE WHEN v.mesa_texto IS NOT NULL THEN v.mesa_texto ELSE 'Ticket ' || v.ticket::text END
+             FROM transaccion_pago p
+             JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+             JOIN venta_pos_cabecera v ON v.restaurante_id = p.restaurante_id AND v.venta_pos_id = p.venta_pos_id
+            WHERE p.restaurante_id = app_tenant_id() AND p.estado = 'PENDIENTE' AND p.venta_pos_id IS NOT NULL
+           UNION ALL
+           SELECT 'CUENTA', p.public_id, cc.public_id, p.monto_centavos, m.codigo, p.fecha_local::text, p.comprobante_url, p.creado_en,
+                  cc.nombre_pagador, cc.nombre_pagador
+             FROM transaccion_pago p
+             JOIN metodo_pago m ON m.metodo_pago_id = p.metodo_pago_id
+             JOIN cuenta_cobro cc ON cc.restaurante_id = p.restaurante_id AND cc.cuenta_id = p.cuenta_cobro_id
+            WHERE p.restaurante_id = app_tenant_id() AND p.estado = 'PENDIENTE' AND p.cuenta_cobro_id IS NOT NULL
+           ORDER BY creado_en`,
         );
-        return r.rows.map(toSub);
+        return r.rows.map((p) => ({
+          origen: p.origen,
+          pagoId: p.pago_id,
+          origenId: p.origen_id,
+          montoCentavos: Number(p.monto_centavos),
+          metodo: p.metodo,
+          fecha: p.fecha,
+          comprobanteUrl: p.comprobante_url,
+          creadoEn: p.creado_en,
+          clienteNombre: p.cliente_nombre,
+          referencia: p.referencia,
+        }));
       },
       { readOnly: true },
     );
@@ -524,8 +568,11 @@ export class SalesController {
 
   @Roles('DUENO')
   @Get('pagos/pendientes')
-  @ApiOperation({ summary: 'Transferencias y pagos Deuna por confirmar' })
-  @ApiOkResponse({ type: PlanVendidoResponse, isArray: true })
+  @ApiOperation({
+    summary: 'Transferencias y pagos Deuna por confirmar',
+    description: 'De plan, venta suelta (POS) y cuenta de cobro, en un solo listado (`origen`).',
+  })
+  @ApiOkResponse({ type: PagoPendienteResponse, isArray: true })
   pending() {
     return this.sales.pendingPayments();
   }

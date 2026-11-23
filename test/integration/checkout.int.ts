@@ -585,6 +585,8 @@ describe('Fase 7: caja', () => {
       const a = (await vender('TRANSFERENCIA')).json();
       expect(a.pago).toMatchObject({ estado: 'PENDIENTE', metodo: 'TRANSFERENCIA' });
       expect(a.pago.id).toMatch(/^[0-9a-f-]{36}$/);
+      // Las ventas POS pendientes también salen en el listado unificado del dueño.
+      expect((await as(o).get('/v1/pagos/pendientes')).json()).toMatchObject([{ origen: 'POS', pagoId: a.pago.id, origenId: a.id }]);
       expect((await as(other).post(`/v1/pagos/${a.pago.id}/confirmar`)).statusCode).toBe(404);
 
       const ok = await as(o).post(`/v1/pagos/${a.pago.id}/confirmar`);
