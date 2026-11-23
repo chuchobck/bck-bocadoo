@@ -90,7 +90,12 @@ export const ESTADO_EFECTIVO = `CASE WHEN o.estado = 'EN_CAMINO' AND o.vence_en 
 class AlmuerzoDto {
   @ApiProperty({
     description: 'public_id de los platos elegidos del menú de hoy, uno por sección (JUGO, SOPA, FUERTE, POSTRE)',
-    example: ['uuid-sopa', 'uuid-fuerte'],
+    type: [String],
+    format: 'uuid',
+    minItems: 1,
+    maxItems: 4,
+    uniqueItems: true,
+    example: ['0b9d6a2e-55c4-4f0e-8c2a-1f3e9b7d6c55', '41c0703f-3521-48eb-98ec-6d6d8efd5979'],
   })
   @IsArray()
   @ArrayMinSize(1)
@@ -101,7 +106,7 @@ class AlmuerzoDto {
 }
 
 class ExtraDto {
-  @ApiProperty({ description: 'public_id del plato (con precio) del menú de hoy' })
+  @ApiProperty({ format: 'uuid', description: 'public_id del plato (con precio) del menú de hoy' })
   @Matches(UUID_RE, { message: 'plato debe ser un UUID' })
   plato!: string;
   @ApiProperty({ type: 'integer', example: 1, minimum: 1, maximum: 10 }) @IsInt() @Min(1) @Max(10) cantidad!: number;
@@ -117,10 +122,12 @@ class CartaItemDto {
 }
 
 export class CrearPedidoDto {
-  @ApiProperty({ description: 'public_id del restaurante' })
+  @ApiProperty({ format: 'uuid', description: 'public_id del restaurante' })
   @Matches(UUID_RE, { message: 'restaurante debe ser un UUID' })
   restaurante!: string;
-  @ApiPropertyOptional({ description: 'Suma el recargo para llevar del local al almuerzo' })
+  @ApiPropertyOptional({
+    description: 'Suma el recargo para llevar del local por cada unidad de almuerzo y de plato A_LA_CARTA (EXTRA y BEBIDA no lo pagan)',
+  })
   @IsOptional()
   @IsBoolean()
   paraLlevar?: boolean;
@@ -156,14 +163,14 @@ export class CrearPedidoDto {
 }
 
 class PlatoPedido {
-  @ApiProperty() id!: string;
+  @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() nombre!: string;
   @ApiProperty({ type: String, nullable: true, enum: LUNCH_SECTIONS }) seccion!: string | null;
 }
 class ExtraPedido {
-  @ApiProperty() id!: string;
+  @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() nombre!: string;
-  @ApiProperty() cantidad!: number;
+  @ApiProperty({ type: 'integer' }) cantidad!: number;
   @ApiProperty() precioUnitarioCentavos!: number;
   @ApiProperty() subtotalCentavos!: number;
 }
@@ -175,23 +182,27 @@ class CartaItemPedido {
   @ApiProperty({ description: 'Precio de la carta al pedir (congelado)' }) precioUnitarioCentavos!: number;
   @ApiProperty() subtotalCentavos!: number;
 }
+class RestaurantePedido {
+  @ApiProperty({ format: 'uuid', description: 'public_id del restaurante' }) id!: string;
+  @ApiProperty({ example: 'Doña Rosa' }) nombre!: string;
+  @ApiProperty({ example: 'dona-rosa' }) slug!: string;
+}
+class AlmuerzoPedido {
+  @ApiProperty({ type: [PlatoPedido] }) platos!: PlatoPedido[];
+  @ApiProperty({ description: 'Lo que se cobraría por el almuerzo: 0 si lo cubre el plan; si no, el precio guardado al pedir' })
+  precioCentavos!: number;
+  @ApiProperty({ description: 'El plan cubría el almuerzo al pedir (precioCentavos = 0)' }) cubiertoPorPlan!: boolean;
+}
 export class PedidoResponse {
-  @ApiProperty({ description: 'public_id del pedido' }) id!: string;
-  @ApiProperty({ description: 'Contenido del QR que la caja escanea: es el public_id del pedido' }) qr!: string;
-  @ApiProperty({ example: 7, description: '"Pedido #7" del día' }) numero!: number;
+  @ApiProperty({ format: 'uuid', description: 'public_id del pedido' }) id!: string;
+  @ApiProperty({ format: 'uuid', description: 'Contenido del QR que la caja escanea: es el public_id del pedido' }) qr!: string;
+  @ApiProperty({ type: 'integer', example: 7, description: '"Pedido #7" del día' }) numero!: number;
   @ApiProperty({ example: '2026-11-13' }) fecha!: string;
-  @ApiProperty({ example: { id: 'uuid', nombre: 'Doña Rosa', slug: 'dona-rosa' } }) restaurante!: {
-    id: string;
-    nombre: string;
-    slug: string;
-  };
+  @ApiProperty({ type: RestaurantePedido }) restaurante!: RestaurantePedido;
   @ApiProperty({ enum: ['EN_CAMINO', 'CANJEADA', 'SERVIDA', 'EXPIRADA', 'CANCELADA'] }) estado!: string;
   @ApiProperty() paraLlevar!: boolean;
-  @ApiPropertyOptional({
-    description: 'null si solo pidió extras',
-    example: { platos: [{ id: 'uuid', nombre: 'Seco de pollo', seccion: 'FUERTE' }], precioCentavos: 0, cubiertoPorPlan: true },
-  })
-  almuerzo!: { platos: PlatoPedido[]; precioCentavos: number; cubiertoPorPlan: boolean } | null;
+  @ApiProperty({ type: AlmuerzoPedido, nullable: true, description: 'null si no pidió almuerzo (solo extras o carta)' })
+  almuerzo!: AlmuerzoPedido | null;
   @ApiProperty({ type: [ExtraPedido], description: 'Extras del menú del día' }) extras!: ExtraPedido[];
   @ApiProperty({ type: [CartaItemPedido], description: 'Platos de la carta fija (vacío si no pidió ninguno)' })
   cartaItems!: CartaItemPedido[];
@@ -201,17 +212,18 @@ export class PedidoResponse {
   @ApiProperty({
     type: CotizacionResponse,
     description:
-      'Cotización estimada (informativa) con la regla de cobro objetivo (docs/spec-cobros.md). Para un pedido ya creado el precio del almuerzo sale de `subtotal − extras` y el plan se lee de hoy. ' +
-      'Puede diferir de `totalCentavos`: por ahora solo si un extra del menú es un plato `A_LA_CARTA` pedido para llevar (la cotización suma el recargo por unidad; `totalCentavos` aún no). Cambia en el PR 7.',
+      'Cotización estimada (informativa) con la regla de cobro (docs/spec-cobros.md). Para un pedido ya creado usa el precio del almuerzo guardado al pedir ' +
+      '(`precio_almuerzo_centavos`; un pedido anterior sin él, `subtotal − extras − carta`), los precios y el recargo por unidad guardados en sus renglones, y el plan de hoy. ' +
+      'Al crear, `totalCentavos` = `cotizacion.saldoPorCobrarCentavos` y `recargoLlevarCentavos` = `cotizacion.recargoCentavos`. Una cotización puede cambiar después si el plan cambia (se lee de hoy).',
   })
   cotizacion!: CotizacionResponse;
   @ApiProperty() creadoEn!: Date;
   @ApiProperty({ description: `creadoEn + ${PREORDER_MINUTES} minutos` }) venceEn!: Date;
   @ApiProperty({ type: Date, nullable: true, description: 'Hora de llegada que mandó el comensal al pedir; null si no la mandó' })
   horaLlegada!: Date | null;
-  @ApiPropertyOptional({ type: Date, nullable: true }) canjeadoEn!: Date | null;
-  @ApiPropertyOptional({ type: Date, nullable: true }) servidoEn!: Date | null;
-  @ApiPropertyOptional({ type: Date, nullable: true }) canceladoEn!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null mientras no se canjee en caja' }) canjeadoEn!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null mientras no se sirva' }) servidoEn!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: 'null si no se canceló' }) canceladoEn!: Date | null;
 }
 class PedidosResponse {
   @ApiProperty({ type: [PedidoResponse] }) items!: PedidoResponse[];
@@ -805,11 +817,12 @@ export class DinerOrdersController {
   @Post()
   @ApiIdempotent()
   @ApiOperation({
-    summary: 'Hacer una preorden del menú de hoy',
+    summary: 'Hacer una preorden (menú del día, carta fija o ambos)',
     description:
       `El pedido vence a los ${PREORDER_MINUTES} minutos. Su QR es el public_id (\`qr\`): la caja lo escanea y descuenta el almuerzo ` +
-      'del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. ' +
-      'Un pedido en camino a la vez por local.',
+      'del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local (si es 0 y ningún ' +
+      'plan lo cubre, 409 `ALMUERZO_SIN_PRECIO`). `cartaItems` pide platos de la carta fija y no exige menú publicado (el almuerzo y los ' +
+      '`extras` sí). `totalCentavos` es el saldo de la cotización. Un pedido en camino a la vez por local.',
   })
   @ApiCreatedResponse({ type: PedidoResponse })
   @ApiProblems({
@@ -844,7 +857,7 @@ export class DinerOrdersController {
     description:
       'Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos`, pero sin `Idempotency-Key` y sin efectos: no crea el pedido, ' +
       'no toma número del día y no toca el plan. Responde la `Cotizacion` estimada (`estimada: true`) con el plan de hoy del comensal. ' +
-      'Para mostrar el total antes de pedir. Hoy cotiza el menú del día; carta y ofertas llegan en el PR 7.',
+      'Para mostrar el total antes de pedir (menú del día y carta fija). No responde `PEDIDO_ACTIVO`: eso es solo de crear.',
   })
   @ApiOkResponse({ type: CotizacionResponse })
   @ApiProblems({

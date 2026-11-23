@@ -96,6 +96,23 @@ describe('entradaPedido (PREORDEN)', () => {
     expect(c.lineas[0]).toMatchObject({ fuente: 'CAJA', porCobrarCentavos: P });
   });
 
+  it('carta fija: refs carta:i, tipo por categoría y recargo por unidad solo para A_LA_CARTA (con almuerzo y plan)', () => {
+    const c = cotizar(
+      entradaPedido({
+        ...base,
+        paraLlevar: true,
+        carta: [plato('Chivo', 'A_LA_CARTA', 600, 2), plato('Cola', 'BEBIDA', 100), plato('Huevo', 'EXTRA', 75)],
+      }),
+    );
+    expect(c.lineas.map((l) => [l.ref, l.tipo, l.fuente, l.recargoUnitarioCentavos])).toEqual([
+      ['almuerzo#1', 'ALMUERZO', 'PLAN', R],
+      ['carta:0', 'A_LA_CARTA', 'CAJA', R],
+      ['carta:1', 'BEBIDA', 'CAJA', 0],
+      ['carta:2', 'EXTRA', 'CAJA', 0],
+    ]);
+    expect(c).toMatchObject({ recargoCentavos: 3 * R, cubiertoPorPlanCentavos: P, saldoPorCobrarCentavos: 1200 + 100 + 75 + 3 * R });
+  });
+
   it('para llevar: recargo al almuerzo; el extra EXTRA y la BEBIDA no pagan', () => {
     const c = cotizar(
       entradaPedido({ ...base, plan: SIN_PLAN, paraLlevar: true, extras: [plato('Huevo', 'EXTRA', 75), plato('Cola', 'BEBIDA', 100)] }),
