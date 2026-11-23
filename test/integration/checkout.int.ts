@@ -636,8 +636,24 @@ describe('Fase 7: caja', () => {
         cierre: null,
       });
       expect(arqueo.porMetodo).toEqual([
-        { metodo: 'EFECTIVO', nombre: 'Efectivo', esEfectivo: true, planesCentavos: 1500, posCentavos: 600, totalCentavos: 2100 },
-        { metodo: 'DEUNA', nombre: 'Deuna', esEfectivo: false, planesCentavos: 1500, posCentavos: 0, totalCentavos: 1500 },
+        {
+          metodo: 'EFECTIVO',
+          nombre: 'Efectivo',
+          esEfectivo: true,
+          planesCentavos: 1500,
+          posCentavos: 600,
+          cuentasCentavos: 0,
+          totalCentavos: 2100,
+        },
+        {
+          metodo: 'DEUNA',
+          nombre: 'Deuna',
+          esEfectivo: false,
+          planesCentavos: 1500,
+          posCentavos: 0,
+          cuentasCentavos: 0,
+          totalCentavos: 1500,
+        },
       ]);
 
       const cierre = await as(cashier).post('/v1/caja/cierre/hoy', { efectivoContadoCentavos: 2000, nota: 'Faltó un dólar' });
