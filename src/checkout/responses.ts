@@ -109,6 +109,11 @@ class ItemVentaResponse {
 }
 
 class PagoVentaResponse {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'public_id del pago: con él se confirma o rechaza un pago PENDIENTE (`POST /v1/pagos/{id}/confirmar`)',
+  })
+  id!: string;
   @ApiProperty({ example: 'CONFIRMADO' }) estado!: string;
   @ApiProperty({ type: String, nullable: true, example: 'EFECTIVO' }) metodo!: string | null;
 }
