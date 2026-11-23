@@ -553,6 +553,26 @@ describe('Fase 7: caja', () => {
       );
     });
 
+    it('el plato A_LA_CARTA también paga recargo para llevar (INC-07); EXTRA y BEBIDA no', async () => {
+      const o = await posLocal('POS Recargo Carta');
+      const carta = (await as(o).post('/v1/menu/platos', { categoria: 'A_LA_CARTA', nombre: 'Ceviche', precioCentavos: 500 })).json().id;
+      const extra = (await as(o).post('/v1/menu/platos', { categoria: 'EXTRA', nombre: 'Porción extra', precioCentavos: 50 })).json().id;
+      const res = await vender(o, {
+        metodoPago: 'EFECTIVO',
+        paraLlevar: true,
+        items: [
+          { tipo: 'PLATO', platoId: carta, cantidad: 1 },
+          { tipo: 'PLATO', platoId: extra, cantidad: 1 },
+        ],
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      expect(res.json().items.map((i: { nombre: string; subtotalCentavos: number }) => [i.nombre, i.subtotalCentavos])).toEqual([
+        ['Ceviche', 500],
+        ['Porción extra', 50],
+        ['Recargo para llevar', 25],
+      ]);
+    });
+
     it('tickets consecutivos sin huecos ni repetidos con 10 ventas simultáneas; idempotencia', async () => {
       const o = await posLocal('POS Tickets');
       const cashier = await h.cashier(o.restaurante);

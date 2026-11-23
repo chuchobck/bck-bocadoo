@@ -27484,7 +27484,7 @@
           },
           "paraLlevar": {
             "type": "boolean",
-            "description": "Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Solo el almuerzo paga recargo."
+            "description": "Para llevar solo esta línea (D3, solo en el POS): gana sobre `paraLlevar` de la venta; sin él, hereda el de la venta. Paga recargo el almuerzo y el plato A_LA_CARTA (por su categoría o, suelto, por su sección); EXTRA y BEBIDA no."
           }
         },
         "required": ["tipo", "cantidad"]
