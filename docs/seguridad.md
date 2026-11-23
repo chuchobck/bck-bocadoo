@@ -122,6 +122,20 @@ En producción `JWT_PRIVATE_KEY` es obligatoria (la app no arranca sin ella). En
 
 Los refresh tokens no dependen de las llaves JWT, así que la rotación no cierra sesiones.
 
+<<<<<<< HEAD
+
+## Hallazgo abierto: invitar cajero / vincular cliente filtran si un correo existe (auditoría OWASP, 22 nov 2026)
+
+**MEDIO, sin arreglar a propósito: necesita una decisión de producto, no solo de seguridad.**
+
+- **Dónde:** `POST /v1/restaurante/personal/cajeros` (`src/staff/staff.service.ts`, `inviteCashier`) y `POST /v1/clientes/{id}/vincular` (`src/customers/customers.ts`, `link`). Las dos usan `UsersLookupService` (BYPASSRLS) para buscar la cuenta por correo.
+- **El problema real no es solo el oráculo:** cualquiera puede registrarse como dueño gratis (`POST /v1/auth/register-owner`, 10 por hora por IP) y usar su restaurante falso para sondear correos ajenos. `inviteCashier` responde 201 con el **nombre real** de la cuenta si existe, 404 si no. Peor: si existe, **la asocia de inmediato** como cajero de ese restaurante falso (o como cliente vinculado, en el caso de `link`), sin que la persona dueña de la cuenta lo sepa ni lo acepte. Esa persona la ve aparecer en su propio `GET /v1/auth/me`.
+- **Por qué no lo arreglé ya:** la causa de fondo es que hoy no existe un paso de aceptación — es, por diseño actual, "agregar y ya queda" (documentado como aceptado en `ESTADO_BACKEND.md`: "invitación sin correo, para después"). Las dos correcciones posibles cambian ese comportamiento:
+  1. **Invitación pendiente con aceptación:** el cajero/cliente queda en un estado "pendiente" hasta que la persona invitada lo acepta desde su propia sesión. Cierra el problema de raíz (ya no hay asociación sin consentimiento, y se puede hacer la respuesta genérica sin romper la UX legítima). Necesita una tabla y migración nuevas, 2-3 endpoints nuevos (listar, aceptar, rechazar invitaciones propias) y que el frontend (Flutter) construya la pantalla correspondiente.
+  2. **Mitigación parcial sin cambiar el flujo:** limitar también por cuenta de dueño (no solo por IP) y endurecer el límite de `invite`; no cierra el oráculo ni la asociación sin consentimiento, solo lo encarece.
+- **Queda para que lo decida Oe** (dueño del proyecto): si el piloto puede convivir con esto un tiempo más, o si vale la pena construir la opción 1 antes del piloto con locales reales.
+  \=======
+
 ## Rate limiting: memoria acotada (auditoría OWASP, 22 nov 2026)
 
 Hallazgo ALTO cerrado: el guard evaluaba todos los checks del preset (p. ej. `a:ip:identificador`, `c:identificador` del login) aunque el tope general por IP ya hubiera rechazado la petición, creando una clave nueva por cada intento con un identificador inventado. Con suficientes intentos desde una sola IP, el mapa crecía sin límite real hasta agotar la memoria del proceso (`sweep()` recorría todo el mapa sin liberar nada mientras la ventana de 15 min seguía activa). Arreglo en `src/security/rate-limit.ts`:
@@ -130,6 +144,8 @@ Hallazgo ALTO cerrado: el guard evaluaba todos los checks del preset (p. ej. `a:
 - Tope duro de memoria (`MAX_ENTRIES = 100 000`): el mapa de contadores nunca crece más allá de eso. Al llegar al tope, cada clave nueva expulsa primero la más vieja (orden de inserción, O(1)), en vez del barrido completo anterior.
 - Cubre tanto el ataque de una sola IP (el guard corta temprano) como una botnet con miles de IPs/identificadores distintos (el tope duro acota la memoria de todas formas).
 - Pruebas: `test/unit/rate-limit.spec.ts` (reproduce el ataque: 200 intentos con identificadores distintos tras agotar el tope de la IP no crean ninguna clave nueva; confirma el tope de 100 000 y el orden de expulsión).
+
+> > > > > > > origin/main
 
 ## Límites conocidos (a revisar)
 
