@@ -8,6 +8,17 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Pedido con hora de llegada (`horaLlegada`, opcional)
+
+**Solo campos nuevos** (`pnpm openapi:breaking`: 0 errores) y una migración aditiva (`20261122190000_orden_hora_llegada`: columna `orden_cabecera.hora_llegada`, nullable, sin default ni backfill).
+
+| Dónde                                                                                                                                                                                                                                                  | Qué cambia                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/mis/pedidos`, `POST /v1/mis/pedidos/cotizar` (cuerpo)                                                                                                                                                                                        | **Campo opcional nuevo `horaLlegada`** (ISO 8601 con zona; se recomienda UTC con `Z`). Misma ventana y mismo error que `POST /v1/mis/mesas`: de **5 minutos atrás a 12 horas adelante**; fuera de ella → **400 `HORA_LLEGADA_INVALIDA`**. Formato inválido → 400 de validación (`BAD_REQUEST`). Antes, mandarla respondía 400 (campo no permitido). Es informativa: no cambia `venceEn` (30 min) ni el cobro. |
+| `PedidoResponse` en `POST /v1/mis/pedidos`, `GET /v1/mis/pedidos`, `GET /v1/mis/pedidos/{id}`, `POST /v1/mis/pedidos/{id}/cancelar`; `PedidoCaja` en `GET /v1/caja/pedidos`, `GET /v1/caja/pedidos/{id}`, `POST …/canjear` (`pedido`), `POST …/servir` | **Campo nuevo `horaLlegada`** (instante UTC, siempre presente): la que mandó el comensal, o **`null`** si no la mandó (y en todos los pedidos anteriores a este cambio). La caja y el dueño la ven igual que la de las mesas (`horaLlegada` de `GET /v1/caja/mesas/{id}`).                                                                                                                                    |
+
+Un reintento con la misma `Idempotency-Key` devuelve el pedido ya creado sin volver a validar la ventana (aunque haya pasado el tiempo).
+
 ### Entrega D · PR 6c: el canje del pedido abre la cuenta, el límite SaaS no frena el almuerzo suelto y P > 0
 
 Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (E.3, E.4, I-10, I-12). **Una migración** (`20261122180000_limite_saas_despues_del_plan`, solo reordena `fn_descontar_almuerzo`) y **cambios de comportamiento** sin cambio de esquema (`pnpm openapi:breaking`: 0 errores). Lo único nuevo en el OpenAPI es el 422 de `PATCH /v1/restaurante`.
@@ -936,7 +947,7 @@ Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras
 }
 ```
 
-→ `200` con la `Cotizacion` de arriba (comensal con un plan que vale hoy). Errores: los de crear pedido (`PEDIDO_VACIO`, `ALMUERZO_INVALIDO`, `RESTAURANTE_NO_ENCONTRADO`, `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`) y 409 `ALMUERZO_SIN_PRECIO` (local con almuerzo en 0 y sin plan; no puede pasar en un local `ACTIVO`). Sin token, 401.
+→ `200` con la `Cotizacion` de arriba (comensal con un plan que vale hoy). Errores: los de crear pedido (`PEDIDO_VACIO`, `HORA_LLEGADA_INVALIDA`, `ALMUERZO_INVALIDO`, `RESTAURANTE_NO_ENCONTRADO`, `RESTAURANTE_PAUSADO`, `LOCAL_LLENO_SOLO_LLEVAR`, `MENU_NO_PUBLICADO`, `PEDIDO_ACTIVO`, `PLATO_AGOTADO`, `PLATO_NO_DISPONIBLE`, `PLATO_SIN_PRECIO`) y 409 `ALMUERZO_SIN_PRECIO` (local con almuerzo en 0 y sin plan; no puede pasar en un local `ACTIVO`). Sin token, 401.
 
 #### Pedidos: `cotizacion` y su relación con `totalCentavos`
 
@@ -1030,7 +1041,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `ALMUERZO_INVALIDO`           | 400  | `POST /v1/mis/pedidos`; `PUT /v1/mis/mesas/{id}/seleccion`                                                                                                                                                                                                                                                                                                        |
 | `SELECCION_INVALIDA`          | 400  | `PUT /v1/mis/mesas/{id}/seleccion` (un plato del almuerzo repetido como plato suelto)                                                                                                                                                                                                                                                                             |
 | `CURSOR_INVALIDO`             | 400  | `GET /v1/mis/consumos`; `GET /v1/mis/pedidos`; `GET /v1/opiniones`; `GET /v1/caja/cuentas`                                                                                                                                                                                                                                                                        |
-| `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`                                                                                                                                                                                                                                                                                                                                              |
+| `HORA_LLEGADA_INVALIDA`       | 400  | `POST /v1/mis/mesas`; `POST /v1/mis/pedidos`; `POST /v1/mis/pedidos/cotizar`                                                                                                                                                                                                                                                                                      |
 | `IDEMPOTENCY_KEY_INVALIDA`    | 400  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/reclamo`; `POST /v1/mis/mesas` y 1 más                                                                                                                                                                                                                                                          |
 | `OPINION_VACIA`               | 400  | `POST /v1/mis/consumos/{id}/opinion`                                                                                                                                                                                                                                                                                                                              |
 | `PEDIDO_VACIO`                | 400  | `POST /v1/mis/pedidos`                                                                                                                                                                                                                                                                                                                                            |
@@ -4293,6 +4304,8 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 El pedido vence a los 30 minutos. Su QR es el public_id (`qr`): la caja lo escanea y descuenta el almuerzo del plan. Precios del servidor: el almuerzo vale 0 si un plan vigente lo cubre, si no el precio suelto del local. Un pedido en camino a la vez por local.
 
 > `almuerzo.platos` y `extras[].plato` son los `id` (UUID) del menú de hoy en la vitrina. El precio lo calcula el servidor. Un pedido activo por local; vence a los 30 minutos. `qr` es el mismo `id`.
+>
+> `horaLlegada` es opcional (ISO 8601; de 5 minutos atrás a 12 horas adelante, como en las mesas; fuera → 400 `HORA_LLEGADA_INVALIDA`). Se devuelve tal cual en el pedido; sin ella, `horaLlegada: null`.
 
 Request:
 
@@ -4308,7 +4321,8 @@ Request:
       "plato": "df24243e-cc29-406a-94fd-fde6bf11d38e",
       "cantidad": 1
     }
-  ]
+  ],
+  "horaLlegada": "2026-11-13T04:05:00Z"
 }
 ```
 
@@ -4354,6 +4368,7 @@ Response `201`:
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:48:38.964Z",
   "venceEn": "2026-11-13T04:18:38.964Z",
+  "horaLlegada": "2026-11-13T04:05:00.000Z",
   "canjeadoEn": null,
   "servidoEn": null,
   "canceladoEn": null
@@ -4365,6 +4380,7 @@ Errores posibles (además de los comunes: 401, 400 de validación, 429, 5xx):
 | HTTP | `code`                        | Ejemplo de `detail`                               |
 | ---- | ----------------------------- | ------------------------------------------------- |
 | 400  | `ALMUERZO_INVALIDO`           | —                                                 |
+| 400  | `HORA_LLEGADA_INVALIDA`       | La hora de llegada debe estar entre ahora y …     |
 | 400  | `IDEMPOTENCY_KEY_INVALIDA`    | —                                                 |
 | 400  | `PEDIDO_VACIO`                | Pide un almuerzo, extras o ambos.                 |
 | 404  | `RESTAURANTE_NO_ENCONTRADO`   | —                                                 |
@@ -4429,6 +4445,7 @@ Response `200`:
       "monedaCodigo": "USD",
       "creadoEn": "2026-11-13T03:48:38.964Z",
       "venceEn": "2026-11-13T04:18:38.964Z",
+      "horaLlegada": null,
       "canjeadoEn": null,
       "servidoEn": null,
       "canceladoEn": null
@@ -4493,6 +4510,7 @@ Response `200`:
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:48:38.964Z",
   "venceEn": "2026-11-13T04:18:38.964Z",
+  "horaLlegada": null,
   "canjeadoEn": null,
   "servidoEn": null,
   "canceladoEn": null
@@ -4546,6 +4564,7 @@ Response `200`:
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:49:44.299Z",
   "venceEn": "2026-11-13T04:19:44.299Z",
+  "horaLlegada": null,
   "canjeadoEn": null,
   "servidoEn": null,
   "canceladoEn": "2026-11-13T03:49:44.322Z"
@@ -4613,6 +4632,7 @@ Response `200`:
     "monedaCodigo": "USD",
     "creadoEn": "2026-11-13T03:48:38.964Z",
     "venceEn": "2026-11-13T04:18:38.964Z",
+    "horaLlegada": null,
     "canjeadoEn": null,
     "servidoEn": null,
     "canceladoEn": null,
@@ -4676,6 +4696,7 @@ Response `200`:
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:48:38.964Z",
   "venceEn": "2026-11-13T04:18:38.964Z",
+  "horaLlegada": null,
   "canjeadoEn": null,
   "servidoEn": null,
   "canceladoEn": null,
@@ -4756,6 +4777,7 @@ Response `200`:
     "monedaCodigo": "USD",
     "creadoEn": "2026-11-13T03:48:38.964Z",
     "venceEn": "2026-11-13T04:18:38.964Z",
+    "horaLlegada": null,
     "canjeadoEn": "2026-11-13T03:48:39.060Z",
     "servidoEn": null,
     "canceladoEn": null,
@@ -4842,6 +4864,7 @@ Response `200`:
   "monedaCodigo": "USD",
   "creadoEn": "2026-11-13T03:48:38.964Z",
   "venceEn": "2026-11-13T04:18:38.964Z",
+  "horaLlegada": null,
   "canjeadoEn": "2026-11-13T03:48:39.060Z",
   "servidoEn": "2026-11-13T03:48:39.090Z",
   "canceladoEn": null,

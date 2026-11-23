@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-22 (carta sin caché, rama `feat/carta-sin-cache`; PR 6c, 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (hora de llegada en pedidos, rama `feat/pedido-hora-llegada`; carta sin caché, 6c, 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -18,6 +18,26 @@
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
 Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; siguen PR 7 en adelante (H.1).
+
+## Hora de llegada en pedidos (rama `feat/pedido-hora-llegada`)
+
+`POST /v1/mis/pedidos` acepta `horaLlegada` opcional: la app ya la mandaba y recibía 400 (campo no permitido). **Una migración aditiva** (`20261122190000_orden_hora_llegada`: `orden_cabecera.hora_llegada TIMESTAMPTZ`, nullable, sin default ni backfill), probada solo en `bocadoo-test-pg` (up, rollback y up); **falta aplicarla en Neon** con `pnpm db:migrate --remoto` antes del merge. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] Validación compartida con las mesas: `src/common/hora-llegada.ts` (`ARRIVAL_WINDOW`, `horaLlegadaEnVentana`), usada por `POST /v1/mis/mesas` y por pedidos. Ventana de 5 min atrás a 12 h adelante, mismo 400 `HORA_LLEGADA_INVALIDA`; formato con `@IsISO8601({ strict: true })` como en mesas (400 `BAD_REQUEST`).
+- [x] `POST /v1/mis/pedidos/cotizar` comparte el DTO y valida igual (antes también respondía 400 si llegaba el campo).
+- [x] Se guarda al crear y sale en `PedidoResponse` (crear, detalle, listado, cancelar) y en `PedidoCaja` (lista y detalle de caja, `canjear` → `pedido`, `servir`) para cajero y dueño: todas pasan por `ORDER_SELECT` + `renderOrders`. `null` si no se manda.
+- [x] Sin cambios de RLS ni de GRANT: la columna cae bajo las políticas de `orden_cabecera` y el `GRANT SELECT, INSERT, UPDATE` por tabla de `bocadoo_app`.
+- [x] `docs/openapi.json` regenerado: `openapi:lint` limpio, `openapi:breaking` sin cambios incompatibles (campo opcional en el cuerpo, campo nuevo en la respuesta).
+- [x] `test/integration/diner-orders.int.ts` (+4, 10 en total): válida (incluido el borde de 3 min atrás) se persiste y se devuelve en cada vista; ausente → `null` en la base y en las respuestas; más de 5 min atrás y más de 12 h → `HORA_LLEGADA_INVALIDA` (también en `cotizar`) sin crear nada; formatos inválidos → 400 `BAD_REQUEST`; la caja de otro local no ve el pedido (404, lista vacía y RLS por tenant). `test/unit/hora-llegada.spec.ts`: bordes exactos de la ventana.
+
+### Límites
+
+- Informativa: no cambia `venceEn` (30 min desde que se pide) ni el cobro, y la caja no ordena ni filtra por ella.
+- Un reintento con la misma `Idempotency-Key` devuelve el pedido guardado sin revalidar la ventana.
+- Se acepta cualquier ISO 8601 con zona (como en mesas), no solo `Z`; la respuesta siempre sale en UTC.
+- **No entra aquí** (PR 7a): `cartaItems`, recargo por unidad, ofertas ni campos derivados.
 
 ## Carta sin caché (rama `feat/carta-sin-cache`)
 
