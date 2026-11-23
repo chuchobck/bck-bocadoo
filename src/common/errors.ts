@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, applyDecorators } from '@nestjs/common';
-import { ApiResponse } from '@nestjs/swagger';
+import { ApiResponse, type ApiResponseOptions } from '@nestjs/swagger';
+
+type ResponseHeaders = NonNullable<ApiResponseOptions['headers']>;
 
 /**
  * Error de negocio con un código estable (`code` en el problem+json). El cliente decide por el código, nunca por el
@@ -31,13 +33,20 @@ export function problemCode(status: number, body: unknown): string {
   return HttpStatus[status] ?? 'ERROR';
 }
 
-/** Documenta en Swagger los errores de negocio posibles de un endpoint: `{ 409: ['YA_EXISTE', …] }`. */
-export const ApiProblems = (byStatus: Partial<Record<400 | 403 | 404 | 409 | 422 | 429 | 503, string[]>>) =>
+/**
+ * Documenta en Swagger los errores de negocio posibles de un endpoint: `{ 409: ['YA_EXISTE', …] }`. `headers`, si se
+ * da, se documenta en cada uno de esos errores (p. ej. un `Cache-Control` que la ruta manda también al fallar).
+ */
+export const ApiProblems = (
+  byStatus: Partial<Record<400 | 403 | 404 | 409 | 422 | 429 | 503, string[]>>,
+  opts: { headers?: ResponseHeaders } = {},
+) =>
   applyDecorators(
     ...Object.entries(byStatus).map(([status, codes]) =>
       ApiResponse({
         status: Number(status),
         description: `application/problem+json con \`code\`: ${codes!.map((c) => `\`${c}\``).join(', ')}`,
+        ...(opts.headers ? { headers: opts.headers } : {}),
       }),
     ),
   );

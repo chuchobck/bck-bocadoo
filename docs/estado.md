@@ -1,6 +1,6 @@
 # Estado del plan del backend
 
-Última actualización: 2026-11-22 (PR 6c: huecos de cobro, rama `fix/huecos-cobro-6c`; PR 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
+Última actualización: 2026-11-22 (carta sin caché, rama `feat/carta-sin-cache`; PR 6c, 6a y 6b mezclados en `main`). Leyenda: ✅ hecho y verificado · 🔶 hecho, falta confirmar · ⬜ pendiente.
 
 | #   | Fase                         | Estado | Tag           | Evidencia                                                                                |
 | --- | ---------------------------- | ------ | ------------- | ---------------------------------------------------------------------------------------- |
@@ -18,6 +18,22 @@
 | 10  | Documentación viva y Swagger | 🔶     | `v1.0.0-rc.1` | ver abajo; rama `fase-10/docs`, falta revisión, merge y tag                              |
 
 Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; siguen PR 7 en adelante (H.1).
+
+## Carta sin caché (rama `feat/carta-sin-cache`)
+
+`GET /v1/restaurantes/{slug}/carta` manda siempre `Cache-Control: no-store, no-cache, must-revalidate`, para que la app del comensal nunca muestre una carta vieja tras un cambio del dueño o del cajero. Sin migración; cuerpo y categorías sin cambios.
+
+### Checklist
+
+- [x] Cabecera en el 200 y en el 404 `RESTAURANTE_NO_ENCONTRADO`: el controlador la pone en la respuesta **antes** de consultar, y el filtro de errores responde sobre esa misma respuesta, así que el 404 la conserva sin tocar el filtro.
+- [x] Helmet (`@fastify/helmet` 13 / `helmet` 8) no pone `Cache-Control` y nada más la escribe en la app: no hay valor contradictorio (la prueba exige un único valor y que Helmet siga poniendo `x-content-type-options`).
+- [x] Contrato: cabecera documentada en `api-contrato.md` y en `docs/openapi.json` (200 y 404; `ApiProblems` acepta `headers` opcionales). `openapi:lint` limpio, `openapi:breaking` sin cambios incompatibles.
+- [x] `test/integration/carta-fija.int.ts` (+1, 9 en total): cabecera en 200 y 404 (slug inexistente y mal formado) y un plato marcado agotado por el cajero sale `agotado: true` en la siguiente lectura. Sin la línea del controlador la prueba falla (comprobado).
+
+### Límites
+
+- Las respuestas que se cortan antes del controlador (un 429 del rate limit) no la llevan; no traen carta que cachear. Un 5xx del servicio sí la lleva.
+- **No entra aquí** (PR 7): carta en pedidos, `horaLlegada` y campos nuevos.
 
 ## Huecos de cobro (entrega D, PR 6c; rama `fix/huecos-cobro-6c`)
 

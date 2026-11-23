@@ -5325,6 +5325,15 @@
         ],
         "responses": {
           "200": {
+            "headers": {
+              "Cache-Control": {
+                "description": "Siempre `no-store, no-cache, must-revalidate`: la carta no se guarda en caché (tampoco el 404).",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store, no-cache, must-revalidate"
+                }
+              }
+            },
             "description": "Operación exitosa",
             "content": {
               "application/json": {
@@ -5371,6 +5380,15 @@
           },
           "404": {
             "description": "application/problem+json con `code`: `RESTAURANTE_NO_ENCONTRADO`",
+            "headers": {
+              "Cache-Control": {
+                "description": "Siempre `no-store, no-cache, must-revalidate`: la carta no se guarda en caché (tampoco el 404).",
+                "schema": {
+                  "type": "string",
+                  "example": "no-store, no-cache, must-revalidate"
+                }
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {
