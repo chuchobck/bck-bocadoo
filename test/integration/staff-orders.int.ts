@@ -104,6 +104,103 @@ describe.skipIf(!probe)('Fase 8: preórdenes en la vista del personal', () => {
     });
   });
 
+  it('con horaLlegada: vence 30 min después de llegar; EN_CAMINO y canjeable hasta ahí, luego EXPIRADA', async () => {
+    const o = await k.activeOwner('Caja Llegada');
+    const m = await k.menu(o);
+    const d = await k.dinerWithPlan(o);
+    const hora = new Date(Date.now() + 120 * 60_000).toISOString();
+    const crear = async (extra: object = {}) =>
+      (
+        await k
+          .as(d)
+          .post(
+            '/v1/mis/pedidos',
+            { restaurante: o.restaurante, horaLlegada: hora, almuerzo: { platos: [m['Sopa de quinua'], m['Seco de pollo']] }, ...extra },
+            randomUUID(),
+          )
+      ).json();
+    const p = await crear();
+    const fila = await probe!.sql<{ d: number }>(
+      `SELECT extract(epoch FROM vence_en - hora_llegada)::int AS d FROM orden_cabecera WHERE public_id = $1`,
+      [p.id],
+    );
+    expect(fila.rows[0]!.d).toBe(30 * 60);
+    expect(new Date(p.venceEn).getTime()).toBe(new Date(hora).getTime() + 30 * 60_000);
+    // Se corre el reloj de la fila hacia atrás: `minutos` después de creado el pedido.
+    const avanzar = (minutos: number) =>
+      probe!.sql(
+        `UPDATE orden_cabecera SET creada_en = creada_en - make_interval(mins => $2), vence_en = vence_en - make_interval(mins => $2),
+                                   hora_llegada = hora_llegada - make_interval(mins => $2) WHERE public_id = $1`,
+        [p.id, minutos],
+      );
+
+    // 10 min después de la hora de llegada (130 min tras crearlo): sigue vivo en todos lados.
+    await avanzar(130);
+    expect((await k.as(d).get(`/v1/mis/pedidos/${p.id}`)).json().estado).toBe('EN_CAMINO');
+    expect((await k.as(o).get('/v1/caja/pedidos')).json().map((x: { id: string }) => x.id)).toContain(p.id);
+    expect(
+      (
+        await k.as(d).post('/v1/mis/pedidos', { restaurante: o.restaurante, extras: [{ plato: m.Cola, cantidad: 1 }] }, randomUUID())
+      ).json(),
+    ).toMatchObject({
+      status: 409,
+      code: 'PEDIDO_ACTIVO',
+    });
+    const canje = await k.as(o).post(`/v1/caja/pedidos/${p.id}/canjear`, {}, randomUUID());
+    expect(canje.statusCode, canje.body).toBe(200);
+
+    // Otro pedido (otro comensal): pasada la hora + 30 min, EXPIRADA, no canjeable, no cancelable, fuera de ACTIVOS.
+    const d2 = await k.dinerWithPlan(o);
+    const p2 = (
+      await k
+        .as(d2)
+        .post(
+          '/v1/mis/pedidos',
+          { restaurante: o.restaurante, horaLlegada: hora, almuerzo: { platos: [m['Sopa de quinua'], m['Seco de pollo']] } },
+          randomUUID(),
+        )
+    ).json();
+    await probe!.sql(
+      `UPDATE orden_cabecera SET creada_en = creada_en - interval '151 minutes', vence_en = vence_en - interval '151 minutes',
+                                 hora_llegada = hora_llegada - interval '151 minutes' WHERE public_id = $1`,
+      [p2.id],
+    );
+    expect((await k.as(d2).get(`/v1/mis/pedidos/${p2.id}`)).json().estado).toBe('EXPIRADA');
+    expect((await k.as(o).post(`/v1/caja/pedidos/${p2.id}/canjear`, {}, randomUUID())).json()).toMatchObject({
+      status: 409,
+      code: 'PEDIDO_EXPIRADO',
+    });
+    expect((await k.as(d2).post(`/v1/mis/pedidos/${p2.id}/cancelar`)).json()).toMatchObject({ status: 409, code: 'PEDIDO_EXPIRADO' });
+    expect((await k.as(o).get('/v1/caja/pedidos?estado=EXPIRADA')).json().map((x: { id: string }) => x.id)).toEqual([p2.id]);
+    // La guardia PEDIDO_ACTIVO se libera: el comensal puede pedir de nuevo.
+    expect(
+      (await k.as(d2).post('/v1/mis/pedidos', { restaurante: o.restaurante, extras: [{ plato: m.Cola, cantidad: 1 }] }, randomUUID()))
+        .statusCode,
+    ).toBe(201);
+  });
+
+  it('hora de llegada pasada (dentro de 5 min) o ausente: vence 30 min después de crearlo', async () => {
+    const o = await k.activeOwner('Caja Llegada 2');
+    const m = await k.menu(o);
+    for (const hora of [undefined, new Date(Date.now() - 3 * 60_000).toISOString()]) {
+      const d = await k.diner();
+      const p = (
+        await k
+          .as(d)
+          .post(
+            '/v1/mis/pedidos',
+            { restaurante: o.restaurante, horaLlegada: hora, extras: [{ plato: m.Cola, cantidad: 1 }] },
+            randomUUID(),
+          )
+      ).json();
+      const fila = await probe!.sql<{ d: number }>(
+        `SELECT extract(epoch FROM vence_en - creada_en)::int AS d FROM orden_cabecera WHERE public_id = $1`,
+        [p.id],
+      );
+      expect(fila.rows[0]!.d).toBe(30 * 60);
+    }
+  });
+
   it('vencido, cancelado o sin canjear: códigos de negocio estables', async () => {
     const { o, d, p } = await setup();
     expect((await k.as(o).post(`/v1/caja/pedidos/${p.id}/servir`)).json()).toMatchObject({ status: 409, code: 'PEDIDO_NO_CANJEADO' });
