@@ -51,6 +51,7 @@ import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion
 import { CobroDto, CuentaResponse, ItemCajaDto, ItemsCaja } from '../cobro/cuenta.dto';
 import { resolverPlatosSueltos } from '../cobro/platos';
 import { cargarMesaParaCobro, cotizarMesa } from '../cobro/mesa';
+import { opacarAvisos, opacarCotizacionMesa, refMiembro } from '../cobro/refs-mesa';
 import { planVigenteHoySql } from '../cobro/planes';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
@@ -820,7 +821,7 @@ export class CheckoutService {
         descontados: out.descontados,
         porCobrar: out.porCobrar,
         cuentas: out.cuentas,
-        avisos: out.avisos,
+        avisos: opacarAvisos(out.avisos, String(mesa.mesa_compartida_id)),
       };
     });
     eventos.flush(); // un CANJE_REGISTRADO por almuerzo descontado, a quien pagó; solo con el COMMIT hecho
@@ -1072,7 +1073,10 @@ export class CheckoutService {
   ) {
     const members = await this.members(q, mesa.mesa_compartida_id);
     const cot = cotizada ?? (await this.quote(q, mesa, mesa.validada_en !== null));
-    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
+    const mesaId = String(mesa.mesa_compartida_id);
+    // Frontera de serialización (PR 9): ningún miembro_id sale; cada miembro y su cotización usan su ref opaco.
+    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) =>
+      c ? opacarCotizacionMesa(aRespuesta(c, cot.monedaCodigo), mesaId) : null;
     const host = members.find((m) => m.es_anfitrion);
     const activos = members.filter((m) => !m.salio);
     const selecciones = await loadSelections(q, mesa.mesa_compartida_id);
@@ -1087,6 +1091,7 @@ export class CheckoutService {
       cubiertos:
         mesa.modo === 'INVITO_YO' ? Math.min(activos.length, host?.disponibles ?? 0) : activos.filter((m) => m.disponibles > 0).length,
       miembros: members.map((m) => ({
+        ref: refMiembro(mesaId, m.miembro_id),
         nombre: m.nombre,
         esAnfitrion: m.es_anfitrion,
         paraLlevar: m.para_llevar,

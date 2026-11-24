@@ -21,6 +21,28 @@ Fix de dinero (rama `fix/dinero-claims-y-pago-pos`, sin migración): **(1)** ace
 
 Entrega D (cobros cruzados: plan, oferta, carta, extras, bebidas y recargo): spec en revisión en [`docs/spec-cobros.md`](spec-cobros.md). PR 2 (`src/billing/cotizar.ts`, función pura), PR 3 (cotizaciones informativas), PR 4 (migraciones de cuentas, **aplicadas en Neon**: 22 aplicadas, 0 pendientes), PR 5a (cuentas de pedidos en caja) y PR 5b (cuentas del QR, abajo; mezclado en `main`, su migración **aplicada en Neon**: 23 aplicadas, 0 pendientes) hechos; **PR 6a** (la mesa se cobra con la selección, `salir`, abajo) mezclado en `main`; **PR 6b** (cuenta automática del QR, abajo) mezclado en `main`, sin migración; **PR 6c** (huecos de cobro, abajo) en la rama `fix/huecos-cobro-6c`, con una migración **pendiente en Neon**; **PR 7a** (carta fija en pedidos y recargo por unidad, abajo) en la rama `feat/pedidos-carta-recargo`, con una migración **pendiente en Neon**; siguen ofertas en pedidos y mesas, POS y canje de oferta (PR 7b en adelante, H.1).
 
+## Cambios incompatibles (entrega D, PR 9; rama `feat/pr9-cambios-incompatibles`)
+
+Sin migración ni variables de entorno nuevas. Etiqueta `cambio-incompatible`. Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).
+
+### Checklist
+
+- [x] `extras` deprecado (`deprecated: true`) en la entrada de `POST /v1/mis/pedidos`, `…/cotizar` y `PUT /v1/mis/mesas/{id}/seleccion`; log `extras_deprecado_usado` (id público del local y ruta) solo con `extras` no vacío. Sin cambios de validación, precios ni respuestas.
+- [x] `aplicarSeleccion` retirado de `POST /v1/caja/mesas/{id}/validar` junto con el camino legado (`false`) y la base `'un-almuerzo'` del adaptador. Cualquier campo → 400 (`SinCamposPipe`, porque un DTO vacío choca con `forbidUnknownValues`); sin cuerpo o `{}` igual que antes.
+- [x] Ids opacos: `miembros[].ref` y el mismo ref en `personaRef`, `pagadorRef`, `lineas[].ref` y `avisos[].lineaRef` de mesa y de las cuentas de mesa (`src/cobro/refs-mesa.ts`, llave `QR_SECRET_KEY`). Prueba central y de mutación en `test/integration/mesa-refs-opacos.int.ts`.
+
+### Decisiones
+
+- La huella de validar mesa conserva `aplicarSeleccion: true`: un reintento con la misma llave de una mesa validada antes del PR 9 sigue cuadrando.
+- La subclave de los refs sale de `QR_SECRET_KEY` (obligatoria en producción y validada al arrancar; no se rota). Rotarla cambia todos los refs (ver `docs/seguridad.md`).
+- El ref usa los ids internos de mesa y miembro; se calcula solo al serializar (`renderCuentas` incluido, así cualquier ruta que devuelva una cuenta de mesa la opaca).
+
+### Pendientes vistos (no se cambiaron)
+
+- **`extras` con platos de la carta en pedidos:** `extras` solo acepta platos del menú publicado de hoy. Un plato de carta que no está en el menú → 422 `PLATO_NO_DISPONIBLE`; sin menú publicado → 409 `MENU_NO_PUBLICADO`. Si está en el menú, se cobra al precio del menú y solo se mira su agotado del menú (no el de carta). En la selección de mesa `extras` sí acepta la carta (`validarPlatoSuelto`), y todavía no hay `cartaItems` en la selección.
+- `QR_SECRET_KEY` en Render sigue marcado ⬜ abajo: sin ella la app no arranca en producción, así que se confirma al desplegar.
+- `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` rechaza cuentas de mesa (409 `CUENTA_DE_MESA`); si algún día las acepta, el `ref` de entrada vendrá opaco y habrá que traducirlo con los miembros de la mesa.
+
 ## Cajero confirma pagos (auditoría de seguridad; rama `fix/cajero-confirma-pagos`)
 
 Cierra el hallazgo MEDIO «el cajero autoconfirma transferencias/Deuna» ([`docs/seguridad.md`](seguridad.md#hallazgo-cerrado-el-cajero-autoconfirmaba-transferencias-y-pagos-deuna-auditoría-de-seguridad-22-nov-2026)). Reemplaza al PR #38, que no se usa (su `estadoPagoInicial` dejaba al cajero sin poder confirmar nunca y casi todas las transferencias PENDIENTES sin forma de listarlas). **Una migración pendiente en Neon**: `20261122210000_pago_confirmado_por` (la corre el dueño con `pnpm db:migrate --remoto`). Contrato en [`docs/api-contrato.md`](api-contrato.md#novedades).

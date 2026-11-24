@@ -10,6 +10,16 @@ export class ConsumoRevertidoResponse {
 }
 
 class MiembroMesaResponse {
+  @ApiProperty({
+    example: 'q2Zk8f0sXn1Yb7RtLm4wPa',
+    minLength: 22,
+    maxLength: 22,
+    description:
+      'Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y ' +
+      'cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; ' +
+      'distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint.',
+  })
+  ref!: string;
   @ApiProperty({ example: 'Ana Pérez' }) nombre!: string;
   @ApiProperty() esAnfitrion!: boolean;
   @ApiProperty() paraLlevar!: boolean;

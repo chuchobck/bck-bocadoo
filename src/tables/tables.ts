@@ -12,6 +12,7 @@ import type { PlanPersona } from '../billing/tipos';
 import { SIN_PLAN, aRespuesta, type CotizacionRespuesta } from '../cobro/adaptador';
 import { CotizacionResponse } from '../cobro/cotizacion.dto';
 import { cotizarMesa } from '../cobro/mesa';
+import { opacarCotizacionMesa, refMiembro } from '../cobro/refs-mesa';
 import { SeleccionDto, SeleccionMiembroResponse, TableSelectionService, loadSelections, seleccionDe } from './selection';
 
 const MODOS = ['CADA_UNO', 'INVITO_YO'] as const;
@@ -35,6 +36,16 @@ class UnirseDto {
 }
 
 class MiembroMesa {
+  @ApiProperty({
+    example: 'q2Zk8f0sXn1Yb7RtLm4wPa',
+    minLength: 22,
+    maxLength: 22,
+    description:
+      'Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y ' +
+      'cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; ' +
+      'distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint.',
+  })
+  ref!: string;
   @ApiProperty() nombre!: string;
   @ApiProperty() esAnfitrion!: boolean;
   @ApiProperty() paraLlevar!: boolean;
@@ -341,7 +352,10 @@ export class TablesService {
         plan: ajenos.get(String(x.miembro_id)),
       })),
     });
-    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
+    const mesaId = String(m.mesa_compartida_id);
+    // Frontera de serialización (PR 9): ningún miembro_id sale; cada miembro y su cotización usan su ref opaco.
+    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) =>
+      c ? opacarCotizacionMesa(aRespuesta(c, cot.monedaCodigo), mesaId) : null;
     return {
       id: m.public_id,
       invitacion: m.public_id,
@@ -355,6 +369,7 @@ export class TablesService {
       miembros: members.rows.map((x) => {
         const visible = (m.soy_anfitrion || x.soy_yo) && !x.salio;
         return {
+          ref: refMiembro(mesaId, x.miembro_id),
           nombre: x.nombre,
           esAnfitrion: x.es_anfitrion,
           paraLlevar: x.para_llevar,

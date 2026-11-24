@@ -31,6 +31,7 @@ import { RequestContextStore } from '../tenancy/request-context';
 import { type LineaViva, aRespuesta, diferenciaLineas, entradaDeCuenta, refItem } from './adaptador';
 import type { CuentaResponse, MetodoPago } from './cuenta.dto';
 import { type PlatoPedido, resolverPlatosSueltos } from './platos';
+import { opacarCotizacionMesa } from './refs-mesa';
 
 /** De dónde sale la cuenta (exactamente uno, `ck_cuenta_origen_unico`). Ids internos. */
 export type OrigenCuenta =
@@ -861,6 +862,7 @@ export async function renderCuentas(q: Queryable, cuentaIds: string[]): Promise<
       avisos: [],
     };
     const saldo = Number(c.saldo_centavos);
+    const cotRespuesta = aRespuesta(cotizacion, c.moneda_codigo);
     return [
       {
         id: c.public_id,
@@ -869,7 +871,8 @@ export async function renderCuentas(q: Queryable, cuentaIds: string[]): Promise<
         momentoCobro: c.momento_cobro,
         debeCobrarseAntesDeServir: c.momento_cobro === 'ANTES_DE_SERVIR' && c.estado === 'ABIERTA' && saldo > 0,
         pagador: { nombre: c.nombre_pagador, esAnfitrion: c.es_anfitrion === true },
-        cotizacion: aRespuesta(cotizacion, c.moneda_codigo),
+        // Cuenta de mesa: personaRef, pagadorRef y el prefijo de cada `ref` salen con el ref opaco del miembro (PR 9).
+        cotizacion: c.mesa_compartida_id === null ? cotRespuesta : opacarCotizacionMesa(cotRespuesta, String(c.mesa_compartida_id)),
         pagadoCentavos: Number(c.pagado_centavos),
         saldoCentavos: saldo,
         pagos: (pagosPor.get(String(id)) ?? []).map((p) => ({

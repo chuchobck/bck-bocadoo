@@ -26,6 +26,13 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 - Desaparece el modo `aplicarSeleccion: false` (1 almuerzo por miembro, cotización informativa y `cuentas: []`).
 - Reintentar con la misma llave una mesa validada antes del PR 9 sigue respondiendo `yaValidada: true` con sus cuentas.
 
+#### Ids opacos de los miembros de una mesa (incompatible en valores, mismo tipo)
+
+- **Campo nuevo `miembros[].ref`** (`string`, 22 caracteres base64url) en todas las vistas de mesa: `GET/POST /v1/mis/mesas*`, `PUT …/seleccion`, `…/salir`, `…/cancelar`, `POST /v1/mesas/invitacion/{id}/unirse`, `GET /v1/caja/mesas/{id}` y `POST /v1/caja/mesas/{id}/validar`. Es estable entre llamadas, igual para el comensal, el anfitrión y la caja, y distinto entre miembros y entre mesas.
+- **Cambio de valor** (mismo tipo `string`): en las cotizaciones y cuentas **de mesa**, `lineas[].personaRef`, `lineas[].pagadorRef` y `porPagador[].pagadorRef` traen ese `ref` en lugar del id interno del miembro. El prefijo de `lineas[].ref` y `avisos[].lineaRef` también: antes `"57:almuerzo#1"`, ahora `"q2Zk8f0sXn1Yb7RtLm4wPa:almuerzo#1"`. Vale igual en `cuentas` de validar y en `GET /v1/caja/cuentas`, `GET /v1/caja/cuentas/{id}`, `…/cobrar` y `…/anular` de una cuenta de mesa.
+- No cambia: pedidos y QR siguen con `personaRef`/`pagadorRef` `"0"` y refs `almuerzo`, `extra:i`, `carta:i`, `item:<plato>`; los ids de otras entidades (mesa, cuenta, plato, oferta, consumo) tampoco. Montos, orden de líneas y avisos son los mismos.
+- Para relacionar una línea con su miembro: `linea.personaRef === miembro.ref` (y `linea.pagadorRef` con el que paga). El `ref` no es un id de base de datos y no sirve como entrada de ningún endpoint.
+
 ### `consumoPrevio` al responder `DUPLICADO` en `POST /v1/caja/validar`
 
 **Sin migración, sin cambio incompatible** (campo nuevo y opcional; `pnpm openapi:breaking`: 0 errores). Cuando `resultado` es `DUPLICADO`, la respuesta ahora suma `consumoPrevio: { creadoEn }` con la hora del canje anterior (de hace menos de 60 s) que lo causó: el consumo real si la persona tiene plan, o la hora en que se abrió su primera cuenta QR si no tiene plan (PR 6b). Con `LIMITE_SAAS` no aparece (`consumoPrevio` queda `undefined`). Sirve para que la caja le muestre a quién atendió hace un momento, en vez de solo "ya fue validado".
@@ -3691,6 +3698,7 @@ Response `200`:
   "cubiertos": 1,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -3738,6 +3746,7 @@ Response `200`:
   "cubiertos": 2,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5062,6 +5071,7 @@ Response `201`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5112,6 +5122,7 @@ Response `200`:
     "validadaEn": null,
     "miembros": [
       {
+        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
         "nombre": "Ana Mora",
         "esAnfitrion": true,
         "paraLlevar": false,
@@ -5154,6 +5165,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5280,6 +5292,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5378,6 +5391,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,

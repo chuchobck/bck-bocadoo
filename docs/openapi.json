@@ -1852,6 +1852,7 @@
                     "validadaEn": "2026-11-13T17:00:00.000Z",
                     "miembros": [
                       {
+                        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
@@ -2126,6 +2127,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -2429,6 +2431,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -9817,6 +9820,7 @@
                   "cubiertos": 2,
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -10118,6 +10122,7 @@
                   "cubiertos": 2,
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -17349,6 +17354,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -17640,6 +17646,7 @@
                     "validadaEn": "2026-11-13T17:00:00.000Z",
                     "miembros": [
                       {
+                        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
@@ -17882,6 +17889,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18190,6 +18198,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18508,6 +18517,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18806,6 +18816,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -19295,6 +19306,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -26417,16 +26429,17 @@
           "ref": {
             "type": "string",
             "example": "almuerzo#1",
-            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`."
+            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`. En una mesa empieza por el `ref` opaco del miembro (`<ref>:almuerzo#1`)."
           },
           "personaRef": {
             "type": "string",
-            "example": "0"
+            "example": "0",
+            "description": "De quién es la línea: `\"0\"` en pedidos y QR; en una mesa, el `ref` opaco del miembro (`miembros[].ref`)"
           },
           "pagadorRef": {
             "type": "string",
             "example": "0",
-            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO)"
+            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO). Mismo formato que `personaRef`"
           },
           "tipo": {
             "type": "string",
@@ -26520,7 +26533,8 @@
         "properties": {
           "pagadorRef": {
             "type": "string",
-            "example": "0"
+            "example": "0",
+            "description": "Mismo formato que `lineas[].pagadorRef`"
           },
           "subtotal": {
             "type": "number"
@@ -26549,7 +26563,8 @@
           },
           "lineaRef": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "El `ref` de la línea (en una mesa, con el `ref` opaco del miembro)"
           }
         },
         "required": ["codigo", "lineaRef"]
@@ -27274,6 +27289,13 @@
       "MiembroMesaResponse": {
         "type": "object",
         "properties": {
+          "ref": {
+            "type": "string",
+            "example": "q2Zk8f0sXn1Yb7RtLm4wPa",
+            "minLength": 22,
+            "maxLength": 22,
+            "description": "Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint."
+          },
           "nombre": {
             "type": "string",
             "example": "Ana Pérez"
@@ -27315,7 +27337,17 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "salio", "tieneCuenta", "almuerzosDisponibles", "seleccion", "cotizacion"]
+        "required": [
+          "ref",
+          "nombre",
+          "esAnfitrion",
+          "paraLlevar",
+          "salio",
+          "tieneCuenta",
+          "almuerzosDisponibles",
+          "seleccion",
+          "cotizacion"
+        ]
       },
       "MesaVistaResponse": {
         "type": "object",
@@ -29027,6 +29059,13 @@
       "MiembroMesa": {
         "type": "object",
         "properties": {
+          "ref": {
+            "type": "string",
+            "example": "q2Zk8f0sXn1Yb7RtLm4wPa",
+            "minLength": 22,
+            "maxLength": 22,
+            "description": "Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint."
+          },
           "nombre": {
             "type": "string"
           },
@@ -29065,7 +29104,7 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo", "salio", "seleccion", "cotizacion"]
+        "required": ["ref", "nombre", "esAnfitrion", "paraLlevar", "soyYo", "salio", "seleccion", "cotizacion"]
       },
       "SeleccionAlmuerzoDto": {
         "type": "object",

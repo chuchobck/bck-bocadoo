@@ -56,8 +56,18 @@ describe.skipIf(!probe)('Fase 8: mesas compartidas por link', () => {
     expect(j.statusCode, j.body).toBe(200);
     expect(j.json().soyAnfitrion).toBe(false);
     expect(j.json().miembros).toEqual([
-      { nombre: 'Comensal Prueba', esAnfitrion: true, paraLlevar: false, soyYo: false, salio: false, seleccion: null, cotizacion: null },
       {
+        ref: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+        nombre: 'Comensal Prueba',
+        esAnfitrion: true,
+        paraLlevar: false,
+        soyYo: false,
+        salio: false,
+        seleccion: null,
+        cotizacion: null,
+      },
+      {
+        ref: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
         nombre: 'Comensal Prueba',
         esAnfitrion: false,
         paraLlevar: true,
