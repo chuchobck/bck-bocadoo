@@ -8,6 +8,17 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 9: cambios incompatibles anunciados
+
+**Sin migración.** Lleva la etiqueta `cambio-incompatible`.
+
+#### `extras` deprecado (sin cambio de comportamiento)
+
+`extras` queda marcado `deprecated: true` en el OpenAPI de la **entrada** de `POST /v1/mis/pedidos`, `POST /v1/mis/pedidos/cotizar` y `PUT /v1/mis/mesas/{id}/seleccion`. Sigue validando, cotizando y cobrando exactamente igual. Las respuestas no cambian: `seleccion.extras` (comensal y caja) y `extras` de `/v1/caja/pedidos` quedan como estaban. Cuando llega `extras` con algo, el backend registra un log `extras_deprecado_usado` (id público del local y ruta, sin datos del comensal) para saber cuándo se puede retirar.
+
+- En pedidos, `extras` solo acepta platos con precio del **menú publicado de hoy**. Un plato de la carta fija que no está en el menú de hoy responde 422 `PLATO_NO_DISPONIBLE`, y sin menú publicado responde 409 `MENU_NO_PUBLICADO`: para la carta usa `cartaItems`.
+- En la selección de mesa, `extras` acepta carta fija o menú de hoy y todavía no tiene reemplazo; se anunciará antes de retirarlo.
+
 ### `consumoPrevio` al responder `DUPLICADO` en `POST /v1/caja/validar`
 
 **Sin migración, sin cambio incompatible** (campo nuevo y opcional; `pnpm openapi:breaking`: 0 errores). Cuando `resultado` es `DUPLICADO`, la respuesta ahora suma `consumoPrevio: { creadoEn }` con la hora del canje anterior (de hace menos de 60 s) que lo causó: el consumo real si la persona tiene plan, o la hora en que se abrió su primera cuenta QR si no tiene plan (PR 6b). Con `LIMITE_SAAS` no aparece (`consumoPrevio` queda `undefined`). Sirve para que la caja le muestre a quién atendió hace un momento, en vez de solo "ya fue validado".

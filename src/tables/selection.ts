@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsInt, IsOptional, Matches, Max, Min, ValidateNested } from 'class-validator';
 import type { AuthUser } from '../authz/current-user';
+import { avisarExtrasDeprecado } from '../common/deprecaciones';
 import { badRequest, conflict, notFound, unprocessable } from '../common/errors';
 import { DbService, Queryable } from '../db/db.service';
 import { UUID_RE, HOY_LOCAL, restaurantePausado } from '../diner/common';
@@ -49,7 +50,13 @@ export class SeleccionDto {
   @ValidateNested()
   @Type(() => SeleccionAlmuerzoDto)
   almuerzo?: SeleccionAlmuerzoDto;
-  @ApiPropertyOptional({ type: [SeleccionExtraDto], description: 'Platos sueltos con cantidad; un mismo plato no se repite' })
+  @ApiPropertyOptional({
+    type: [SeleccionExtraDto],
+    deprecated: true,
+    description:
+      'Platos sueltos con cantidad; un mismo plato no se repite. **Deprecado (PR 9):** sigue funcionando igual (carta fija o menú de ' +
+      'hoy); se reemplazará en un PR futuro anunciado.',
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)
@@ -194,6 +201,7 @@ export class TableSelectionService {
         await q.query<{
           mesa_compartida_id: string;
           restaurante_id: string;
+          restaurante_public_id: string;
           miembro_id: string;
           mesa_estado: string;
           validada_en: Date | null;
@@ -201,7 +209,7 @@ export class TableSelectionService {
           hoy: string;
           salio: boolean;
         }>(
-          `SELECT m.mesa_compartida_id, m.restaurante_id, x.miembro_id, m.estado AS mesa_estado, m.validada_en, x.salio_en IS NOT NULL AS salio,
+          `SELECT m.mesa_compartida_id, m.restaurante_id, r.public_id AS restaurante_public_id, x.miembro_id, m.estado AS mesa_estado, m.validada_en, x.salio_en IS NOT NULL AS salio,
                   r.estado AS restaurante_estado, ${HOY_LOCAL('r')}::text AS hoy
              FROM mesa_compartida m
              JOIN restaurante r ON r.restaurante_id = m.restaurante_id
@@ -211,6 +219,7 @@ export class TableSelectionService {
         )
       ).rows[0];
       if (!m) throw notFound('MESA_NO_ENCONTRADA', 'Mesa no encontrada.');
+      avisarExtrasDeprecado(dto.extras, String(m.restaurante_public_id), 'PUT /v1/mis/mesas/{id}/seleccion');
       if (m.salio) throw saliste();
       if (m.validada_en || !['ABIERTA', 'EN_CAMINO'].includes(m.mesa_estado))
         throw conflict('MESA_CERRADA', 'La mesa ya no admite cambios en la selección.');

@@ -28479,6 +28479,8 @@
           },
           "extras": {
             "maxItems": 10,
+            "deprecated": true,
+            "description": "**Deprecado (PR 9):** sigue funcionando igual (platos con precio del menú de hoy). Para la carta fija usa `cartaItems`; `extras` se retirará en un PR futuro anunciado.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtraDto"
@@ -29120,7 +29122,8 @@
             ]
           },
           "extras": {
-            "description": "Platos sueltos con cantidad; un mismo plato no se repite",
+            "deprecated": true,
+            "description": "Platos sueltos con cantidad; un mismo plato no se repite. **Deprecado (PR 9):** sigue funcionando igual (carta fija o menú de hoy); se reemplazará en un PR futuro anunciado.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SeleccionExtraDto"

@@ -26,6 +26,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
+import { avisarExtrasDeprecado } from '../common/deprecaciones';
 import { Roles } from '../authz/roles.decorator';
 import { CheckoutModule } from '../checkout/checkout.module';
 import { CheckoutService, PERSONAL_ACTUAL, RESULTADOS, type Resultado } from '../checkout/checkout';
@@ -152,7 +153,14 @@ export class CrearPedidoDto {
   @IsBoolean()
   paraLlevar?: boolean;
   @ApiPropertyOptional({ type: AlmuerzoDto }) @IsOptional() @ValidateNested() @Type(() => AlmuerzoDto) almuerzo?: AlmuerzoDto;
-  @ApiPropertyOptional({ type: [ExtraDto], maxItems: MAX_ITEMS_PEDIDO })
+  @ApiPropertyOptional({
+    type: [ExtraDto],
+    maxItems: MAX_ITEMS_PEDIDO,
+    deprecated: true,
+    description:
+      '**Deprecado (PR 9):** sigue funcionando igual (platos con precio del menú de hoy). Para la carta fija usa `cartaItems`; ' +
+      '`extras` se retirará en un PR futuro anunciado.',
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(MAX_ITEMS_PEDIDO)
@@ -990,6 +998,7 @@ export class DinerOrdersController {
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'OFERTA_NO_APLICA_ALMUERZO', 'OFERTA_SIN_PLATO'],
   })
   create(@CurrentUser() user: AuthUser, @Body() dto: CrearPedidoDto, @IdempotencyKey() key: string) {
+    avisarExtrasDeprecado(dto.extras, dto.restaurante, 'POST /v1/mis/pedidos');
     return this.svc.create(user, dto, key);
   }
 
@@ -1021,6 +1030,7 @@ export class DinerOrdersController {
     422: ['PLATO_NO_DISPONIBLE', 'PLATO_SIN_PRECIO', 'OFERTA_NO_APLICA_ALMUERZO', 'OFERTA_SIN_PLATO'],
   })
   cotizar(@CurrentUser() user: AuthUser, @Body() dto: CrearPedidoDto) {
+    avisarExtrasDeprecado(dto.extras, dto.restaurante, 'POST /v1/mis/pedidos/cotizar');
     return this.svc.cotizar(user, dto);
   }
 
