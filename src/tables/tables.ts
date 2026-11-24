@@ -332,7 +332,6 @@ export class TablesService {
       mesaId: m.mesa_compartida_id,
       restauranteId: m.restaurante_id,
       modo: m.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
-      base: 'seleccion',
       miembros: activos.map((x) => ({
         miembroId: String(x.miembro_id),
         esAnfitrion: x.es_anfitrion,

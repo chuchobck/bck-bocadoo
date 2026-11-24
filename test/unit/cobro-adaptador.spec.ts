@@ -177,9 +177,8 @@ describe('cotizacionesDeMesa', () => {
     seleccion: null,
     ...o,
   });
-  const mesa = (modo: MesaParaCobro['modo'], miembros: MiembroParaCobro[], base: MesaParaCobro['base'] = 'seleccion'): MesaParaCobro => ({
+  const mesa = (modo: MesaParaCobro['modo'], miembros: MiembroParaCobro[]): MesaParaCobro => ({
     modo,
-    base,
     miembros,
     precioAlmuerzo: P,
     ...precios,
@@ -219,18 +218,6 @@ describe('cotizacionesDeMesa', () => {
     expect(r.porMiembro.get('h')).toMatchObject({ subtotalCentavos: P + 200 });
     expect(r.porMiembro.get('a')!.lineas.map((l) => l.tipo)).toEqual(['EXTRA']);
     expect(r.porMiembro.get('a')).toMatchObject({ subtotalCentavos: 75 });
-  });
-
-  it("base 'un-almuerzo' (E.5) ignora la selección: 1 almuerzo y su paraLlevar", () => {
-    const r = cotizacionesDeMesa(
-      mesa(
-        'CADA_UNO',
-        [miembro('h', { paraLlevar: true, seleccion: { almuerzo: false, extras: [plato('Cola', 'BEBIDA', 100)] } }), miembro('a')],
-        'un-almuerzo',
-      ),
-    );
-    expect(r.porMiembro.get('h')!.lineas.map((l) => l.tipo)).toEqual(['ALMUERZO']);
-    expect(r.mesa).toMatchObject({ subtotalCentavos: 2 * P, recargoCentavos: R });
   });
 
   it('un plato agotado se omite; un almuerzo con un plato agotado solo avisa', () => {

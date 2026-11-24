@@ -276,12 +276,8 @@ export interface MiembroParaCobro {
 export interface MesaParaCobro extends Precios {
   modo: 'CADA_UNO' | 'INVITO_YO';
   /** En el orden de la mesa: anfitrión primero, luego (unido_en, miembro_id). */
+  /** Cada miembro con lo que eligió; sin selección = 1 almuerzo (E.6, I-4). */
   miembros: MiembroParaCobro[];
-  /**
-   * 'seleccion' (E.6): cada miembro con lo que eligió; sin selección = 1 almuerzo (I-4).
-   * 'un-almuerzo' (E.5, validar sin `aplicarSeleccion`): cada miembro con 1 almuerzo, sin extras.
-   */
-  base: 'seleccion' | 'un-almuerzo';
 }
 
 /** Quién paga a cada miembro (D6): el anfitrión en INVITO_YO, cada uno en CADA_UNO. */
@@ -299,7 +295,7 @@ export function entradaMesa(mesa: MesaParaCobro): EntradaCobro {
   }));
   const items: ItemCobro[] = [];
   for (const m of mesa.miembros) {
-    const sel = mesa.base === 'seleccion' ? m.seleccion : null;
+    const sel = m.seleccion;
     const vacia = !sel || (!sel.almuerzo && sel.extras.length === 0 && !sel.ofertas?.length);
     if (vacia || sel!.almuerzo) {
       const l = lineaAlmuerzoOferta(m.ref, `${m.ref}:almuerzo`, mesa.precioAlmuerzo, sel?.almuerzoOferta);

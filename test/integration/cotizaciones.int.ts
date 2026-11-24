@@ -537,8 +537,8 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
 
   // --------------------------------------------------------------------------------------------------------------
 
-  describe('POST /v1/caja/mesas/{id}/validar con aplicarSeleccion false: cotizacion informativa (E.5)', () => {
-    it('trae la cotización de 1 almuerzo por miembro con su paraLlevar y no cambia descuentos ni porCobrar', async () => {
+  describe('POST /v1/caja/mesas/{id}/validar sin cuerpo: cotización final de la selección (PR 9 retiró aplicarSeleccion)', () => {
+    it('cobra la selección de cada miembro con el plan de antes de descontar y su paraLlevar; el reintento no descuenta', async () => {
       const o = await k.activeOwner();
       const ids = await k.menu(o);
       const host = await k.dinerWithPlan(o);
@@ -547,55 +547,54 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
       const m = (await k.as(host).post('/v1/mis/mesas', { restaurante: o.restaurante, horaLlegada: inMinutes(30) }, randomUUID())).json();
       await k.as(guest).post(`/v1/mesas/invitacion/${m.id}/unirse`, { paraLlevar: true }, randomUUID());
       await k.as(sinPlan).post(`/v1/mesas/invitacion/${m.id}/unirse`, {}, randomUUID());
-      // La selección del tercero (solo una cola) NO entra en la informativa de validar: E.5 literal, 1 almuerzo cada uno.
+      // El tercero solo pide una Cola (BEBIDA, 100): no lleva almuerzo.
       await k.as(sinPlan).put(`/v1/mis/mesas/${m.id}/seleccion`, { extras: [{ plato: ids['Cola']!, cantidad: 1 }] });
       const previa = (await k.as(o).get(`/v1/caja/mesas/${m.id}`)).json();
       expect(previa.miembros[2].cotizacion.lineas.map((l: { tipo: string }) => l.tipo)).toEqual(['BEBIDA']);
 
       const saldoAntes = (await filas())!.saldo;
       const key = randomUUID();
-      // aplicarSeleccion: false = lo de antes del PR 6 (1 almuerzo por miembro, sin cuentas).
-      const legacy = { aplicarSeleccion: false };
-      const r = await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, legacy, key);
+      const r = await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, key);
       expect(r.statusCode, r.body).toBe(200);
       const v = r.json();
-      // Lo de siempre.
-      expect(v).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 1, estado: 'EN_MESA' });
-      expect(v.resultados.map((x: { resultado: string }) => x.resultado)).toEqual(['OK', 'OK', 'SIN_PLAN']);
+      expect(v).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 0, estado: 'EN_MESA' });
+      expect(v.resultados.map((x: { resultado: string }) => x.resultado)).toEqual(['OK', 'OK', 'SIN_ALMUERZO']);
       expect(Number((await filas())!.saldo)).toBe(Number(saldoAntes) - 2);
-      // Lo nuevo: un almuerzo por miembro, con el plan de ANTES de descontar y su paraLlevar.
       expect(v.cotizacion).toMatchObject({
-        estimada: true,
-        subtotalCentavos: 3 * P,
+        estimada: false,
+        subtotalCentavos: 2 * P + 100,
         recargoCentavos: R,
         cubiertoPorPlanCentavos: 2 * P,
-        saldoPorCobrarCentavos: R + P,
+        saldoPorCobrarCentavos: R + 100,
         monedaCodigo: 'USD',
       });
       expect(v.cotizacion.lineas.map((l: { tipo: string; fuente: string }) => [l.tipo, l.fuente])).toEqual([
         ['ALMUERZO', 'PLAN'],
         ['ALMUERZO', 'PLAN'],
-        ['ALMUERZO', 'CAJA'],
+        ['BEBIDA', 'CAJA'],
       ]);
       expect(v.miembros.map((x: { cotizacion: { saldoPorCobrarCentavos: number } }) => x.cotizacion.saldoPorCobrarCentavos)).toEqual([
         0,
         R,
-        P,
+        100,
       ]);
 
-      // Reintento (misma clave y otra): sigue sin descontar y reconstruye la misma cotización desde la base.
+      // Reintento (misma clave y otra): no descuenta y reconstruye los mismos montos desde la base.
+      const montos = (c: Record<string, unknown>) => [
+        c.subtotalCentavos,
+        c.recargoCentavos,
+        c.cubiertoPorPlanCentavos,
+        c.saldoPorCobrarCentavos,
+      ];
       for (const kk of [key, randomUUID()]) {
-        const again = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, legacy, kk)).json();
+        const again = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, kk)).json();
         expect(again).toMatchObject({ yaValidada: true, resultados: [] });
-        expect(again.cotizacion).toEqual(v.cotizacion);
-        expect(again.miembros.map((x: { cotizacion: unknown }) => x.cotizacion)).toEqual(
-          v.miembros.map((x: { cotizacion: unknown }) => x.cotizacion),
-        );
+        expect(montos(again.cotizacion)).toEqual(montos(v.cotizacion));
       }
       expect(Number((await filas())!.saldo)).toBe(Number(saldoAntes) - 2);
     });
 
-    it('INVITO_YO: la informativa reparte el plan del anfitrión y avisa PLAN_NO_ALCANZA; porCobrar sigue siendo el de hoy', async () => {
+    it('INVITO_YO: reparte el plan del anfitrión y avisa PLAN_NO_ALCANZA; porCobrar 1', async () => {
       const o = await k.activeOwner();
       await k.menu(o);
       const host = await k.dinerWithPlan(o, { almuerzos: 2, vigenciaDias: 30 });
@@ -603,11 +602,12 @@ describe.skipIf(!probe)('PR 3: cotizaciones informativas (pedidos, mesas y valid
         await k.as(host).post('/v1/mis/mesas', { restaurante: o.restaurante, horaLlegada: inMinutes(30), modo: 'INVITO_YO' }, randomUUID())
       ).json();
       for (let i = 0; i < 2; i++) await k.as(await k.diner()).post(`/v1/mesas/invitacion/${m.id}/unirse`, {}, randomUUID());
-      const v = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, { aplicarSeleccion: false }, randomUUID())).json();
+      const v = (await k.as(o).post(`/v1/caja/mesas/${m.id}/validar`, undefined, randomUUID())).json();
       expect(v).toMatchObject({ descontados: 2, porCobrar: 1 });
       expect(v.cotizacion).toMatchObject({ cubiertoPorPlanCentavos: 2 * P, saldoPorCobrarCentavos: P });
       expect(v.cotizacion.avisos).toEqual([expect.objectContaining({ codigo: 'PLAN_NO_ALCANZA' })]);
       expect(v.cotizacion.porPagador).toHaveLength(1);
+      expect(v.cuentas.map((c: { saldoCentavos: number }) => c.saldoCentavos)).toEqual([P]);
     });
   });
 });

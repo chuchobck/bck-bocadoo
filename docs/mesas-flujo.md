@@ -9,8 +9,8 @@ aviso en tiempo real, en [`qr-flujo.md`](./qr-flujo.md).
 > **Desde el PR 6a (entrega D)** la caja **cobra lo que eligió cada comensal** al validar: descuenta los planes y abre
 > una cuenta por pagador con saldo (`origen: MESA`), que se cobra después en `POST /v1/caja/cuentas/{id}/cobrar`. Un
 > invitado puede **salir** de la mesa antes de la caja (`POST /v1/mis/mesas/{id}/salir`). Lo de esta guía que habla de
-> «1 almuerzo por miembro» y «por cobrar sin registro» es el comportamiento anterior, que sigue disponible con
-> `{ "aplicarSeleccion": false }`. Contrato en [`docs/api-contrato.md`](./api-contrato.md#novedades) y diseño en
+> «1 almuerzo por miembro» y «por cobrar sin registro» es el comportamiento anterior; estuvo disponible con
+> `{ "aplicarSeleccion": false }` hasta el PR 9, que lo retiró (ahora ese cuerpo da 400). Contrato en [`docs/api-contrato.md`](./api-contrato.md#novedades) y diseño en
 > [`docs/spec-cobros.md`](./spec-cobros.md) (D, E.5–E.7).
 
 ## 1. Resumen del flujo
@@ -65,8 +65,8 @@ Cada almuerzo sale del plan que vence primero (FIFO) y queda en el historial del
 la prueba `diner-tables.int.ts`: `GET /v1/mis/consumos` → `canal: "MESA"`).
 
 Desde el PR 6a, lo que falta pagar **queda registrado en cuentas** (`cuentas` en la respuesta de validar): la caja las
-cobra con `POST /v1/caja/cuentas/{id}/cobrar` o las anula. Con `aplicarSeleccion: false` sigue lo anterior: el "por
-cobrar" no genera registro y el cajero lo cobra como venta suelta.
+cobra con `POST /v1/caja/cuentas/{id}/cobrar` o las anula. (`aplicarSeleccion: false`, que dejaba el "por cobrar" sin
+registro, se retiró en el PR 9.)
 
 ## 2. Endpoints
 
@@ -209,8 +209,8 @@ considera los días válidos del plan, el límite SaaS ni el duplicado (sección
 
 #### `POST /v1/caja/mesas/{id}/validar` — validar toda la mesa
 
-- **Rol:** `DUENO` o `CAJERO`. **Cabecera obligatoria:** `Idempotency-Key` (UUID). Cuerpo opcional
-  `{ "aplicarSeleccion": true }` (default; `false` = 1 almuerzo por miembro como antes).
+- **Rol:** `DUENO` o `CAJERO`. **Cabecera obligatoria:** `Idempotency-Key` (UUID). **Sin cuerpo**
+  (o `{}`). Desde el PR 9 cualquier campo, también `aplicarSeleccion`, → `400 BAD_REQUEST`.
 - **Pantalla:** _Validar en caja_ (botón "Validar mesa").
 - **Response `200`:** la vista previa más:
 
@@ -219,7 +219,7 @@ considera los días válidos del plan, el límite SaaS ni el duplicado (sección
 | `yaValidada`  | boolean | `true` si la mesa ya estaba validada: no se descontó nada                                                        |
 | `resultados`  | arreglo | Uno por miembro que sigue en la mesa, en orden de unión: `{miembro, resultado, descontado, consumoId, cuentaId}` |
 | `descontados` | número  | Cuántos almuerzos se descontaron                                                                                 |
-| `porCobrar`   | número  | Almuerzos que van a una cuenta a precio suelto (con `aplicarSeleccion: false`: miembros no descontados)          |
+| `porCobrar`   | número  | Almuerzos que van a una cuenta a precio suelto                                                                   |
 | `cuentas`     | arreglo | Cuentas `ABIERTA` de la mesa (PR 6a): una por pagador con saldo; una sola del anfitrión en `INVITO_YO`           |
 | `avisos`      | arreglo | `PLAN_NO_ALCANZA`, `PLATO_AGOTADO`, `DUPLICADO`, `LIMITE_SAAS`                                                   |
 
@@ -229,8 +229,8 @@ pidió almuerzo (PR 6a). `consumoId` sirve para
 `POST /v1/caja/consumos/{id}/deshacer` (10 s). Quien no tiene ficha de cliente (o el anfitrión sin ficha en `INVITO_YO`) sale como `SIN_PLAN`.
 
 > **Repetir la petición** (misma llave u otra) sobre una mesa ya validada responde `200` con `yaValidada: true`,
-> `resultados: []`, `avisos: []` y **las mismas `cuentas`** (PR 6a), sin descontar ni crear nada. La misma llave con otro
-> `aplicarSeleccion` → `409 IDEMPOTENCY_KEY_REUTILIZADA`.
+> `resultados: []`, `avisos: []` y **las mismas `cuentas`** (PR 6a), sin descontar ni crear nada. Un cuerpo con campos →
+> `400 BAD_REQUEST` (PR 9).
 
 La vista previa y la validación **no** se pueden hacer desde `/v1/mis/*`, y el comensal **no** tiene forma de validar su propia mesa.
 
@@ -432,7 +432,7 @@ Mostrar por cada miembro su `resultado` y destacar los `descontado: false` como 
 - **Solo en `POST /v1/caja/mesas/{id}/validar`.** Crear, unirse, cancelar y consultar no tocan ningún saldo.
 - Se descuenta **el almuerzo que pidió cada miembro** (sin selección cuenta 1; si solo pidió platos sueltos, ninguno),
   del plan `ACTIVA` que vence primero y que vale hoy (`dias_validos` incluye el día de hoy del local). `paraLlevar` de
-  cada miembro queda en su consumo. Con `aplicarSeleccion: false`, 1 almuerzo por miembro como antes.
+  cada miembro queda en su consumo.
 - Los miembros que salieron no se descuentan ni se cobran.
 - Todo ocurre en **una sola transacción**: la mesa pasa a `EN_MESA` y `validadaEn` se fija junto con los descuentos. Un fallo
   deja todo como estaba.
@@ -462,7 +462,7 @@ Mostrar por cada miembro su `resultado` y destacar los `descontado: false` como 
 - **`CADA_UNO`: sí aplica por miembro.** Si un miembro fue validado hace menos de 60 s en ese local (por ejemplo la caja
   escaneó su QR justo antes de validar la mesa), su resultado en la mesa es `DUPLICADO`, `descontado: false`. Desde el
   PR 6a **ese almuerzo no se cobra** (queda omitido con el aviso `DUPLICADO`: ya comió); sus demás platos sí van a su
-  cuenta. Con `aplicarSeleccion: false` cuenta como "por cobrar", como antes.
+  cuenta.
 - El **reintento** de la misma mesa **no** produce `DUPLICADO` (devuelve `yaValidada`).
 - Una mesa `CADA_UNO` validada no bloquea al comensal en el QR normal después de 60 s.
 

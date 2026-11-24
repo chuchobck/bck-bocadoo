@@ -191,7 +191,7 @@ Verificado con `pg_proc.proacl`, `prosecdef`, `proconfig` y `md5(prosrc)` antes 
 
 - **Reintento de un canje sin cuenta con el almuerzo omitido** (`yaCanjeado: true`): la cotización se reconstruye como `SIN_PLAN` porque no se guarda el resultado del primer canje, así que `porCobrarCentavos` del reintento vuelve a pedir P (+ R). Solo pasa con `DUPLICADO`/`LIMITE_SAAS` y saldo 0 (sin cuenta).
 - **Local `PAUSADO` con P = 0**: el PATCH lo permite (la regla es para `ACTIVO`) y la caja sigue atendiendo un local pausado, así que un QR o canje sin plan sigue sin cotización ni cuenta. Se puede cerrar exigiendo P > 0 también en `PAUSADO` o con un CHECK en la base cuando la consulta de Neon dé 0 filas.
-- **Validar mesa con `aplicarSeleccion: false`**: sin cambios (PR 9).
+- ~~**Validar mesa con `aplicarSeleccion: false`**: sin cambios (PR 9).~~ Retirado en el PR 9.
 - **Candados de mesa `CADA_UNO` contra un QR del mismo miembro** (sin verificar con prueba): la mesa descuenta miembro por miembro en una transacción y la fila SaaS queda tomada desde el primero; un QR simultáneo de otro miembro toma su ficha y luego espera la fila SaaS. Ya existía con el orden anterior; el nuevo lo reduce (quien no tiene plan no toma la fila SaaS).
 
 ## Cuenta automática del QR (entrega D, PR 6b; mezclado en `main`)
@@ -216,7 +216,7 @@ Verificado con `pg_proc.proacl`, `prosecdef`, `proconfig` y `md5(prosrc)` antes 
 ### Huecos en otras rutas (no se cambiaron en este PR; los de canje, `LIMITE_SAAS` y P = 0 se cerraron en el PR 6c)
 
 - **Canje de pedido sin `cobro`** (`POST /v1/caja/pedidos/{id}/canjear`): sigue sin cuenta; `porCobrarCentavos` informa lo que falta, pero el almuerzo suelto de un pedido sin plan (y el recargo y los extras) no queda registrado. Propuesta: la misma regla del QR (saldo > 0 → cuenta `ABIERTA`), sin `SALDO_CAMBIO` cuando no hay `cobro` (la confirmación de I-6 solo aplica a quien cobra), anunciada como cambio de comportamiento.
-- **Validar mesa con `aplicarSeleccion: false`**: 1 almuerzo por miembro y `cuentas: []`; quien no tiene plan queda en `porCobrar` sin cuenta. Propuesta: retirar la opción cuando el frontend de caja esté en el default, o abrir cuentas también ahí.
+- ~~**Validar mesa con `aplicarSeleccion: false`**: 1 almuerzo por miembro y `cuentas: []`; quien no tiene plan queda en `porCobrar` sin cuenta.~~ **Cerrado en el PR 9**: se retiró la opción (cualquier campo en el cuerpo → 400).
 - **`LIMITE_SAAS` de un cliente sin plan**: `fn_descontar_almuerzo` mira el límite SaaS antes que el plan, así que una ficha sin plan en un local suspendido responde `LIMITE_SAAS` y no se cobra su almuerzo suelto (I-10 pensaba en lo ya prepagado). En cambio, un QR de alguien que no es cliente nunca pasa por la función y sí abre cuenta. Propuesta: en `LIMITE_SAAS`, si la persona no tiene plan vigente, cobrar a P (necesita consultar el plan aparte o cambiar el orden en la función: migración).
 - **P = 0** sin `items` ni `cobro`: el almuerzo y el recargo para llevar no se cobran (decisión de este PR). Propuesta: exigir P > 0 también en `PATCH /v1/restaurante` de un local `ACTIVO`.
 - **POS y canje de oferta**: cobran en el momento (pago en la misma transacción); sin hueco.
