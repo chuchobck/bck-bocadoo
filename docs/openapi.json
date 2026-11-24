@@ -26559,7 +26559,15 @@
         "properties": {
           "codigo": {
             "type": "string",
-            "enum": ["OFERTA_AGOTADA", "OFERTA_EXPIRADA", "PLATO_AGOTADO", "DUPLICADO", "LIMITE_SAAS", "PLAN_NO_ALCANZA"]
+            "enum": [
+              "OFERTA_AGOTADA",
+              "OFERTA_EXPIRADA",
+              "PLATO_AGOTADO",
+              "DUPLICADO",
+              "LIMITE_SAAS",
+              "PLAN_NO_ALCANZA",
+              "PARA_LLEVAR_DE_LA_ORDEN"
+            ]
           },
           "lineaRef": {
             "type": "string",

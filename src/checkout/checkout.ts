@@ -17,7 +17,7 @@ import { IsBoolean, IsOptional, IsString, Length, Matches, ValidateNested } from
 import { QrSecretService } from '../auth/qr-secret.service';
 import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { Roles } from '../authz/roles.decorator';
-import { ApiProblems, conflict, notFound } from '../common/errors';
+import { ApiProblems, BusinessError, conflict, notFound } from '../common/errors';
 import { CodigoPaseResponse } from '../catalog/dto';
 import { deriveKey, huella } from '../common/derive-key';
 import { PERSONAL_ACTUAL } from '../common/sql';
@@ -53,6 +53,10 @@ import { resolverPlatosSueltos } from '../cobro/platos';
 import { cargarMesaParaCobro, cotizarMesa } from '../cobro/mesa';
 import { opacarAvisos, opacarCotizacionMesa, refMiembro } from '../cobro/refs-mesa';
 import { planVigenteHoySql } from '../cobro/planes';
+// orders.ts importa de aquí (StaffOrdersService usa CheckoutService): un `import` normal de vuelta crearía un ciclo
+// que revienta en tiempo de carga (un decorador de orders.ts leería `RESULTADOS` todavía sin definir). `import()`
+// dinámico, dentro del método, lo evita: para entonces (una petición HTTP) los dos módulos ya cargaron completos.
+const ordersModule = () => import('../orders/orders');
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
 const ID = /^[1-9][0-9]{0,17}$/;
@@ -242,7 +246,7 @@ export class ValidacionResponse {
 }
 
 /** Lo que responde `deduct`: el resultado del descuento, sin cliente ni cobro. */
-type ResultadoDescuento = Omit<ValidacionResponse, 'cliente' | 'cotizacion' | 'cuenta' | 'avisos'>;
+export type ResultadoDescuento = Omit<ValidacionResponse, 'cliente' | 'cotizacion' | 'cuenta' | 'avisos'>;
 
 interface QrCheck {
   resultado: 'VALIDO' | 'QR_EXPIRADO' | 'QR_INVALIDO';
@@ -417,6 +421,53 @@ export class CheckoutService {
     // hay, para que QR y MANUAL del mismo comensal compartan el candado. Antes del candado de fila de fn_descontar_almuerzo.
     const usuarioPersona = usuarioSinCliente ?? (cliente && cliente.usuario_id !== null ? String(cliente.usuario_id) : null);
     await q.query('SELECT pg_advisory_xact_lock(7002, hashtext($1))', [usuarioPersona ? `u:${usuarioPersona}` : `c:${clienteId}`]);
+
+    // PR 10: si este cliente tiene una preorden con almuerzo que la caja pueda cerrar aquí mismo (D1-D8), se cierra con
+    // el mismo camino que `POST /v1/caja/pedidos/{id}/canjear` (sin duplicar su lógica), para que el plan se descuente
+    // una sola vez y la preorden no quede huérfana (EN_CAMINO) después de validarla por QR o manualmente. Una preorden
+    // de solo carta/extras (sin almuerzo) se deja sola (D5): no hay nada que descuadre. Si la preorden expiró o se
+    // canceló justo entre el chequeo y el bloqueo (carrera improbable), se sigue como una validación normal.
+    if (clienteId) {
+      const { canjearOrdenNucleo, loadOrdenCaja, pedidoParaCerrarEnCaja } = await ordersModule();
+      const pedidoId = await pedidoParaCerrarEnCaja(q, clienteId, key);
+      if (pedidoId) {
+        try {
+          const o = await loadOrdenCaja(q, pedidoId, true);
+          const itemsDelCobro = (dto.items ?? []).map((i) => ({ plato: i.plato.toLowerCase(), cantidad: i.cantidad }));
+          const r = await canjearOrdenNucleo(q, o, key, dto.cobro ?? null, eventos, (q2, a) => this.deduct(q2, a), {
+            canal,
+            checkSaldoCambio: false,
+            paraLlevarOverride: dto.paraLlevar,
+            itemsExtra: await resolverPlatosSueltos(q, itemsDelCobro),
+          });
+          if (r.almuerzo) {
+            // `resultado` sale null del núcleo cuando el almuerzo no pasó por un intento de descuento real (cubierto
+            // por su propia oferta, o un reintento de un canje que ya pasó): en los dos casos ya se sirvió sin error,
+            // así que para `validar` (que exige un `resultado` no nulo) el resumen correcto es 'OK'.
+            return {
+              resultado: r.almuerzo.resultado ?? 'OK',
+              mensaje: r.almuerzo.mensaje ?? RESULTADOS.OK,
+              descontado: r.almuerzo.descontado,
+              cliente: clienteId ? { id: clienteId, nombre: cliente!.nombre } : null,
+              consumo: r.almuerzo.consumo,
+              plan: r.almuerzo.plan,
+              almuerzosRestantes: r.almuerzo.almuerzosRestantes,
+              diasParaVencer: r.almuerzo.diasParaVencer,
+              platoNombre: r.almuerzo.platoNombre,
+              cotizacion: r.cotizacion,
+              cuenta: r.cuenta,
+              avisos: r.avisos,
+            };
+          }
+        } catch (e) {
+          // Carrera entre el SELECT de arriba y el FOR UPDATE: la preorden se canceló o venció justo en el medio
+          // (ventana de milisegundos). Esos dos códigos no están en el contrato de `validar`: se sigue como si no
+          // hubiera preorden que cerrar. Cualquier otro error (SALDO_CAMBIO con `cobro` explícito, ALMUERZO_SIN_PRECIO,
+          // IDEMPOTENCY_KEY_REUTILIZADA) sí es de verdad y validar ya lo documenta: se deja propagar.
+          if (!(e instanceof BusinessError) || !['PEDIDO_CANCELADO', 'PEDIDO_EXPIRADO'].includes(e.code)) throw e;
+        }
+      }
+    }
 
     // Idempotencia (F.3): la cuenta guarda la huella del cuerpo. Misma llave con otro cuerpo → 409; con el mismo, la misma respuesta.
     const items = (dto.items ?? []).map((i) => ({ plato: i.plato.toLowerCase(), cantidad: i.cantidad }));

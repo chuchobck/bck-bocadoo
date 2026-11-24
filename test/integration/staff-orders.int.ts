@@ -89,6 +89,85 @@ describe.skipIf(!probe)('Fase 8: preórdenes en la vista del personal', () => {
     expect((await k.as(o).get('/v1/caja/pedidos')).json()).toHaveLength(0);
   });
 
+  describe('PR 10: validar cierra la preorden del cliente (preórdenes huérfanas)', () => {
+    it('D1-D3: un solo escaneo descuenta el plan una vez, cierra la preorden y cobra extras+recargo en una cuenta; sin 409 pese al total viejo', async () => {
+      const { o, d, p } = await setup();
+      const key = randomUUID();
+      const r = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId }, key);
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({
+        resultado: 'OK',
+        descontado: true,
+        consumo: { id: expect.any(String) },
+        cuenta: { estado: 'ABIERTA', saldoCentavos: 100 + 25 },
+      });
+      expect(await saldo(o, d.clienteId)).toBe(4); // un solo almuerzo descontado, no dos
+      expect((await k.as(o).get(`/v1/caja/pedidos/${p.id}`)).json().estado).toBe('CANJEADA');
+      // Canal real del escaneo (MANUAL: se mandó clienteId sin QR), pero con orden_id: en movimientos sale como PEDIDO.
+      const fila = await probe!.sql<{ canal: string; con_orden: boolean }>(
+        `SELECT canal::text, orden_id IS NOT NULL AS con_orden FROM consumo_almuerzo WHERE public_id = $1`,
+        [r.json().consumo.id],
+      );
+      expect(fila.rows[0]).toMatchObject({ canal: 'MANUAL', con_orden: true });
+      // El canje por su propio QR, después, es un reintento idempotente de lo que ya cerró validar (mismo camino).
+      const otraVez = await k.as(o).post(`/v1/caja/pedidos/${p.id}/canjear`, {}, randomUUID());
+      expect(otraVez.statusCode, otraVez.body).toBe(200);
+      expect(otraVez.json()).toMatchObject({ yaCanjeado: true, almuerzo: { descontado: true } });
+      expect(await saldo(o, d.clienteId)).toBe(4);
+    });
+
+    it('D5: una preorden de solo carta/extras (sin almuerzo) se deja sola; validar hace su canje directo aparte', async () => {
+      const o = await k.activeOwner('Caja Preorden Carta');
+      const m = await k.menu(o);
+      const d = await k.dinerWithPlan(o);
+      const soloCarta = (
+        await k.as(d).post('/v1/mis/pedidos', { restaurante: o.restaurante, extras: [{ plato: m.Cola, cantidad: 1 }] }, randomUUID())
+      ).json();
+      const r = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId }, randomUUID());
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toMatchObject({ resultado: 'OK', descontado: true });
+      // La preorden de carta sigue EN_CAMINO: no la tocó.
+      expect((await k.as(o).get(`/v1/caja/pedidos/${soloCarta.id}`)).json().estado).toBe('EN_CAMINO');
+      const canje = await k.as(o).post(`/v1/caja/pedidos/${soloCarta.id}/canjear`, {}, randomUUID());
+      expect(canje.statusCode, canje.body).toBe(200);
+      expect(canje.json()).toMatchObject({ yaCanjeado: false, almuerzo: null, porCobrarCentavos: 100 });
+    });
+
+    it('D8: los items de la caja en validar entran a la MISMA cuenta de la preorden (una sola cuenta)', async () => {
+      const { o, m, d } = await setup();
+      const key = randomUUID();
+      const r = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId, items: [{ plato: m.Cola, cantidad: 2 }] }, key);
+      expect(r.statusCode, r.body).toBe(200);
+      // Cola (de la preorden) + Cola x2 (de validar) + recargo para llevar: una sola cuenta con todo.
+      expect(r.json().cuenta.saldoCentavos).toBe(100 + 200 + 25);
+      expect(r.json().cuenta.cotizacion.lineas.filter((i: { nombre: string }) => i.nombre === 'Cola')).toHaveLength(2);
+    });
+
+    it('D6: paraLlevar de validar que no coincide con el de la preorden se ignora para el cobro (gana el congelado) y solo avisa', async () => {
+      const { o, d } = await setup(); // la preorden pidió paraLlevar: true
+      const r = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId, paraLlevar: false }, randomUUID());
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json().cuenta.saldoCentavos).toBe(100 + 25); // el recargo se sigue cobrando: no cambia por el paraLlevar de validar
+      expect(r.json().avisos).toEqual(expect.arrayContaining([{ codigo: 'PARA_LLEVAR_DE_LA_ORDEN', lineaRef: 'almuerzo' }]));
+    });
+
+    it('D1 (con cobro explícito): si la caja igual manda saldoEsperadoCentavos y no coincide, SALDO_CAMBIO sigue aplicando', async () => {
+      const { o, d } = await setup();
+      const r = await k
+        .as(o)
+        .post(
+          '/v1/caja/validar',
+          { clienteId: d.clienteId, cobro: { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: 999999 } },
+          randomUUID(),
+        );
+      expect(r.statusCode, r.body).toBe(409);
+      expect(r.json().code).toBe('SALDO_CAMBIO');
+      expect(r.json().saldoCentavos).toBe(100 + 25);
+      // No descontó nada: todo se deshizo con el 409.
+      expect(await saldo(o, d.clienteId)).toBe(5);
+    });
+  });
+
   it('sin plan: no descuenta y el almuerzo queda por cobrar; una clave de otra validación → 409', async () => {
     const { o, p } = await setup(false);
     const r = (await k.as(o).post(`/v1/caja/pedidos/${p.id}/canjear`, {}, randomUUID())).json();

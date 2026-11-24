@@ -29,7 +29,7 @@ import { CurrentUser, type AuthUser } from '../authz/current-user';
 import { avisarExtrasDeprecado } from '../common/deprecaciones';
 import { Roles } from '../authz/roles.decorator';
 import { CheckoutModule } from '../checkout/checkout.module';
-import { CheckoutService, PERSONAL_ACTUAL, RESULTADOS, type Resultado } from '../checkout/checkout';
+import { CheckoutService, PERSONAL_ACTUAL, RESULTADOS, UNDO_SECONDS, type ResultadoDescuento, type Resultado } from '../checkout/checkout';
 import { ApiProblems, badRequest, conflict, notFound, unprocessable } from '../common/errors';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
 import { UuidPipe } from '../common/pipes';
@@ -1137,7 +1137,7 @@ export class CanjearPedidoDto {
   cobro?: CobroDto;
 }
 
-interface StaffRow extends OrderRow {
+export interface StaffRow extends OrderRow {
   cliente_nombre: string | null;
   disponibles: number | null;
 }
@@ -1147,6 +1147,337 @@ const STAFF_SELECT = `SELECT x.*, c.nombre AS cliente_nombre,
          WHERE s.restaurante_id = x.restaurante_id_ AND s.cliente_id = c.cliente_id AND ${planVigenteHoySql('s', 'x.fecha_local::date')}) AS disponibles
   FROM (${ORDER_SELECT.replace('SELECT o.orden_id,', 'SELECT o.restaurante_id AS restaurante_id_, o.orden_id,')} WHERE o.restaurante_id = app_tenant_id()) x
   LEFT JOIN cliente_restaurante c ON c.restaurante_id = x.restaurante_id_ AND c.cliente_id = x.cliente_id`;
+
+/** Carga un pedido por su `public_id` (404 si no existe en el tenant); con `lock`, `FOR UPDATE` de su cabecera. */
+export async function loadOrdenCaja(q: Queryable, id: string, lock: boolean): Promise<StaffRow> {
+  if (lock) await q.query('SELECT 1 FROM orden_cabecera WHERE restaurante_id = app_tenant_id() AND public_id = $1 FOR UPDATE', [id]);
+  const r = await q.query<StaffRow>(`${STAFF_SELECT} WHERE x.public_id = $1`, [id]);
+  if (!r.rows[0]) throw notFound('PEDIDO_NO_ENCONTRADO', 'Pedido no encontrado.');
+  return r.rows[0];
+}
+
+/**
+ * ¿Este cliente tiene, hoy, un pedido preordenado con almuerzo que la caja pueda cerrar en el mismo escaneo (PR 10)?
+ * Candidato: EN_CAMINO vigente, o uno que esta MISMA llave ya canjeó (reintento idempotente de quien llama). Null si
+ * no hay ninguno, o si el único que hay es de puro carta/extras (D1, "se deja sola": no tiene almuerzo que descuadre).
+ */
+export async function pedidoParaCerrarEnCaja(q: Queryable, clienteId: string, key: string): Promise<string | null> {
+  const r = await q.query<{ public_id: string }>(
+    `SELECT o.public_id FROM orden_cabecera o
+      WHERE o.restaurante_id = app_tenant_id() AND o.cliente_id = $1
+        AND ( (o.estado = 'EN_CAMINO' AND o.vence_en > CURRENT_TIMESTAMP
+               AND EXISTS (SELECT 1 FROM orden_detalle d WHERE d.orden_id = o.orden_id AND d.seccion IS NOT NULL))
+           OR EXISTS (SELECT 1 FROM consumo_almuerzo k WHERE k.orden_id = o.orden_id AND k.clave_idempotencia = $2) )
+      ORDER BY o.orden_id DESC LIMIT 1`,
+    [clienteId, key],
+  );
+  return r.rows[0]?.public_id ?? null;
+}
+
+/** Como `ResultadoDescuento`, pero con `resultado`/`mensaje` null cuando se repite un canje ya hecho (nada que reportar). */
+export type AlmuerzoCanje = Omit<ResultadoDescuento, 'resultado' | 'mensaje'> & { resultado: Resultado | null; mensaje: string | null };
+
+export interface ResultadoCanjeOrden {
+  after: StaffRow;
+  platoNombre: string | null;
+  yaCanjeado: boolean;
+  /** null si el pedido no lleva almuerzo. */
+  almuerzo: AlmuerzoCanje | null;
+  porCobrarCentavos: number;
+  cotizacion: CotizacionResponse | null;
+  cuenta: CuentaResponse | null;
+  avisos: { codigo: string; lineaRef: string | null }[];
+}
+
+/**
+ * Núcleo del canje de un pedido (PR 10): cierra `o` —ya cargado y bloqueado (`FOR UPDATE`) por quien llama— con la
+ * MISMA regla sin importar quién lo dispare: `POST /v1/caja/pedidos/{id}/canjear` (`opts` por defecto) o
+ * `POST /v1/caja/validar` cuando encuentra la preorden vigente del cliente que escanea (D1-D8 del PR 10):
+ * - `canal`: 'PREORDEN' al canjear por su QR propio; 'QR'/'MANUAL' cuando lo cierra `validar` (el consumo queda con
+ *   `orden_id`, así que en movimientos sale como PEDIDO, pero el canal real queda registrado).
+ * - `checkSaldoCambio`: false desde `validar` (D1): su 409 compararía contra el total viejo del pedido —el dato que
+ *   quedó desactualizado antes de tener plan—, así que ahí no aplica. Si la caja igual mandó
+ *   `cobro.saldoEsperadoCentavos`, se respeta lo mismo (ver más abajo).
+ * - `paraLlevarOverride` (D6): si lo manda `validar` y difiere del `paraLlevar` congelado del pedido, ese último
+ *   gana (mismo recargo que si se canjeara por su propio QR) y se agrega el aviso `PARA_LLEVAR_DE_LA_ORDEN`.
+ * - `itemsExtra` (D8): platos sueltos de `validar` (ítems de caja) que entran en la MISMA cotización y cuenta que el
+ *   pedido, como si fueran más carta suya.
+ */
+export async function canjearOrdenNucleo(
+  q: Queryable,
+  o: StaffRow,
+  key: string,
+  cobro: CobroDto | null,
+  eventos: ReturnType<PassEventBus['pending']>,
+  deduct: (q: Queryable, a: Parameters<CheckoutService['deduct']>[1]) => Promise<ResultadoDescuento>,
+  opts: { canal?: string; checkSaldoCambio?: boolean; paraLlevarOverride?: boolean; itemsExtra?: PlatoSuelto[] } = {},
+): Promise<ResultadoCanjeOrden> {
+  const canal = opts.canal ?? 'PREORDEN';
+  const checkSaldoCambio = opts.checkSaldoCambio ?? true;
+  const itemsExtra = opts.itemsExtra ?? [];
+  if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
+  if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
+  const pedido0 = (await renderOrders(q, [o]))[0]!;
+  const hasLunch = pedido0.almuerzo !== null;
+  const platoNombre = pedido0.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
+  const extras =
+    [...pedido0.extras, ...pedido0.cartaItems, ...pedido0.ofertas].reduce((s, e) => s + e.subtotalCentavos, 0) +
+    (o.almuerzo_oferta_public_id ? (pedido0.almuerzo?.precioCentavos ?? 0) : 0) +
+    itemsExtra.reduce((s, e) => s + e.cantidad * e.precioUnitario, 0);
+  const lineas = await orderLines(q, [String(o.orden_id)]);
+  // Ofertas del pedido (D4): se vuelven a comprobar al canjear. Las que ya no valen caen a su precio normal (más abajo).
+  const almuerzoOfertaId = o.almuerzo_oferta_public_id;
+  const ofertasSueltas = ofertasParaCobro(lineas);
+  const caidas = new Set<string>();
+  const rest = (
+    await q.query<{ precio: string; recargo: string; momento: MomentoCobro; moneda: string }>(
+      `SELECT precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, momento_cobro AS momento, moneda_codigo AS moneda
+         FROM restaurante WHERE restaurante_id = app_tenant_id()`,
+    )
+  ).rows[0]!;
+  // INC-06: el almuerzo se cobra al precio guardado en el pedido, no al de hoy.
+  const precio = precioAlmuerzoDePedido({
+    snapshot: o.precio_almuerzo_centavos === null ? null : Number(o.precio_almuerzo_centavos),
+    subtotal: Number(o.subtotal_centavos),
+    extras,
+    precioActual: Number(rest.precio),
+  });
+  // D6: el paraLlevar y el recargo son los congelados del pedido; un paraLlevar distinto que llegue de `validar` solo
+  // se avisa (aditivo), nunca cambia el cobro.
+  const paraLlevar = o.tipo === 'LLEVAR';
+  const avisosParaLlevar: Cotizacion['avisos'] =
+    opts.paraLlevarOverride !== undefined && opts.paraLlevarOverride !== paraLlevar
+      ? [{ codigo: 'PARA_LLEVAR_DE_LA_ORDEN', lineaRef: 'almuerzo' }]
+      : [];
+  const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
+  const entrada = (plan: PlanPersona) =>
+    entradaPedido({
+      precioAlmuerzo: precio,
+      // R congelado al pedir (el de sus renglones); un pedido anterior al PR 7a usa el del local de hoy.
+      recargoLlevar: recargoCongelado(lineas, Number(rest.recargo)),
+      momentoCobro: rest.momento,
+      paraLlevar,
+      conAlmuerzo: hasLunch,
+      plan,
+      extras: extrasParaCobro(lineas),
+      // D8: los ítems de caja de `validar` entran como más carta de este mismo pedido (una sola cuenta).
+      carta: [...cartaParaCobro(lineas), ...itemsExtra],
+      almuerzoOferta: almuerzoOfertaId
+        ? { ofertaId: almuerzoOfertaId, precio: pedido0.almuerzo?.precioCentavos ?? 0, vigente: !caidas.has(almuerzoOfertaId) }
+        : null,
+      ofertas: ofertasSueltas.map((x) => ({ ...x, vigente: !caidas.has(x.ofertaId) })),
+    });
+
+  // Misma llave: si ya creó la cuenta de este pedido con el mismo cuerpo es un reintento; con otro pedido u otro cuerpo, 409.
+  const firma = huella({
+    pedido: o.public_id,
+    cobro: normalizarCobro(cobro),
+    items: itemsExtra.map((i) => ({ p: i.platoId, c: i.cantidad })),
+  });
+  const previa = await cuentaPorClave(q, key, '0');
+  if (previa && (String(previa.orden_id) !== String(o.orden_id) || previa.huella !== firma))
+    throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para otro canje o con otro cuerpo.');
+
+  if (o.estado === 'CANJEADA' || o.estado === 'SERVIDA') {
+    const c = await q.query<{ public_id: string; creado_en: Date }>(
+      `SELECT k.public_id, k.creado_en FROM consumo_almuerzo k WHERE k.restaurante_id = app_tenant_id() AND k.orden_id = $1 AND k.cantidad = 1
+          AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)`,
+      [o.orden_id],
+    );
+    const consumoId = c.rows[0]?.public_id ?? null;
+    const cuentaId = await cuentaDeOrden(q, String(o.orden_id));
+    const cuenta = cuentaId ? await renderCuenta(q, cuentaId) : null;
+    const reconstruida = cotizarInformativa(entrada(consumoId ? { estado: 'OK', disponibles: 1 } : SIN_PLAN));
+    return {
+      after: o,
+      platoNombre,
+      yaCanjeado: true,
+      almuerzo: hasLunch
+        ? {
+            resultado: null,
+            mensaje: null,
+            descontado: consumoId !== null,
+            consumo: c.rows[0]
+              ? {
+                  id: c.rows[0].public_id,
+                  creadoEn: c.rows[0].creado_en,
+                  deshacerHasta: new Date(c.rows[0].creado_en.getTime() + UNDO_SECONDS * 1000),
+                }
+              : null,
+            plan: null,
+            almuerzosRestantes: null,
+            diasParaVencer: null,
+            platoNombre,
+          }
+        : null,
+      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(consumoId !== null),
+      cotizacion: cuenta ? cuenta.cotizacion : reconstruida ? aRespuesta({ ...reconstruida, estimada: false }, rest.moneda) : null,
+      cuenta,
+      avisos: avisosParaLlevar,
+    };
+  }
+
+  // Stock de las ofertas (I-7: se toma aquí, no al pedir). Una que no se puede tomar no descuenta nada y su línea se
+  // recotiza como si no tuviera oferta; si eso cambia el saldo, abajo sale 409 SALDO_CAMBIO (o se ignora, ver abajo) y
+  // todo se deshace.
+  const avisosOferta: Cotizacion['avisos'] = [];
+  const necesidades = [
+    ...(almuerzoOfertaId ? [{ ofertaId: almuerzoOfertaId, cantidad: 1 }] : []),
+    ...ofertasSueltas.map((x) => ({ ofertaId: x.ofertaId, cantidad: x.cantidad })),
+  ];
+  for (const [ofertaId, motivo] of await tomarStocks(q, necesidades)) {
+    if (!motivo) continue;
+    caidas.add(ofertaId);
+    if (ofertaId === almuerzoOfertaId) avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: 'almuerzo' });
+    ofertasSueltas.forEach((x, i) => {
+      if (x.ofertaId === ofertaId) avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: `oferta:${i}` });
+    });
+  }
+  const almuerzoConOferta = almuerzoOfertaId !== null && !caidas.has(almuerzoOfertaId);
+
+  let almuerzo: AlmuerzoCanje | null = null;
+  let consumoInterno: string | null = null;
+  const descontarAlmuerzo = async () => {
+    // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
+    const prev = await q.query<{ orden_id: string | null }>(
+      'SELECT orden_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
+      [key],
+    );
+    if (prev.rows[0] && String(prev.rows[0].orden_id) !== String(o.orden_id))
+      throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra validación.');
+    const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
+    const r = await deduct(q, {
+      clienteId: String(o.cliente_id),
+      personalId,
+      key,
+      canal,
+      paraLlevar,
+      ordenId: String(o.orden_id),
+      eventos,
+      platoNombre,
+    });
+    almuerzo = { ...r, platoNombre };
+    if (r.consumo)
+      consumoInterno = String(
+        (await q.query<{ consumo_id: string }>('SELECT consumo_id FROM consumo_almuerzo WHERE public_id = $1', [r.consumo.id])).rows[0]!
+          .consumo_id,
+      );
+    return { estado: estadoPlanDe(r.resultado), consumoId: r.descontado ? consumoInterno : null };
+  };
+  if (almuerzoConOferta)
+    almuerzo = {
+      resultado: null,
+      mensaje: null,
+      descontado: false,
+      consumo: null,
+      plan: null,
+      almuerzosRestantes: null,
+      diasParaVencer: null,
+      platoNombre,
+    };
+  else if (hasLunch && !o.cliente_id)
+    almuerzo = {
+      resultado: 'SIN_PLAN',
+      mensaje: RESULTADOS.SIN_PLAN,
+      descontado: false,
+      consumo: null,
+      plan: null,
+      almuerzosRestantes: null,
+      diasParaVencer: null,
+      platoNombre,
+    };
+
+  // Con cliente se intenta descontar la unidad (el plan real lo dice la base); sin cliente, sin plan.
+  let cot: Cotizacion | null = null;
+  let consumos: string[] = [];
+  try {
+    ({ cotizacion: cot, consumos } = await descontarYRecotizar(entrada(o.cliente_id ? { estado: 'OK', disponibles: 1 } : SIN_PLAN), () =>
+      descontarAlmuerzo(),
+    ));
+  } catch (e) {
+    if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
+    // Con ofertas ya tomadas no se puede seguir sin cotización: no quedaría registro de su canje.
+    if (cobro || necesidades.length)
+      throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
+    // Sin `cobro`, como siempre: el almuerzo sin precio no impide el canje (I-12 aplica a quien cobra con cuenta).
+    if (hasLunch && o.cliente_id && !almuerzo) await descontarAlmuerzo();
+  }
+  if (cot) cot = { ...cot, avisos: [...cot.avisos, ...avisosOferta, ...avisosParaLlevar] };
+
+  // I-6 / G-37: la referencia estimada es el total guardado al pedir. Si la cotización final deja otro saldo (oferta
+  // caída, plan sin saldo, día no válido, precio...) se responde 409 SALDO_CAMBIO SIN descontar ni cobrar —la
+  // transacción se deshace: plan, stock y todo— hasta que la caja reenvíe `cobro.saldoEsperadoCentavos` igual al
+  // saldo nuevo. Aplica también sin `cobro`. D1: `validar` (checkSaldoCambio = false) no compara contra ese total
+  // viejo —es justo el dato que quedó desactualizado antes de tener plan—, pero si la caja igual mandó
+  // `cobro.saldoEsperadoCentavos`, se respeta lo mismo.
+  if (cot) {
+    const esperado = checkSaldoCambio ? (cobro?.saldoEsperadoCentavos ?? Number(o.total_centavos)) : cobro?.saldoEsperadoCentavos;
+    if (esperado !== undefined && cot.saldoPorCobrarCentavos !== esperado)
+      throw saldoCambio(cot.saldoPorCobrarCentavos, {
+        saldoEsperadoCentavos: esperado,
+        cotizacion: aRespuesta(cot, rest.moneda),
+        avisos: cot.avisos,
+      });
+  }
+
+  let cuenta: CuentaResponse | null = null;
+  // Con o sin `cobro`: si la cotización final deja saldo > 0 hay cuenta (con `cobro.metodoPago`, además, su pago),
+  // para que el almuerzo suelto, el recargo y los extras (y, desde el PR 10, los ítems de `validar`) nunca queden sin
+  // registrar. Con saldo 0 y sin pagos, sin cuenta: una cuenta COBRADA con la unidad del plan bloquearía deshacer el
+  // canje en 10 s (CUENTA_COBRADA). A esta altura el saldo ya coincide con lo esperado (SALDO_CAMBIO de arriba).
+  // P = 0 sin plan → `cot` null, como antes (I-12).
+  if (cot && cot.saldoPorCobrarCentavos > 0) {
+    const esperado = cot.saldoPorCobrarCentavos;
+    const finalCot = cot;
+    const cuentaId = await persistirCuenta(q, {
+      key,
+      pagadorRef: '0',
+      origen: { tipo: 'PEDIDO', ordenId: String(o.orden_id) },
+      cotizacion: cot,
+      consumos,
+      pagador: {
+        clienteId: o.cliente_id === null ? null : String(o.cliente_id),
+        usuarioId: String(o.usuario_id),
+        nombre: o.cliente_nombre ?? o.usuario_nombre,
+      },
+      momentoCobro: rest.momento,
+      paraLlevar,
+      huella: firma,
+      canjear: lineasDeOferta(finalCot.lineas).length
+        ? (cuentaId) => registrarCanjes(q, { key, pagadorRef: '0', cuentaId, usuarioId: String(o.usuario_id), lineas: finalCot.lineas })
+        : undefined,
+    });
+    if (cobro?.metodoPago && cot.saldoPorCobrarCentavos > 0)
+      await registrarPago(
+        q,
+        cuentaId,
+        { ...cobro, metodoPago: cobro.metodoPago, saldoEsperadoCentavos: esperado },
+        clavePagoEnElPaso(key, '0'),
+      );
+    cuenta = await renderCuenta(q, cuentaId);
+  } else if (cot && lineasDeOferta(cot.lineas).length) {
+    // Sin cuenta (saldo 0 sin `cobro`) las ofertas igual se canjean: el stock ya se tomó.
+    await registrarCanjes(q, { key, pagadorRef: '0', cuentaId: null, usuarioId: String(o.usuario_id), lineas: cot.lineas });
+  }
+  await q.query(
+    `UPDATE orden_cabecera SET estado = 'CANJEADA', canjeada_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
+    [o.orden_id],
+  );
+  const after = await loadOrdenCaja(q, o.public_id, false);
+  const descontado = almuerzo?.descontado ?? false;
+  return {
+    after,
+    platoNombre,
+    yaCanjeado: false,
+    almuerzo,
+    // E.3: con cotización final vale su saldo (también sin cuenta: un almuerzo omitido por DUPLICADO o LIMITE_SAAS no
+    // se cobra, I-10). La fórmula de antes solo queda sin cotización (P = 0 sin plan, I-12).
+    porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : cot ? cot.saldoPorCobrarCentavos : due(descontado),
+    cotizacion: cuenta ? cuenta.cotizacion : cot ? aRespuesta(cot, rest.moneda) : null,
+    cuenta,
+    avisos: cot?.avisos ?? [...avisosOferta, ...avisosParaLlevar],
+  };
+}
 
 /**
  * El pedido del comensal visto desde la caja (dueño y cajero, con tenant: RLS tenant_total). La caja escanea el QR
@@ -1177,7 +1508,7 @@ export class StaffOrdersService {
   }
 
   one(id: string) {
-    return this.db.forRequest(async (q) => (await this.render(q, [await this.load(q, id, false)]))[0]!, { readOnly: true });
+    return this.db.forRequest(async (q) => (await this.render(q, [await loadOrdenCaja(q, id, false)]))[0]!, { readOnly: true });
   }
 
   /**
@@ -1206,236 +1537,38 @@ export class StaffOrdersService {
     cobro: CobroDto | null,
     eventos: ReturnType<PassEventBus['pending']>,
   ): Promise<PedidoCanjeResponse> {
-    const o = await this.load(q, id, true);
-    if (o.estado === 'CANCELADA') throw conflict('PEDIDO_CANCELADO', 'El comensal canceló este pedido.');
-    if (o.estado === 'EXPIRADA') throw conflict('PEDIDO_EXPIRADO', 'El pedido venció: atiéndelo como una venta normal.');
-    const pedido0 = (await renderOrders(q, [o]))[0]!;
-    const hasLunch = pedido0.almuerzo !== null;
-    const platoNombre = pedido0.almuerzo?.platos.map((p) => p.nombre).join(' + ') ?? null;
-    const extras =
-      [...pedido0.extras, ...pedido0.cartaItems, ...pedido0.ofertas].reduce((s, e) => s + e.subtotalCentavos, 0) +
-      (o.almuerzo_oferta_public_id ? (pedido0.almuerzo?.precioCentavos ?? 0) : 0);
-    const lineas = await orderLines(q, [String(o.orden_id)]);
-    // Ofertas del pedido (D4): se vuelven a comprobar al canjear. Las que ya no valen caen a su precio normal (más abajo).
-    const almuerzoOfertaId = o.almuerzo_oferta_public_id;
-    const ofertasSueltas = ofertasParaCobro(lineas);
-    const caidas = new Set<string>();
-    const rest = (
-      await q.query<{ precio: string; recargo: string; momento: MomentoCobro; moneda: string }>(
-        `SELECT precio_suelto_centavos AS precio, recargo_para_llevar_centavos AS recargo, momento_cobro AS momento, moneda_codigo AS moneda
-           FROM restaurante WHERE restaurante_id = app_tenant_id()`,
-      )
-    ).rows[0]!;
-    // INC-06: el almuerzo se cobra al precio guardado en el pedido, no al de hoy.
-    const precio = precioAlmuerzoDePedido({
-      snapshot: o.precio_almuerzo_centavos === null ? null : Number(o.precio_almuerzo_centavos),
-      subtotal: Number(o.subtotal_centavos),
-      extras,
-      precioActual: Number(rest.precio),
-    });
-    const due = (covered: boolean) => extras + Number(o.recargo_llevar_centavos) + (hasLunch && !covered ? precio : 0);
-    const entrada = (plan: PlanPersona) =>
-      entradaPedido({
-        precioAlmuerzo: precio,
-        // R congelado al pedir (el de sus renglones); un pedido anterior al PR 7a usa el del local de hoy.
-        recargoLlevar: recargoCongelado(lineas, Number(rest.recargo)),
-        momentoCobro: rest.momento,
-        paraLlevar: o.tipo === 'LLEVAR',
-        conAlmuerzo: hasLunch,
-        plan,
-        extras: extrasParaCobro(lineas),
-        carta: cartaParaCobro(lineas),
-        almuerzoOferta: almuerzoOfertaId
-          ? { ofertaId: almuerzoOfertaId, precio: pedido0.almuerzo?.precioCentavos ?? 0, vigente: !caidas.has(almuerzoOfertaId) }
-          : null,
-        ofertas: ofertasSueltas.map((x) => ({ ...x, vigente: !caidas.has(x.ofertaId) })),
-      });
-
-    // Misma llave: si ya creó la cuenta de este pedido con el mismo cuerpo es un reintento; con otro pedido u otro cuerpo, 409.
-    const firma = huella({ pedido: o.public_id, cobro: normalizarCobro(cobro) });
-    const previa = await cuentaPorClave(q, key, '0');
-    if (previa && (String(previa.orden_id) !== String(o.orden_id) || previa.huella !== firma))
-      throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó para otro canje o con otro cuerpo.');
-
-    if (o.estado === 'CANJEADA' || o.estado === 'SERVIDA') {
-      const c = await q.query<{ public_id: string }>(
-        `SELECT k.public_id FROM consumo_almuerzo k WHERE k.restaurante_id = app_tenant_id() AND k.orden_id = $1 AND k.cantidad = 1
-            AND NOT EXISTS (SELECT 1 FROM consumo_almuerzo x WHERE x.revierte_a_consumo_id = k.consumo_id)`,
-        [o.orden_id],
-      );
-      const consumoId = c.rows[0]?.public_id ?? null;
-      const cuentaId = await cuentaDeOrden(q, String(o.orden_id));
-      const cuenta = cuentaId ? await renderCuenta(q, cuentaId) : null;
-      const reconstruida = cotizarInformativa(entrada(consumoId ? { estado: 'OK', disponibles: 1 } : SIN_PLAN));
-      return {
-        pedido: (await this.render(q, [o]))[0]!,
-        platoNombre,
-        yaCanjeado: true,
-        almuerzo: hasLunch ? { resultado: null, mensaje: null, descontado: consumoId !== null, consumoId } : null,
-        porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : due(consumoId !== null),
-        cotizacion: cuenta ? cuenta.cotizacion : reconstruida ? aRespuesta({ ...reconstruida, estimada: false }, rest.moneda) : null,
-        cuenta,
-        avisos: [],
-      };
-    }
-
-    // Stock de las ofertas (I-7: se toma aquí, no al pedir). Una que no se puede tomar no descuenta nada y su línea se
-    // recotiza como si no tuviera oferta; si eso cambia el saldo, abajo sale 409 SALDO_CAMBIO y todo se deshace.
-    const avisosOferta: Cotizacion['avisos'] = [];
-    const necesidades = [
-      ...(almuerzoOfertaId ? [{ ofertaId: almuerzoOfertaId, cantidad: 1 }] : []),
-      ...ofertasSueltas.map((x) => ({ ofertaId: x.ofertaId, cantidad: x.cantidad })),
-    ];
-    for (const [ofertaId, motivo] of await tomarStocks(q, necesidades)) {
-      if (!motivo) continue;
-      caidas.add(ofertaId);
-      if (ofertaId === almuerzoOfertaId) avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: 'almuerzo' });
-      ofertasSueltas.forEach((x, i) => {
-        if (x.ofertaId === ofertaId) avisosOferta.push({ codigo: avisoDeCaida(motivo), lineaRef: `oferta:${i}` });
-      });
-    }
-    const almuerzoConOferta = almuerzoOfertaId !== null && !caidas.has(almuerzoOfertaId);
-
-    let almuerzo: PedidoCanjeResponse['almuerzo'] = null;
-    let consumoInterno: string | null = null;
-    const descontarAlmuerzo = async () => {
-      // La función de base solo mira restaurante + clave: una clave ya usada en otro consumo devolvería ese consumo.
-      const prev = await q.query<{ orden_id: string | null }>(
-        'SELECT orden_id FROM consumo_almuerzo WHERE restaurante_id = app_tenant_id() AND clave_idempotencia = $1',
-        [key],
-      );
-      if (prev.rows[0] && String(prev.rows[0].orden_id) !== String(o.orden_id))
-        throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya se usó en otra validación.');
-      const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
-      const r = await this.checkout.deduct(q, {
-        clienteId: String(o.cliente_id),
-        personalId,
-        key,
-        canal: 'PREORDEN',
-        paraLlevar: o.tipo === 'LLEVAR',
-        ordenId: String(o.orden_id),
-        eventos,
-        platoNombre,
-      });
-      almuerzo = { resultado: r.resultado, mensaje: r.mensaje, descontado: r.descontado, consumoId: r.consumo?.id ?? null };
-      if (r.consumo)
-        consumoInterno = String(
-          (await q.query<{ consumo_id: string }>('SELECT consumo_id FROM consumo_almuerzo WHERE public_id = $1', [r.consumo.id])).rows[0]!
-            .consumo_id,
-        );
-      return { estado: estadoPlanDe(r.resultado), consumoId: r.descontado ? consumoInterno : null };
-    };
-    if (almuerzoConOferta) almuerzo = { resultado: null, mensaje: null, descontado: false, consumoId: null };
-    else if (hasLunch && !o.cliente_id)
-      almuerzo = { resultado: 'SIN_PLAN', mensaje: RESULTADOS.SIN_PLAN, descontado: false, consumoId: null };
-
-    // Con cliente se intenta descontar la unidad (el plan real lo dice la base); sin cliente, sin plan.
-    let cot: Cotizacion | null = null;
-    let consumos: string[] = [];
-    try {
-      ({ cotizacion: cot, consumos } = await descontarYRecotizar(entrada(o.cliente_id ? { estado: 'OK', disponibles: 1 } : SIN_PLAN), () =>
-        descontarAlmuerzo(),
-      ));
-    } catch (e) {
-      if (!(e instanceof CotizarError && e.code === 'ALMUERZO_SIN_PRECIO')) throw e;
-      // Con ofertas ya tomadas no se puede seguir sin cotización: no quedaría registro de su canje.
-      if (cobro || necesidades.length)
-        throw conflict('ALMUERZO_SIN_PRECIO', 'El almuerzo no tiene precio en este local y ningún plan lo cubrió.');
-      // Sin `cobro`, como siempre: el almuerzo sin precio no impide el canje (I-12 aplica a quien cobra con cuenta).
-      if (hasLunch && o.cliente_id && !almuerzo) await descontarAlmuerzo();
-    }
-    if (cot) cot = { ...cot, avisos: [...cot.avisos, ...avisosOferta] };
-
-    // I-6 / G-37: la referencia estimada es el total guardado al pedir. Si la cotización final deja otro saldo (oferta caída,
-    // plan sin saldo, día no válido, precio...) se responde 409 SALDO_CAMBIO SIN descontar ni cobrar —la transacción se
-    // deshace: plan, stock y todo— hasta que la caja reenvíe `cobro.saldoEsperadoCentavos` igual al saldo nuevo. Aplica
-    // también sin `cobro`.
-    if (cot) {
-      const esperado = cobro?.saldoEsperadoCentavos ?? Number(o.total_centavos);
-      if (cot.saldoPorCobrarCentavos !== esperado)
-        throw saldoCambio(cot.saldoPorCobrarCentavos, {
-          saldoEsperadoCentavos: esperado,
-          cotizacion: aRespuesta(cot, rest.moneda),
-          avisos: cot.avisos,
-        });
-    }
-
-    let cuenta: CuentaResponse | null = null;
-    // Con o sin `cobro`: si la cotización final deja saldo > 0 hay cuenta (con `cobro.metodoPago`, además, su pago), para que el
-    // almuerzo suelto, el recargo y los extras nunca queden sin registrar. Con saldo 0 y sin pagos, sin cuenta: una cuenta
-    // COBRADA con la unidad del plan bloquearía deshacer el canje en 10 s (CUENTA_COBRADA). A esta altura el saldo ya coincide con lo esperado (SALDO_CAMBIO de arriba).
-    // P = 0 sin plan → `cot` null, como antes (I-12).
-    if (cot && cot.saldoPorCobrarCentavos > 0) {
-      const esperado = cot.saldoPorCobrarCentavos;
-      const finalCot = cot;
-      const cuentaId = await persistirCuenta(q, {
-        key,
-        pagadorRef: '0',
-        origen: { tipo: 'PEDIDO', ordenId: String(o.orden_id) },
-        cotizacion: cot,
-        consumos,
-        pagador: {
-          clienteId: o.cliente_id === null ? null : String(o.cliente_id),
-          usuarioId: String(o.usuario_id),
-          nombre: o.cliente_nombre ?? o.usuario_nombre,
-        },
-        momentoCobro: rest.momento,
-        paraLlevar: o.tipo === 'LLEVAR',
-        huella: firma,
-        canjear: lineasDeOferta(finalCot.lineas).length
-          ? (cuentaId) => registrarCanjes(q, { key, pagadorRef: '0', cuentaId, usuarioId: String(o.usuario_id), lineas: finalCot.lineas })
-          : undefined,
-      });
-      if (cobro?.metodoPago && cot.saldoPorCobrarCentavos > 0)
-        await registrarPago(
-          q,
-          cuentaId,
-          { ...cobro, metodoPago: cobro.metodoPago, saldoEsperadoCentavos: esperado },
-          clavePagoEnElPaso(key, '0'),
-        );
-      cuenta = await renderCuenta(q, cuentaId);
-    } else if (cot && lineasDeOferta(cot.lineas).length) {
-      // Sin cuenta (saldo 0 sin `cobro`) las ofertas igual se canjean: el stock ya se tomó.
-      await registrarCanjes(q, { key, pagadorRef: '0', cuentaId: null, usuarioId: String(o.usuario_id), lineas: cot.lineas });
-    }
-    await q.query(
-      `UPDATE orden_cabecera SET estado = 'CANJEADA', canjeada_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
-      [o.orden_id],
-    );
-    const after = await this.load(q, id, false);
-    const descontado = (almuerzo as PedidoCanjeResponse['almuerzo'])?.descontado ?? false;
+    const o = await loadOrdenCaja(q, id, true);
+    const r = await canjearOrdenNucleo(q, o, key, cobro, eventos, (q2, a) => this.checkout.deduct(q2, a));
     return {
-      pedido: (await this.render(q, [after]))[0]!,
-      platoNombre,
-      yaCanjeado: false,
-      almuerzo,
-      // E.3: con cotización final vale su saldo (también sin cuenta: un almuerzo omitido por DUPLICADO o LIMITE_SAAS no
-      // se cobra, I-10). La fórmula de antes solo queda sin cotización (P = 0 sin plan, I-12).
-      porCobrarCentavos: cuenta ? cuenta.cotizacion.saldoPorCobrarCentavos : cot ? cot.saldoPorCobrarCentavos : due(descontado),
-      cotizacion: cuenta ? cuenta.cotizacion : cot ? aRespuesta(cot, rest.moneda) : null,
-      cuenta,
-      avisos: cot?.avisos ?? avisosOferta,
+      pedido: (await this.render(q, [r.after]))[0]!,
+      platoNombre: r.platoNombre,
+      yaCanjeado: r.yaCanjeado,
+      almuerzo: r.almuerzo
+        ? {
+            resultado: r.almuerzo.resultado,
+            mensaje: r.almuerzo.mensaje,
+            descontado: r.almuerzo.descontado,
+            consumoId: r.almuerzo.consumo?.id ?? null,
+          }
+        : null,
+      porCobrarCentavos: r.porCobrarCentavos,
+      cotizacion: r.cotizacion,
+      cuenta: r.cuenta,
+      avisos: r.avisos,
     };
   }
 
   serve(id: string) {
     return this.db.forRequest(async (q) => {
-      const o = await this.load(q, id, true);
+      const o = await loadOrdenCaja(q, id, true);
       if (o.estado === 'CANJEADA')
         await q.query(
           `UPDATE orden_cabecera SET estado = 'SERVIDA', servida_en = CURRENT_TIMESTAMP WHERE restaurante_id = app_tenant_id() AND orden_id = $1`,
           [o.orden_id],
         );
       else if (o.estado !== 'SERVIDA') throw conflict('PEDIDO_NO_CANJEADO', 'Primero canjea el pedido en caja.');
-      return (await this.render(q, [await this.load(q, id, false)]))[0]!;
+      return (await this.render(q, [await loadOrdenCaja(q, id, false)]))[0]!;
     });
-  }
-
-  private async load(q: Queryable, id: string, lock: boolean): Promise<StaffRow> {
-    if (lock) await q.query('SELECT 1 FROM orden_cabecera WHERE restaurante_id = app_tenant_id() AND public_id = $1 FOR UPDATE', [id]);
-    const r = await q.query<StaffRow>(`${STAFF_SELECT} WHERE x.public_id = $1`, [id]);
-    if (!r.rows[0]) throw notFound('PEDIDO_NO_ENCONTRADO', 'Pedido no encontrado.');
-    return r.rows[0];
   }
 
   private async render(q: Queryable, rows: StaffRow[]): Promise<PedidoCaja[]> {

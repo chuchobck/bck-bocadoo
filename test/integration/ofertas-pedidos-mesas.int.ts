@@ -272,8 +272,9 @@ describe.skipIf(!probe)('PR 7b: ofertas flash en pedidos y mesas, SALDO_CAMBIO y
       const d = await k.dinerWithPlan(l.o, { almuerzos: 1 });
       const p = (await pedir(d, { restaurante: l.o.restaurante, almuerzo: { platos: [l.sopa, l.seco] } })).json();
       expect(p.totalCentavos).toBe(0);
-      const gastado = await k.lunch(l.o, d.clienteId);
-      await k.backdateLunch(gastado, 5);
+      // Se gastó por otro lado (no con validar: desde el PR 10, validar con este cliente cerraría esta misma preorden
+      // en vez de descontar algo aparte; aquí se simula cualquier otra baja del cupo entre pedir y canjear).
+      await probe!.sql("UPDATE suscripcion_plan SET almuerzos_restantes = 0, estado = 'AGOTADA' WHERE cliente_id = $1", [d.clienteId]);
       const r = await canjear(l.o, p.id);
       expect(r.json()).toMatchObject({ status: 409, code: 'SALDO_CAMBIO', saldoCentavos: P, saldoEsperadoCentavos: 0 });
     });
