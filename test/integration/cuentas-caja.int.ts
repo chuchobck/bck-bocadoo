@@ -279,10 +279,9 @@ describe.skipIf(!probe)('PR 5a: cuentas de cobro en caja (pedidos)', () => {
     it('I-6: el plan se gastó entre pedir y canjear → 409 contra totalCentavos; con el saldo nuevo confirmado, canjea y cobra', async () => {
       const o = await k.activeOwner();
       const { d, p } = await pedido({ o, almuerzos: 1 });
-      // El comensal gasta su único almuerzo en caja antes de canjear el pedido (hace 5 min: no es un DUPLICADO).
-      const v = await k.as(o).post('/v1/caja/validar', { clienteId: d.clienteId }, randomUUID());
-      expect(v.json().descontado, v.body).toBe(true);
-      await k.backdateLunch(v.json().consumo.id, 5);
+      // Se gastó por otro lado (no con validar: desde el PR 10, validar con este cliente cerraría esta misma preorden
+      // en vez de descontar algo aparte; aquí se simula cualquier otra baja del cupo entre pedir y canjear).
+      await probe!.sql("UPDATE suscripcion_plan SET almuerzos_restantes = 0, estado = 'AGOTADA' WHERE cliente_id = $1", [d.clienteId]);
       const r = await canjear(o, p.id, { cobro: { metodoPago: 'EFECTIVO', saldoEsperadoCentavos: 100 + R } });
       expect(r.statusCode).toBe(409);
       expect(r.json()).toMatchObject({ code: 'SALDO_CAMBIO', saldoCentavos: P + 100 + R, saldoEsperadoCentavos: 100 + R });

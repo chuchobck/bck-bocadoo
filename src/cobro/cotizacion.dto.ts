@@ -47,7 +47,9 @@ class TotalPagadorResponse {
 }
 
 export class AvisoCotizacionResponse {
-  @ApiProperty({ enum: ['OFERTA_AGOTADA', 'OFERTA_EXPIRADA', 'PLATO_AGOTADO', 'DUPLICADO', 'LIMITE_SAAS', 'PLAN_NO_ALCANZA'] })
+  @ApiProperty({
+    enum: ['OFERTA_AGOTADA', 'OFERTA_EXPIRADA', 'PLATO_AGOTADO', 'DUPLICADO', 'LIMITE_SAAS', 'PLAN_NO_ALCANZA', 'PARA_LLEVAR_DE_LA_ORDEN'],
+  })
   codigo!: string;
   @ApiProperty({ type: String, nullable: true, description: 'El `ref` de la línea (en una mesa, con el `ref` opaco del miembro)' })
   lineaRef!: string | null;

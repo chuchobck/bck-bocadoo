@@ -10,7 +10,8 @@ export type CategoriaBase = 'ALMUERZO' | 'A_LA_CARTA' | 'EXTRA' | 'BEBIDA';
 export type Fuente = 'PLAN' | 'OFERTA' | 'CAJA';
 export type Pagador = 'PROPIO' | 'ANFITRION';
 export type MotivoOmision = 'PLATO_AGOTADO' | 'DUPLICADO' | 'LIMITE_SAAS';
-export type CodigoAviso = 'OFERTA_AGOTADA' | 'OFERTA_EXPIRADA' | 'PLATO_AGOTADO' | 'DUPLICADO' | 'LIMITE_SAAS' | 'PLAN_NO_ALCANZA';
+export type CodigoAviso =
+  'OFERTA_AGOTADA' | 'OFERTA_EXPIRADA' | 'PLATO_AGOTADO' | 'DUPLICADO' | 'LIMITE_SAAS' | 'PLAN_NO_ALCANZA' | 'PARA_LLEVAR_DE_LA_ORDEN';
 
 export interface PlanPersona {
   estado: EstadoPlan;
