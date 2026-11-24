@@ -22,7 +22,7 @@ import { CodigoPaseResponse } from '../catalog/dto';
 import { deriveKey, huella } from '../common/derive-key';
 import { PERSONAL_ACTUAL } from '../common/sql';
 import { ApiIdempotent, IdempotencyKey } from '../common/idempotency';
-import { UuidPipe } from '../common/pipes';
+import { SinCamposPipe, UuidPipe } from '../common/pipes';
 import { DbService, Queryable } from '../db/db.service';
 import { assertMenuPublicado } from '../diner/common';
 import { PassEventBus, type PendingPassEvents } from '../pass-events/bus';
@@ -50,7 +50,8 @@ import {
 import { AvisoCotizacionResponse, CotizacionResponse } from '../cobro/cotizacion.dto';
 import { CobroDto, CuentaResponse, ItemCajaDto, ItemsCaja } from '../cobro/cuenta.dto';
 import { resolverPlatosSueltos } from '../cobro/platos';
-import { type OpcionesCotizarMesa, cargarMesaParaCobro, cotizarMesa } from '../cobro/mesa';
+import { cargarMesaParaCobro, cotizarMesa } from '../cobro/mesa';
+import { opacarAvisos, opacarCotizacionMesa, refMiembro } from '../cobro/refs-mesa';
 import { planVigenteHoySql } from '../cobro/planes';
 import { ConsumoRevertidoResponse, MesaValidadaResponse, MesaVistaResponse } from './responses';
 
@@ -115,18 +116,11 @@ export class ValidarDto {
   cobro?: CobroDto;
 }
 
-export class ValidarMesaDto {
-  @ApiPropertyOptional({
-    default: true,
-    description:
-      'true (por defecto desde el PR 6): se cobra la selección de cada miembro (sin selección = 1 almuerzo); solo se descuenta el almuerzo ' +
-      'a quien lo pidió y se abre una cuenta ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). false: lo de antes, 1 almuerzo ' +
-      'por miembro y sin cuentas (cotización solo informativa).',
-  })
-  @IsOptional()
-  @IsBoolean()
-  aplicarSeleccion?: boolean;
-}
+/**
+ * Cuerpo de `POST /v1/caja/mesas/{id}/validar` para el OpenAPI: sin campos (el PR 9 retiró `aplicarSeleccion`). Se acepta
+ * sin cuerpo o `{}`; cualquier campo (también `aplicarSeleccion`, con cualquier valor) → 400 (`SinCamposPipe`).
+ */
+export class ValidarMesaDto {}
 
 interface MesaFila {
   mesa_compartida_id: string;
@@ -782,22 +776,20 @@ export class CheckoutService {
   /**
    * Valida toda la mesa de una vez (E.5). Bloquea la mesa (dos validaciones a la vez, o validar y `salir`, se
    * serializan) y a cada miembro que sigue en ella (mismo candado que su selección). Los que salieron se ignoran (D).
-   * - `aplicarSeleccion` (por defecto): cotiza la selección de cada miembro con la regla única (B.3; sin selección = 1
-   *   almuerzo, I-4), descuenta solo los almuerzos que la cotización marcó PLAN (CADA_UNO: el plan de cada miembro;
-   *   INVITO_YO: el del anfitrión, en orden) y abre una cuenta ABIERTA por pagador con algo por cobrar (origen mesa +
-   *   miembro pagador). Un pagador sin nada por cobrar no tiene cuenta. Las cuentas se cobran con
-   *   `POST /v1/caja/cuentas/{id}/cobrar` (B.5).
-   * - `aplicarSeleccion: false`: lo de antes (1 almuerzo por miembro, sin cuentas) con la cotización informativa.
-   * Repetir sobre una mesa validada no descuenta otra vez: `yaValidada` con las cuentas que ya tiene. La misma llave con
-   * otro cuerpo → 409 `IDEMPOTENCY_KEY_REUTILIZADA`.
+   * Cotiza la selección de cada miembro con la regla única (B.3; sin selección = 1 almuerzo, I-4), descuenta solo los
+   * almuerzos que la cotización marcó PLAN (CADA_UNO: el plan de cada miembro; INVITO_YO: el del anfitrión, en orden) y
+   * abre una cuenta ABIERTA por pagador con algo por cobrar (origen mesa + miembro pagador). Un pagador sin nada por
+   * cobrar no tiene cuenta. Las cuentas se cobran con `POST /v1/caja/cuentas/{id}/cobrar` (B.5).
+   * Repetir sobre una mesa validada no descuenta otra vez: `yaValidada` con las cuentas que ya tiene.
    */
-  async validateTable(mesaPublicId: string, key: string, dto: ValidarMesaDto = {}) {
-    const aplicarSeleccion = dto.aplicarSeleccion ?? true;
-    const firma = huella({ mesa: mesaPublicId.toLowerCase(), aplicarSeleccion });
+  async validateTable(mesaPublicId: string, key: string) {
+    // La huella conserva `aplicarSeleccion: true` (el default de antes del PR 9): así un reintento con la misma llave sobre
+    // una mesa validada antes de este cambio sigue cuadrando con la `huella` guardada en sus cuentas.
+    const firma = huella({ mesa: mesaPublicId.toLowerCase(), aplicarSeleccion: true });
     const eventos = this.passEvents.pending();
     const res = await this.db.forRequest(async (q) => {
       const mesa = await this.loadTable(q, mesaPublicId, true);
-      if (mesa.validada_en) return this.tableAlreadyValidated(q, mesa, key, firma, aplicarSeleccion);
+      if (mesa.validada_en) return this.tableAlreadyValidated(q, mesa, key, firma);
       if (!['ABIERTA', 'EN_CAMINO'].includes(mesa.estado)) throw new ConflictException(`La mesa está ${mesa.estado.toLowerCase()}.`);
       const personalId = (await q.query<{ p: string }>(`SELECT ${PERSONAL_ACTUAL} AS p`)).rows[0]!.p;
       const activos = ordenMesa((await this.members(q, mesa.mesa_compartida_id)).filter((m) => !m.salio));
@@ -816,9 +808,7 @@ export class CheckoutService {
           omitirDuplicado: mesa.modo === 'INVITO_YO',
           eventos,
         });
-      const out = aplicarSeleccion
-        ? await this.chargeSelection(q, mesa, activos, key, firma, deducir)
-        : await this.legacyValidate(q, mesa, activos, deducir);
+      const out = await this.chargeSelection(q, mesa, activos, key, firma, deducir);
       await q.query(
         `UPDATE mesa_compartida SET validada_en = CURRENT_TIMESTAMP, validada_por_personal_id = $2, estado = 'EN_MESA' WHERE mesa_compartida_id = $1`,
         [mesa.mesa_compartida_id, personalId],
@@ -831,7 +821,7 @@ export class CheckoutService {
         descontados: out.descontados,
         porCobrar: out.porCobrar,
         cuentas: out.cuentas,
-        avisos: out.avisos,
+        avisos: opacarAvisos(out.avisos, String(mesa.mesa_compartida_id)),
       };
     });
     eventos.flush(); // un CANJE_REGISTRADO por almuerzo descontado, a quien pagó; solo con el COMMIT hecho
@@ -839,7 +829,7 @@ export class CheckoutService {
   }
 
   /** Reintento sobre una mesa ya validada (E.5): nada se descuenta; las cuentas que tiene y la cotización reconstruida. */
-  private async tableAlreadyValidated(q: Queryable, mesa: MesaFila, key: string, firma: string, aplicarSeleccion: boolean) {
+  private async tableAlreadyValidated(q: Queryable, mesa: MesaFila, key: string, firma: string) {
     const cuentas = (
       await q.query<{ cuenta_id: string; miembro_id: string; clave_idempotencia: string; huella: string }>(
         `SELECT cuenta_id, miembro_id, clave_idempotencia, huella FROM cuenta_cobro
@@ -849,9 +839,9 @@ export class CheckoutService {
     ).rows;
     if (cuentas.some((c) => c.clave_idempotencia === claveCuenta(key, String(c.miembro_id)) && c.huella !== firma))
       throw conflict('IDEMPOTENCY_KEY_REUTILIZADA', 'Esa Idempotency-Key ya validó esta mesa con otro cuerpo.');
-    // Sin las cuentas de saldo 0 (no existen) no se puede rehacer todo desde las líneas: se recotiza con el plan de antes
-    // de validar (el de hoy más lo descontado en esta mesa) y la misma base que pide esta petición.
-    const informativa = await this.quote(q, mesa, aplicarSeleccion ? 'seleccion' : 'un-almuerzo', true);
+    // Sin las cuentas de saldo 0 (no existen) no se puede rehacer todo desde las líneas: se recotiza la selección con el
+    // plan de antes de validar (el de hoy más lo descontado en esta mesa).
+    const informativa = await this.quote(q, mesa, true);
     return {
       ...(await this.tableView(q, mesa, informativa)),
       yaValidada: true,
@@ -864,39 +854,8 @@ export class CheckoutService {
     };
   }
 
-  /** `aplicarSeleccion: false`: 1 almuerzo por miembro que sigue en la mesa, como antes del PR 6. Sin cuentas. */
-  private async legacyValidate(q: Queryable, mesa: MesaFila, activos: Miembro[], deducir: Deducir): Promise<ResultadoValidarMesa> {
-    // Cotización informativa (E.5): cada miembro con 1 almuerzo y su paraLlevar, con el plan de antes de descontar.
-    const cotizada = await this.quote(q, mesa, 'un-almuerzo', false);
-    const host = activos.find((m) => m.es_anfitrion);
-    const resultados: ResultadoMiembro[] = [];
-    for (const m of activos) {
-      const pagador = mesa.modo === 'INVITO_YO' ? host : m;
-      if (!pagador?.cliente_id) {
-        resultados.push({ miembro: m.nombre, resultado: 'SIN_PLAN', descontado: false, consumoId: null, cuentaId: null });
-        continue;
-      }
-      const r = await deducir(m, pagador);
-      resultados.push({
-        miembro: m.nombre,
-        resultado: r.resultado,
-        descontado: r.descontado,
-        consumoId: r.consumo?.id ?? null,
-        cuentaId: null,
-      });
-    }
-    return {
-      cotizada,
-      resultados,
-      descontados: resultados.filter((r) => r.descontado).length,
-      porCobrar: resultados.filter((r) => !r.descontado).length,
-      cuentas: [],
-      avisos: cotizada.mesa?.avisos ?? [],
-    };
-  }
-
   /**
-   * La selección pasa a cobro (E.5 con `aplicarSeleccion`, B.3, F.1, F.3): una cotización para toda la mesa, el
+   * La selección pasa a cobro (E.5, B.3, F.1, F.3): una cotización para toda la mesa, el
    * descuento de cada unidad PLAN en orden (clave derivada por miembro) y una cuenta por pagador con saldo.
    */
   private async chargeSelection(
@@ -911,7 +870,6 @@ export class CheckoutService {
       mesaId: mesa.mesa_compartida_id,
       restauranteId: String(mesa.restaurante_id),
       modo: mesa.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
-      base: 'seleccion',
       miembros: activos.map(miembroBase),
     });
     const porRef = new Map(activos.map((m) => [String(m.miembro_id), m]));
@@ -1089,18 +1047,12 @@ export class CheckoutService {
   }
 
   /** Cotización informativa de la mesa para el personal: ve el plan y la selección de todos. Sin los que salieron. */
-  private quote(
-    q: Queryable,
-    mesa: { mesa_compartida_id: string; modo: string; restaurante_id: string },
-    base: OpcionesCotizarMesa['base'],
-    reponerConsumos: boolean,
-  ) {
+  private quote(q: Queryable, mesa: { mesa_compartida_id: string; modo: string; restaurante_id: string }, reponerConsumos: boolean) {
     return this.members(q, mesa.mesa_compartida_id).then((members) =>
       cotizarMesa(q, {
         mesaId: mesa.mesa_compartida_id,
         restauranteId: String(mesa.restaurante_id),
         modo: mesa.modo === 'INVITO_YO' ? 'INVITO_YO' : 'CADA_UNO',
-        base,
         reponerConsumos,
         miembros: ordenMesa(members.filter((m) => !m.salio)).map(miembroBase),
       }),
@@ -1120,8 +1072,11 @@ export class CheckoutService {
     cotizada?: Awaited<ReturnType<CheckoutService['quote']>>,
   ) {
     const members = await this.members(q, mesa.mesa_compartida_id);
-    const cot = cotizada ?? (await this.quote(q, mesa, 'seleccion', mesa.validada_en !== null));
-    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) => (c ? aRespuesta(c, cot.monedaCodigo) : null);
+    const cot = cotizada ?? (await this.quote(q, mesa, mesa.validada_en !== null));
+    const mesaId = String(mesa.mesa_compartida_id);
+    // Frontera de serialización (PR 9): ningún miembro_id sale; cada miembro y su cotización usan su ref opaco.
+    const aResp = (c: Parameters<typeof aRespuesta>[0] | null | undefined) =>
+      c ? opacarCotizacionMesa(aRespuesta(c, cot.monedaCodigo), mesaId) : null;
     const host = members.find((m) => m.es_anfitrion);
     const activos = members.filter((m) => !m.salio);
     const selecciones = await loadSelections(q, mesa.mesa_compartida_id);
@@ -1136,6 +1091,7 @@ export class CheckoutService {
       cubiertos:
         mesa.modo === 'INVITO_YO' ? Math.min(activos.length, host?.disponibles ?? 0) : activos.filter((m) => m.disponibles > 0).length,
       miembros: members.map((m) => ({
+        ref: refMiembro(mesaId, m.miembro_id),
         nombre: m.nombre,
         esAnfitrion: m.es_anfitrion,
         paraLlevar: m.para_llevar,
@@ -1257,16 +1213,17 @@ export class CheckoutController {
   @ApiOperation({
     summary: 'Validar toda la mesa de una vez (la selección de cada miembro se cobra)',
     description:
-      'Por defecto (`aplicarSeleccion: true`) se cobra lo que eligió cada miembro con la regla única de cobro: sin selección cuenta 1 almuerzo; ' +
+      'Sin cuerpo (o `{}`): se cobra lo que eligió cada miembro con la regla única de cobro: sin selección cuenta 1 almuerzo; ' +
       'el plan solo cubre almuerzos (CADA_UNO: el de cada miembro; INVITO_YO: el del anfitrión, en orden de llegada, y lo que no alcanza va a ' +
       'precio suelto con aviso PLAN_NO_ALCANZA). Se abre una cuenta ABIERTA por pagador con algo por cobrar (`cuentas`; una sola en INVITO_YO), ' +
-      'que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. `aplicarSeleccion: false`: 1 almuerzo por ' +
-      'miembro como antes, sin cuentas. Repetir sobre una mesa validada no descuenta: `yaValidada: true` con sus `cuentas`.',
+      'que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. Repetir sobre una mesa validada no ' +
+      'descuenta: `yaValidada: true` con sus `cuentas`. `aplicarSeleccion` se retiró en el PR 9: cualquier campo en el cuerpo → 400 `BAD_REQUEST`.',
   })
   @ApiBody({ type: ValidarMesaDto, required: false })
   @ApiOkResponse({ type: MesaValidadaResponse })
   @ApiProblems({ 409: ['IDEMPOTENCY_KEY_REUTILIZADA', 'ALMUERZO_SIN_PRECIO'] })
-  validateTable(@Param('id', UuidPipe) id: string, @Body() dto: ValidarMesaDto, @IdempotencyKey() key: string) {
-    return this.checkout.validateTable(id, key, dto ?? {});
+  // El cuerpo no tiene campos, pero se lee: cualquier campo (p. ej. `aplicarSeleccion`) → 400, como la whitelist.
+  validateTable(@Param('id', UuidPipe) id: string, @Body(SinCamposPipe) _body: unknown, @IdempotencyKey() key: string) {
+    return this.checkout.validateTable(id, key);
   }
 }

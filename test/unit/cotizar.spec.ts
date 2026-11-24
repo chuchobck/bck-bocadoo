@@ -544,7 +544,8 @@ const CASOS: Caso[] = [
     verificar: (c) => expect(c.unidadesPlan).toHaveLength(1),
   },
   {
-    // Validar mesa sin aplicarSeleccion: el endpoint arma 1 almuerzo por miembro con su paraLlevar.
+    // G-35 (heredado): 1 almuerzo por miembro con su paraLlevar. El endpoint ya no arma esta entrada (PR 9 retiró
+    // `aplicarSeleccion: false`), pero sigue siendo una entrada válida de la cotización pura.
     caso: '35',
     entrada: mesa('CADA_UNO', [
       { ref: 'A', plan: ok(), items: [alm()] },

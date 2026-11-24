@@ -137,8 +137,6 @@ export interface OpcionesCotizarMesa {
   modo: 'CADA_UNO' | 'INVITO_YO';
   /** En el orden de la mesa: anfitrión primero, luego (unido_en, miembro_id). Solo los que no salieron (D, E.7). */
   miembros: MiembroMesaBase[];
-  /** 'seleccion' (E.6) o 'un-almuerzo' (E.5, validar sin aplicarSeleccion). */
-  base: 'seleccion' | 'un-almuerzo';
   /** Mesa ya validada (solo personal): el plan se reconstruye sumando lo que se descontó aquí. */
   reponerConsumos?: boolean;
 }
@@ -160,7 +158,7 @@ export async function cargarMesaParaCobro(q: Queryable, o: OpcionesCotizarMesa):
     o.miembros.filter((m) => m.planLegible && !m.plan).map((m) => ({ restauranteId: o.restauranteId, clienteId: m.clienteId })),
   );
   const gastados = o.reponerConsumos ? await consumidosEnMesa(q, o.mesaId) : new Map<string, number>();
-  const selecciones = o.base === 'seleccion' ? await cargarSelecciones(q, o.mesaId) : new Map<string, SeleccionCotizable>();
+  const selecciones = await cargarSelecciones(q, o.mesaId);
 
   const planDe = (m: MiembroMesaBase): PlanPersona | null => {
     if (!m.planLegible) return null;
@@ -178,7 +176,6 @@ export async function cargarMesaParaCobro(q: Queryable, o: OpcionesCotizarMesa):
   }));
   const mesa: MesaParaCobro = {
     modo: o.modo,
-    base: o.base,
     precioAlmuerzo: Number(rest.precio),
     recargoLlevar: Number(rest.recargo),
     momentoCobro: rest.momento,

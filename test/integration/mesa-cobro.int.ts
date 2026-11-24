@@ -161,7 +161,7 @@ describe.skipIf(!probe)('PR 6: la selección de la mesa pasa a cobro', () => {
       expect((await k.as(l.o).get(`/v1/caja/cuentas/${v.cuentas[0].id}`)).json()).toMatchObject({ origen: 'MESA', saldoCentavos: 100 });
     });
 
-    it('G-47: repetir con la misma llave o con otra no descuenta ni crea cuentas: yaValidada con las mismas cuentas; otro cuerpo → 409', async () => {
+    it('G-47: repetir con la misma llave o con otra no descuenta ni crea cuentas: yaValidada con las mismas cuentas; un campo → 400', async () => {
       const l = await local();
       const a = await conPlan(l, 5);
       const b = await k.diner();
@@ -192,10 +192,10 @@ describe.skipIf(!probe)('PR 6: la selección de la mesa pasa a cobro', () => {
         ).rowCount,
       ).toBe(1);
 
-      // Misma llave, otro cuerpo (aplicarSeleccion: false) → 409, nada cambia.
+      // Misma llave con `aplicarSeleccion` (retirado en el PR 9) → 400 por la whitelist, antes de mirar la llave; nada cambia.
       const otro = await validar(l.o, id, { aplicarSeleccion: false }, key);
-      expect(otro.statusCode).toBe(409);
-      expect(otro.json().code).toBe('IDEMPOTENCY_KEY_REUTILIZADA');
+      expect(otro.statusCode).toBe(400);
+      expect(otro.json().code).toBe('BAD_REQUEST');
       expect(await cuentasDeMesa(id)).toBe(2);
     });
 
@@ -309,18 +309,33 @@ describe.skipIf(!probe)('PR 6: la selección de la mesa pasa a cobro', () => {
       expect(await saldoPlan(l, h.clienteId!)).toBe(4);
     });
 
-    it('G-35: aplicarSeleccion false explícito → 1 almuerzo por miembro como antes, cotización informativa, porCobrar 1, sin cuentas', async () => {
+    it('PR 9: aplicarSeleccion true o false → 400 sin descontar ni abrir cuentas; sin cuerpo cobra la selección con los mismos montos', async () => {
       const l = await local();
       const a = await conPlan(l, 5);
       const b = await k.diner();
       const id = await mesa(l, a, [{ p: b, llevar: true }], 'CADA_UNO');
-      await elegir(b, id, { extras: [[l.cola, 2]] }); // con false la selección no se cobra
-      const v = (await validar(l.o, id, { aplicarSeleccion: false })).json();
-      expect(totales(v.cotizacion)).toEqual([700, 25, 725, 350, 375]);
-      expect(v.cotizacion.estimada).toBe(true);
-      expect(v).toMatchObject({ descontados: 1, porCobrar: 1, cuentas: [] });
-      expect(v.resultados.map((x: { cuentaId: null }) => x.cuentaId)).toEqual([null, null]);
+      await elegir(b, id, { extras: [[l.cola, 2]] });
+      const previa = (await k.as(l.o).get(`/v1/caja/mesas/${id}`)).json();
+      for (const aplicarSeleccion of [true, false]) {
+        const r = await validar(l.o, id, { aplicarSeleccion });
+        expect(r.statusCode, r.body).toBe(400);
+        expect(r.json().code).toBe('BAD_REQUEST');
+      }
+      expect(await consumosDeMesa(id)).toBe(0);
       expect(await cuentasDeMesa(id)).toBe(0);
+      expect(await saldoPlan(l, a.clienteId!)).toBe(5);
+      expect((await k.as(l.o).get(`/v1/caja/mesas/${id}`)).json().validadaEn).toBeNull();
+
+      // Sin cuerpo: A sin selección = 1 almuerzo del plan; B 2 Colas (BEBIDA, sin recargo) a su cuenta. Igual que la vista previa.
+      const v = await validar(l.o, id);
+      expect(v.statusCode, v.body).toBe(200);
+      expect(totales(v.json().cotizacion)).toEqual([P + 2 * B, 0, P + 2 * B, P, 2 * B]);
+      expect(totales(v.json().cotizacion)).toEqual(totales(previa.cotizacion));
+      expect(v.json()).toMatchObject({ descontados: 1, porCobrar: 0 });
+      expect(v.json().cuentas.map((x: { saldoCentavos: number }) => x.saldoCentavos)).toEqual([2 * B]);
+      expect(v.json().resultados.map((x: { resultado: string }) => x.resultado)).toEqual(['OK', 'SIN_ALMUERZO']);
+      expect(await consumosDeMesa(id)).toBe(1);
+      expect(await saldoPlan(l, a.clienteId!)).toBe(4);
     });
 
     it('G-36 INVITO_YO: la vista previa estimaba 2 cubiertos; el plan se gastó antes de validar → manda la base (Cub 350, Saldo 700)', async () => {
@@ -375,9 +390,9 @@ describe.skipIf(!probe)('PR 6: la selección de la mesa pasa a cobro', () => {
       expect(await saldoPlan(l, h.clienteId!)).toBe(3);
     });
 
-    it('sin cuerpo, con {} o con aplicarSeleccion true: el mismo cobro; un campo de más → 400', async () => {
+    it('sin cuerpo o con {}: el mismo cobro; cualquier campo (también aplicarSeleccion) → 400', async () => {
       const l = await local();
-      for (const body of [undefined, {}, { aplicarSeleccion: true }]) {
+      for (const body of [undefined, {}]) {
         const b = await k.diner();
         const id = await mesa(l, b, [], 'CADA_UNO');
         await elegir(b, id, { extras: [[l.cola, 1]] });
@@ -386,8 +401,9 @@ describe.skipIf(!probe)('PR 6: la selección de la mesa pasa a cobro', () => {
       }
       const b = await k.diner();
       const id = await mesa(l, b, [], 'CADA_UNO');
-      expect((await validar(l.o, id, { aplicarSeleccion: true, cobro: {} })).statusCode).toBe(400);
-      expect((await validar(l.o, id, { aplicarSeleccion: 'si' })).statusCode).toBe(400);
+      for (const body of [{ aplicarSeleccion: true }, { aplicarSeleccion: false }, { aplicarSeleccion: 'si' }, { cobro: {} }])
+        expect((await validar(l.o, id, body)).statusCode).toBe(400);
+      expect(await cuentasDeMesa(id)).toBe(0);
     });
 
     it('deshacer el consumo de una cuenta de mesa ABIERTA: línea inversa; la cuenta sigue con lo demás', async () => {

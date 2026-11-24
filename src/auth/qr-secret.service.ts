@@ -7,6 +7,17 @@ import { DbService } from '../db/db.service';
 const VERSION = 1;
 
 /**
+ * La llave `QR_SECRET_KEY` (32 bytes en base64). Sin ella (solo desarrollo y pruebas: en producción la config la exige)
+ * una llave fija de desarrollo. La usan el QR y la subclave de los refs de mesa (RefsMesaService).
+ */
+export function llaveQr(env: Pick<Env, 'QR_SECRET_KEY'>): Buffer {
+  if (!env.QR_SECRET_KEY) return createHash('sha256').update('bocadoo-llave-qr-solo-desarrollo').digest();
+  const key = Buffer.from(env.QR_SECRET_KEY, 'base64');
+  if (key.length !== 32) throw new Error('QR_SECRET_KEY debe ser 32 bytes en base64 (genera una con pnpm keys:generate).');
+  return key;
+}
+
+/**
  * Secreto del QR de cada usuario. En base se guarda cifrado con AES-256-GCM (llave QR_SECRET_KEY, fuera del repo):
  * un volcado de la tabla no permite fabricar códigos. La tabla solo la toca el rol de servicio.
  */
@@ -19,14 +30,9 @@ export class QrSecretService {
     private readonly db: DbService,
     @Inject(ENV) env: Env,
   ) {
-    if (env.QR_SECRET_KEY) {
-      this.key = Buffer.from(env.QR_SECRET_KEY, 'base64');
-      if (this.key.length !== 32) throw new Error('QR_SECRET_KEY debe ser 32 bytes en base64 (genera una con pnpm keys:generate).');
-    } else {
-      // Solo desarrollo y pruebas (en producción la config la exige).
-      this.key = createHash('sha256').update('bocadoo-llave-qr-solo-desarrollo').digest();
-      this.logger.warn('QR_SECRET_KEY no definida: se usa una llave de desarrollo. No usar así en producción.');
-    }
+    this.key = llaveQr(env);
+    // Solo desarrollo y pruebas (en producción la config la exige).
+    if (!env.QR_SECRET_KEY) this.logger.warn('QR_SECRET_KEY no definida: se usa una llave de desarrollo. No usar así en producción.');
   }
 
   private encrypt(usuarioId: string, secret: Buffer): Buffer {

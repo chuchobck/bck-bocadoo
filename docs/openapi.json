@@ -1852,6 +1852,7 @@
                     "validadaEn": "2026-11-13T17:00:00.000Z",
                     "miembros": [
                       {
+                        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
@@ -2126,6 +2127,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -2429,6 +2431,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -9817,6 +9820,7 @@
                   "cubiertos": 2,
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -10060,7 +10064,7 @@
     },
     "/v1/caja/mesas/{id}/validar": {
       "post": {
-        "description": "Por defecto (`aplicarSeleccion: true`) se cobra lo que eligió cada miembro con la regla única de cobro: sin selección cuenta 1 almuerzo; el plan solo cubre almuerzos (CADA_UNO: el de cada miembro; INVITO_YO: el del anfitrión, en orden de llegada, y lo que no alcanza va a precio suelto con aviso PLAN_NO_ALCANZA). Se abre una cuenta ABIERTA por pagador con algo por cobrar (`cuentas`; una sola en INVITO_YO), que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. `aplicarSeleccion: false`: 1 almuerzo por miembro como antes, sin cuentas. Repetir sobre una mesa validada no descuenta: `yaValidada: true` con sus `cuentas`.",
+        "description": "Sin cuerpo (o `{}`): se cobra lo que eligió cada miembro con la regla única de cobro: sin selección cuenta 1 almuerzo; el plan solo cubre almuerzos (CADA_UNO: el de cada miembro; INVITO_YO: el del anfitrión, en orden de llegada, y lo que no alcanza va a precio suelto con aviso PLAN_NO_ALCANZA). Se abre una cuenta ABIERTA por pagador con algo por cobrar (`cuentas`; una sola en INVITO_YO), que se cobra con `POST /v1/caja/cuentas/{id}/cobrar`. Los miembros que salieron no se cobran. Repetir sobre una mesa validada no descuenta: `yaValidada: true` con sus `cuentas`. `aplicarSeleccion` se retiró en el PR 9: cualquier campo en el cuerpo → 400 `BAD_REQUEST`.",
         "operationId": "CheckoutController_validateTable",
         "parameters": [
           {
@@ -10097,9 +10101,7 @@
               "schema": {
                 "$ref": "#/components/schemas/ValidarMesaDto"
               },
-              "example": {
-                "aplicarSeleccion": true
-              }
+              "example": {}
             }
           }
         },
@@ -10120,6 +10122,7 @@
                   "cubiertos": 2,
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Ana Pérez",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -17351,6 +17354,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -17642,6 +17646,7 @@
                     "validadaEn": "2026-11-13T17:00:00.000Z",
                     "miembros": [
                       {
+                        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                         "nombre": "Doña Rosa",
                         "esAnfitrion": true,
                         "paraLlevar": true,
@@ -17884,6 +17889,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18192,6 +18198,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18510,6 +18517,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -18808,6 +18816,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -19297,6 +19306,7 @@
                   "validadaEn": "2026-11-13T17:00:00.000Z",
                   "miembros": [
                     {
+                      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
                       "nombre": "Doña Rosa",
                       "esAnfitrion": true,
                       "paraLlevar": true,
@@ -26419,16 +26429,17 @@
           "ref": {
             "type": "string",
             "example": "almuerzo#1",
-            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`."
+            "description": "Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`. En una mesa empieza por el `ref` opaco del miembro (`<ref>:almuerzo#1`)."
           },
           "personaRef": {
             "type": "string",
-            "example": "0"
+            "example": "0",
+            "description": "De quién es la línea: `\"0\"` en pedidos y QR; en una mesa, el `ref` opaco del miembro (`miembros[].ref`)"
           },
           "pagadorRef": {
             "type": "string",
             "example": "0",
-            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO)"
+            "description": "Quien paga la línea (el anfitrión en una mesa INVITO_YO). Mismo formato que `personaRef`"
           },
           "tipo": {
             "type": "string",
@@ -26522,7 +26533,8 @@
         "properties": {
           "pagadorRef": {
             "type": "string",
-            "example": "0"
+            "example": "0",
+            "description": "Mismo formato que `lineas[].pagadorRef`"
           },
           "subtotal": {
             "type": "number"
@@ -26551,7 +26563,8 @@
           },
           "lineaRef": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "El `ref` de la línea (en una mesa, con el `ref` opaco del miembro)"
           }
         },
         "required": ["codigo", "lineaRef"]
@@ -27276,6 +27289,13 @@
       "MiembroMesaResponse": {
         "type": "object",
         "properties": {
+          "ref": {
+            "type": "string",
+            "example": "q2Zk8f0sXn1Yb7RtLm4wPa",
+            "minLength": 22,
+            "maxLength": 22,
+            "description": "Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint."
+          },
           "nombre": {
             "type": "string",
             "example": "Ana Pérez"
@@ -27308,7 +27328,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). En `POST /v1/caja/mesas/{id}/validar` es la final (`estimada: false`) de lo que se le cobró; con `aplicarSeleccion: false`, la informativa de E.5 (1 almuerzo y su `paraLlevar`, con el plan de antes de descontar). `null` si el miembro salió o si el local no tiene precio de almuerzo.",
+            "description": "Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). En `POST /v1/caja/mesas/{id}/validar` es la final (`estimada: false`) de lo que se le cobró. `null` si el miembro salió o si el local no tiene precio de almuerzo.",
             "type": "object",
             "allOf": [
               {
@@ -27317,7 +27337,17 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "salio", "tieneCuenta", "almuerzosDisponibles", "seleccion", "cotizacion"]
+        "required": [
+          "ref",
+          "nombre",
+          "esAnfitrion",
+          "paraLlevar",
+          "salio",
+          "tieneCuenta",
+          "almuerzosDisponibles",
+          "seleccion",
+          "cotizacion"
+        ]
       },
       "MesaVistaResponse": {
         "type": "object",
@@ -27358,7 +27388,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`); con `aplicarSeleccion: false`, la informativa de 1 almuerzo por miembro.",
+            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`).",
             "type": "object",
             "allOf": [
               {
@@ -27371,13 +27401,7 @@
       },
       "ValidarMesaDto": {
         "type": "object",
-        "properties": {
-          "aplicarSeleccion": {
-            "type": "boolean",
-            "default": true,
-            "description": "true (por defecto desde el PR 6): se cobra la selección de cada miembro (sin selección = 1 almuerzo); solo se descuenta el almuerzo a quien lo pidió y se abre una cuenta ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). false: lo de antes, 1 almuerzo por miembro y sin cuentas (cotización solo informativa)."
-          }
-        }
+        "properties": {}
       },
       "ResultadoMiembroResponse": {
         "type": "object",
@@ -27389,7 +27413,7 @@
           "resultado": {
             "type": "string",
             "example": "OK",
-            "description": "El del escáner (OK, OK_ADVERTENCIA, SIN_PLAN, SIN_SALDO, VENCIDO, DIA_NO_VALIDO, DUPLICADO, LIMITE_SAAS) para el almuerzo de este miembro, o `SIN_ALMUERZO` si su selección no lleva almuerzo (solo con `aplicarSeleccion`)."
+            "description": "El del escáner (OK, OK_ADVERTENCIA, SIN_PLAN, SIN_SALDO, VENCIDO, DIA_NO_VALIDO, DUPLICADO, LIMITE_SAAS) para el almuerzo de este miembro, o `SIN_ALMUERZO` si su selección no lleva almuerzo."
           },
           "descontado": {
             "type": "boolean"
@@ -27447,7 +27471,7 @@
           },
           "cotizacion": {
             "nullable": true,
-            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`); con `aplicarSeleccion: false`, la informativa de 1 almuerzo por miembro.",
+            "description": "Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final (`estimada: false`).",
             "type": "object",
             "allOf": [
               {
@@ -27474,10 +27498,10 @@
           "porCobrar": {
             "type": "number",
             "example": 1,
-            "description": "Almuerzos a cobrar aparte. Con `aplicarSeleccion`: los almuerzos que van a una cuenta a precio suelto (no cuenta los omitidos por DUPLICADO o LIMITE_SAAS ni a quien no pidió almuerzo). Con `aplicarSeleccion: false`: miembros no descontados, como antes."
+            "description": "Almuerzos a cobrar aparte: los que van a una cuenta a precio suelto (no cuenta los omitidos por DUPLICADO o LIMITE_SAAS ni a quien no pidió almuerzo)."
           },
           "cuentas": {
-            "description": "Cuentas de cobro de la mesa: una ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). Vacío con `aplicarSeleccion: false` o si nadie debe nada. En un reintento (`yaValidada`), las que la mesa ya tiene.",
+            "description": "Cuentas de cobro de la mesa: una ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). Vacío si nadie debe nada. En un reintento (`yaValidada`), las que la mesa ya tiene.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CuentaResponse"
@@ -28479,6 +28503,8 @@
           },
           "extras": {
             "maxItems": 10,
+            "deprecated": true,
+            "description": "**Deprecado (PR 9):** sigue funcionando igual (platos con precio del menú de hoy). Para la carta fija usa `cartaItems`; `extras` se retirará en un PR futuro anunciado.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtraDto"
@@ -29033,6 +29059,13 @@
       "MiembroMesa": {
         "type": "object",
         "properties": {
+          "ref": {
+            "type": "string",
+            "example": "q2Zk8f0sXn1Yb7RtLm4wPa",
+            "minLength": 22,
+            "maxLength": 22,
+            "description": "Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint."
+          },
           "nombre": {
             "type": "string"
           },
@@ -29071,7 +29104,7 @@
             ]
           }
         },
-        "required": ["nombre", "esAnfitrion", "paraLlevar", "soyYo", "salio", "seleccion", "cotizacion"]
+        "required": ["ref", "nombre", "esAnfitrion", "paraLlevar", "soyYo", "salio", "seleccion", "cotizacion"]
       },
       "SeleccionAlmuerzoDto": {
         "type": "object",
@@ -29120,7 +29153,8 @@
             ]
           },
           "extras": {
-            "description": "Platos sueltos con cantidad; un mismo plato no se repite",
+            "deprecated": true,
+            "description": "Platos sueltos con cantidad; un mismo plato no se repite. **Deprecado (PR 9):** sigue funcionando igual (carta fija o menú de hoy); se reemplazará en un PR futuro anunciado.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SeleccionExtraDto"

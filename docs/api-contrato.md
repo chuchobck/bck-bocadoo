@@ -8,6 +8,31 @@ Contrato de la API de Bocadoo (backend NestJS). **Todo lo que dice este document
 
 ## Novedades
 
+### Entrega D · PR 9: cambios incompatibles anunciados
+
+**Sin migración.** Lleva la etiqueta `cambio-incompatible`.
+
+#### `extras` deprecado (sin cambio de comportamiento)
+
+`extras` queda marcado `deprecated: true` en el OpenAPI de la **entrada** de `POST /v1/mis/pedidos`, `POST /v1/mis/pedidos/cotizar` y `PUT /v1/mis/mesas/{id}/seleccion`. Sigue validando, cotizando y cobrando exactamente igual. Las respuestas no cambian: `seleccion.extras` (comensal y caja) y `extras` de `/v1/caja/pedidos` quedan como estaban. Cuando llega `extras` con algo, el backend registra un log `extras_deprecado_usado` (id público del local y ruta, sin datos del comensal) para saber cuándo se puede retirar.
+
+- En pedidos, `extras` solo acepta platos con precio del **menú publicado de hoy**. Un plato de la carta fija que no está en el menú de hoy responde 422 `PLATO_NO_DISPONIBLE`, y sin menú publicado responde 409 `MENU_NO_PUBLICADO`: para la carta usa `cartaItems`.
+- En la selección de mesa, `extras` acepta carta fija o menú de hoy y todavía no tiene reemplazo; se anunciará antes de retirarlo.
+
+#### `POST /v1/caja/mesas/{id}/validar`: se retira `aplicarSeleccion` (incompatible)
+
+- El cuerpo ya no tiene campos. Sin cuerpo o con `{}` hace lo mismo que antes sin cuerpo: cobra la selección de cada miembro (sin selección = 1 almuerzo), con los mismos montos, cuentas y avisos.
+- Un cuerpo con `aplicarSeleccion` (`true`, `false` o cualquier valor) responde **400 `BAD_REQUEST`** (`detail: "property aplicarSeleccion should not exist"`) sin descontar ni abrir nada. Igual cualquier otro campo.
+- Desaparece el modo `aplicarSeleccion: false` (1 almuerzo por miembro, cotización informativa y `cuentas: []`).
+- Reintentar con la misma llave una mesa validada antes del PR 9 sigue respondiendo `yaValidada: true` con sus cuentas.
+
+#### Ids opacos de los miembros de una mesa (incompatible en valores, mismo tipo)
+
+- **Campo nuevo `miembros[].ref`** (`string`, 22 caracteres base64url) en todas las vistas de mesa: `GET/POST /v1/mis/mesas*`, `PUT …/seleccion`, `…/salir`, `…/cancelar`, `POST /v1/mesas/invitacion/{id}/unirse`, `GET /v1/caja/mesas/{id}` y `POST /v1/caja/mesas/{id}/validar`. Es estable entre llamadas, igual para el comensal, el anfitrión y la caja, y distinto entre miembros y entre mesas.
+- **Cambio de valor** (mismo tipo `string`): en las cotizaciones y cuentas **de mesa**, `lineas[].personaRef`, `lineas[].pagadorRef` y `porPagador[].pagadorRef` traen ese `ref` en lugar del id interno del miembro. El prefijo de `lineas[].ref` y `avisos[].lineaRef` también: antes `"57:almuerzo#1"`, ahora `"q2Zk8f0sXn1Yb7RtLm4wPa:almuerzo#1"`. Vale igual en `cuentas` de validar y en `GET /v1/caja/cuentas`, `GET /v1/caja/cuentas/{id}`, `…/cobrar` y `…/anular` de una cuenta de mesa.
+- No cambia: pedidos y QR siguen con `personaRef`/`pagadorRef` `"0"` y refs `almuerzo`, `extra:i`, `carta:i`, `item:<plato>`; los ids de otras entidades (mesa, cuenta, plato, oferta, consumo) tampoco. Montos, orden de líneas y avisos son los mismos.
+- Para relacionar una línea con su miembro: `linea.personaRef === miembro.ref` (y `linea.pagadorRef` con el que paga). El `ref` no es un id de base de datos y no sirve como entrada de ningún endpoint.
+
 ### `consumoPrevio` al responder `DUPLICADO` en `POST /v1/caja/validar`
 
 **Sin migración, sin cambio incompatible** (campo nuevo y opcional; `pnpm openapi:breaking`: 0 errores). Cuando `resultado` es `DUPLICADO`, la respuesta ahora suma `consumoPrevio: { creadoEn }` con la hora del canje anterior (de hace menos de 60 s) que lo causó: el consumo real si la persona tiene plan, o la hora en que se abrió su primera cuenta QR si no tiene plan (PR 6b). Con `LIMITE_SAAS` no aparece (`consumoPrevio` queda `undefined`). Sirve para que la caja le muestre a quién atendió hace un momento, en vez de solo "ya fue validado".
@@ -292,15 +317,15 @@ Luego `POST /v1/caja/cuentas/6a4747ee-…/cobrar` con `{ "metodoPago": "EFECTIVO
 
 Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (D «Mesas», E.5, E.6, E.7, F.3 y G 28–39, 46 y 47) y el flujo en [`docs/mesas-flujo.md`](./mesas-flujo.md). **Una migración** (`20261122120000_mesa_salida_rls`) y **un cambio incompatible de comportamiento**: `POST /v1/caja/mesas/{id}/validar` sin cuerpo ahora cobra la selección. El esquema no rompe nada (`pnpm openapi:breaking`: 0 errores; el cuerpo es opcional): lo incompatible es el significado del default, ver abajo.
 
-| Dónde                                                        | Qué cambia                                                                                                                                                                                                                                                   |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /v1/caja/mesas/{id}/validar`                           | Cuerpo **opcional** `{ "aplicarSeleccion"?: boolean }` (default `true`). Con `true` cobra lo que eligió cada uno: descuenta los planes y abre una `Cuenta` (`origen: MESA`) por pagador con saldo. Respuesta: `cuentas`, `avisos` y `resultados[].cuentaId`. |
-| `POST /v1/mis/mesas/{id}/salir` (**nuevo**)                  | Un invitado sale de la mesa antes de que la caja la valide: se borra su selección y no se le cobra. `200` con la mesa.                                                                                                                                       |
-| `miembros[].salio` (todas las vistas de mesa)                | **Campo nuevo** (`boolean`). Quien salió sigue en la lista, pero no cuenta en `personas`, no se cobra y su `cotizacion` es `null`.                                                                                                                           |
-| `GET /v1/mis/mesas*` (`miembros[].cotizacion`, `cotizacion`) | **Cambio de valor** (mismo tipo): ya no vienen `null` por el plan ajeno. El anfitrión ve la de todos y la de la mesa; un invitado, la suya (también en `INVITO_YO`). Siguen `null` las que no le tocan ver.                                                  |
-| `PUT /v1/mis/mesas/{id}/seleccion`                           | 409 `SALISTE_DE_LA_MESA` si saliste (vuelve a unirte con el link).                                                                                                                                                                                           |
-| `GET /v1/mesas/invitacion/{id}`, `POST …/unirse`             | Quien salió no ocupa lugar (`personas`) y puede volver a unirse con las reglas de cualquier invitado; vuelve con la selección vacía.                                                                                                                         |
-| `POST /v1/caja/cuentas/{id}/items` y `…/lineas/{ref}/quitar` | Sobre una cuenta de mesa → 409 `CUENTA_DE_MESA` (antes no había cuentas de mesa). Cobrar, anular y deshacer el consumo funcionan como en las demás.                                                                                                          |
+| Dónde                                                        | Qué cambia                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/caja/mesas/{id}/validar`                           | Cuerpo **opcional** `{ "aplicarSeleccion"?: boolean }` (default `true`; **retirado en el PR 9**). Con `true` cobra lo que eligió cada uno: descuenta los planes y abre una `Cuenta` (`origen: MESA`) por pagador con saldo. Respuesta: `cuentas`, `avisos` y `resultados[].cuentaId`. |
+| `POST /v1/mis/mesas/{id}/salir` (**nuevo**)                  | Un invitado sale de la mesa antes de que la caja la valide: se borra su selección y no se le cobra. `200` con la mesa.                                                                                                                                                                |
+| `miembros[].salio` (todas las vistas de mesa)                | **Campo nuevo** (`boolean`). Quien salió sigue en la lista, pero no cuenta en `personas`, no se cobra y su `cotizacion` es `null`.                                                                                                                                                    |
+| `GET /v1/mis/mesas*` (`miembros[].cotizacion`, `cotizacion`) | **Cambio de valor** (mismo tipo): ya no vienen `null` por el plan ajeno. El anfitrión ve la de todos y la de la mesa; un invitado, la suya (también en `INVITO_YO`). Siguen `null` las que no le tocan ver.                                                                           |
+| `PUT /v1/mis/mesas/{id}/seleccion`                           | 409 `SALISTE_DE_LA_MESA` si saliste (vuelve a unirte con el link).                                                                                                                                                                                                                    |
+| `GET /v1/mesas/invitacion/{id}`, `POST …/unirse`             | Quien salió no ocupa lugar (`personas`) y puede volver a unirse con las reglas de cualquier invitado; vuelve con la selección vacía.                                                                                                                                                  |
+| `POST /v1/caja/cuentas/{id}/items` y `…/lineas/{ref}/quitar` | Sobre una cuenta de mesa → 409 `CUENTA_DE_MESA` (antes no había cuentas de mesa). Cobrar, anular y deshacer el consumo funcionan como en las demás.                                                                                                                                   |
 
 #### Validar la mesa con `aplicarSeleccion` (default)
 
@@ -312,10 +337,10 @@ Detalle de diseño en [`docs/spec-cobros.md`](./spec-cobros.md) (D «Mesas», E.
 - **Plato agotado** entre elegir y validar: `omitida: "PLATO_AGOTADO"` con su aviso, no se cobra.
 - **`resultados[]`:** uno por miembro que sigue en la mesa. `resultado` es el del escáner para su almuerzo, o **`SIN_ALMUERZO`** (nuevo valor) si su selección no lleva almuerzo. `cuentaId` = la cuenta donde quedó lo suyo (en `INVITO_YO`, la del anfitrión).
 - **`porCobrar`** = almuerzos que van a una cuenta a precio suelto (sin los omitidos ni a quien no pidió almuerzo). `descontados` = almuerzos descontados de planes.
-- **Idempotencia y reintentos:** cada miembro descuenta con su propia llave derivada; repetir (misma llave u otra) sobre una mesa validada responde `yaValidada: true`, `resultados: []`, `avisos: []` y **las mismas `cuentas`**, sin descontar ni crear nada. La misma llave con **otro** cuerpo (`aplicarSeleccion` distinto) → 409 `IDEMPOTENCY_KEY_REUTILIZADA`.
+- **Idempotencia y reintentos:** cada miembro descuenta con su propia llave derivada; repetir (misma llave u otra) sobre una mesa validada responde `yaValidada: true`, `resultados: []`, `avisos: []` y **las mismas `cuentas`**, sin descontar ni crear nada. La misma llave con **otro** cuerpo (`aplicarSeleccion` distinto) → 409 `IDEMPOTENCY_KEY_REUTILIZADA` _(desde el PR 9 cualquier campo es 400)_.
 - Un almuerzo que va a caja con el local sin precio de almuerzo (P = 0) → 409 `ALMUERZO_SIN_PRECIO` (I-12) y no se descuenta nada.
 
-**`aplicarSeleccion: false`** = lo de antes del PR 6: 1 almuerzo por miembro, cotización informativa (`estimada: true`, E.5), `cuentas: []`, `resultados[].cuentaId: null` y `porCobrar` = miembros no descontados. Úsalo solo durante la transición.
+~~**`aplicarSeleccion: false`** = lo de antes del PR 6: 1 almuerzo por miembro, cotización informativa (`estimada: true`, E.5), `cuentas: []`, `resultados[].cuentaId: null` y `porCobrar` = miembros no descontados. Úsalo solo durante la transición.~~ **Retirado en el PR 9.**
 
 Ejemplo (`CADA_UNO`; Ana con plan pidió Seco y una Cola, Beto sin plan pidió Seco y un Huevo frito), recortado:
 
@@ -1047,7 +1072,7 @@ Mismo cuerpo y mismas validaciones que `POST /v1/mis/pedidos` (almuerzo y extras
 
 #### `POST /v1/caja/mesas/{id}/validar`: cotización informativa
 
-_Desde el PR 6a esto es lo que hace `aplicarSeleccion: false`; el default cobra la selección._ Agrega `cotizacion` y `miembros[].cotizacion` con **cada miembro con 1 almuerzo y su `paraLlevar`** (E.5, sin extras ni la selección), calculados con el plan de **antes** de descontar. No cambia los descuentos, `descontados`, `porCobrar` ni `resultados`. En el reintento (`yaValidada: true`) se reconstruye con lo descontado en la mesa.
+_Desde el PR 6a esto es lo que hacía `aplicarSeleccion: false`, **retirado en el PR 9**; validar siempre cobra la selección._ Agrega `cotizacion` y `miembros[].cotizacion` con **cada miembro con 1 almuerzo y su `paraLlevar`** (E.5, sin extras ni la selección), calculados con el plan de **antes** de descontar. No cambia los descuentos, `descontados`, `porCobrar` ni `resultados`. En el reintento (`yaValidada: true`) se reconstruye con lo descontado en la mesa.
 
 #### INC-12: `cubiertos` y `almuerzosDisponibles` cuentan `dias_validos` (cambio de valor, mismo tipo)
 
@@ -1140,7 +1165,7 @@ Todo error (también los de validación y los de rutas inexistentes) tiene esta 
 | `CUENTA_COBRADA`              | 409  | `POST /v1/caja/consumos/{id}/deshacer` (almuerzo de una cuenta cobrada o con pagos; PR 5a)                                                                                                                                                                                                                                                                                                   |
 | `CUENTA_DE_MESA`              | 409  | `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` sobre una cuenta de mesa (PR 6a)                                                                                                                                                                                                                                                                       |
 | `CONSUMO_REVERTIDO`           | 409  | `POST /v1/mis/consumos/{id}/opinion`; `POST /v1/mis/consumos/{id}/opinion/descartar`; `POST /v1/mis/consumos/{id}/reclamo`                                                                                                                                                                                                                                                                   |
-| `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más; `POST /v1/caja/validar` con `items`/`cobro`, `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b); `POST /v1/caja/mesas/{id}/validar` con otro `aplicarSeleccion` (PR 6a)                            |
+| `IDEMPOTENCY_KEY_REUTILIZADA` | 409  | `POST /v1/caja/pedidos/{id}/canjear`; `POST /v1/caja/cuentas/{id}/cobrar`; `POST /v1/clientes/{id}/sellos/canjear`; `POST /v1/mis/mesas` y 1 más; `POST /v1/caja/validar` con `items`/`cobro`, `POST /v1/caja/cuentas/{id}/items` y `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (5b); `POST /v1/caja/mesas/{id}/validar` con otro cuerpo (PR 6a)                                        |
 | `LINEA_DE_PLAN`               | 409  | `POST /v1/caja/cuentas/{id}/lineas/{ref}/quitar` (el almuerzo cubierto por el plan; PR 5b)                                                                                                                                                                                                                                                                                                   |
 | `LOCAL_LLENO_SOLO_LLEVAR`     | 409  | `POST /v1/mis/pedidos` (con `paraLlevar` ausente o `false` y el local `LLENO`)                                                                                                                                                                                                                                                                                                               |
 | `MENU_NO_PUBLICADO`           | 409  | `POST /v1/mis/pedidos`; `GET /v1/pase/codigo`; `GET /v1/pase`; `POST /v1/caja/validar`; `PUT /v1/mis/mesas/{id}/seleccion`; `POST /v1/caja/cuentas/{id}/items` (plato del menú sin menú publicado)                                                                                                                                                                                           |
@@ -3673,6 +3698,7 @@ Response `200`:
   "cubiertos": 1,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -3688,7 +3714,7 @@ Response `200`:
 }
 ```
 
-`miembros[].seleccion` (nuevo, solo lectura para el personal): lo que eligió cada miembro con `PUT /v1/mis/mesas/{id}/seleccion`; vacía si aún no eligió. También sale en la respuesta de `POST /v1/caja/mesas/{id}/validar`. Desde el PR 6a es **lo que se cobra** al validar (salvo con `aplicarSeleccion: false`).
+`miembros[].seleccion` (nuevo, solo lectura para el personal): lo que eligió cada miembro con `PUT /v1/mis/mesas/{id}/seleccion`; vacía si aún no eligió. También sale en la respuesta de `POST /v1/caja/mesas/{id}/validar`. Desde el PR 6a es **lo que se cobra** al validar.
 
 #### `POST /v1/caja/mesas/{id}/validar`
 
@@ -3700,14 +3726,10 @@ Response `200`:
 
 Cobra lo que eligió cada miembro que sigue en la mesa. CADA_UNO: cada quien con su plan y su cuenta. INVITO_YO: paga el anfitrión, en una sola cuenta. Las cuentas nacen `ABIERTA` y se cobran con `POST /v1/caja/cuentas/{id}/cobrar`.
 
-Request (opcional; sin cuerpo = `{ "aplicarSeleccion": true }`):
+Request: **sin cuerpo** (o `{}`). Desde el PR 9 no admite campos: cualquier campo, también `aplicarSeleccion` con cualquier valor, → 400 `BAD_REQUEST`.
 
-```json
-{
-  "aplicarSeleccion": true
-}
-```
-
+> **Novedad (PR 9, cambio incompatible):** se retiró `aplicarSeleccion` (y con él el modo `false`, 1 almuerzo por miembro sin cuentas). Ver [Novedades](#novedades).
+>
 > **Novedad (PR 6a, cambio de comportamiento):** el default cobra la selección; `cuentas`, `avisos` y `resultados[].cuentaId` nuevos; `resultado` puede ser `SIN_ALMUERZO`. `aplicarSeleccion: false` = lo de antes. Ver [Novedades](#novedades).
 >
 > **Novedad (PR 3):** `cotizacion` y `miembros[].cotizacion`. Ver [Novedades](#novedades).
@@ -3724,6 +3746,7 @@ Response `200`:
   "cubiertos": 2,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -3748,13 +3771,13 @@ Response `200`:
 }
 ```
 
-Errores posibles (además de los comunes: 401, 403, 400 de validación —campo desconocido o `aplicarSeleccion` no booleano—, 429, 5xx):
+Errores posibles (además de los comunes: 401, 403, 400 de validación —cualquier campo en el cuerpo—, 429, 5xx):
 
-| HTTP | `code`                        | Cuándo                                                              |
-| ---- | ----------------------------- | ------------------------------------------------------------------- |
-| 404  | `MESA_NO_ENCONTRADA`          | No existe o es de otro local                                        |
-| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La misma llave con otro `aplicarSeleccion`                          |
-| 409  | `ALMUERZO_SIN_PRECIO`         | Un almuerzo va a caja y el local no tiene precio de almuerzo (I-12) |
+| HTTP | `code`                        | Cuándo                                                                                 |
+| ---- | ----------------------------- | -------------------------------------------------------------------------------------- |
+| 404  | `MESA_NO_ENCONTRADA`          | No existe o es de otro local                                                           |
+| 409  | `IDEMPOTENCY_KEY_REUTILIZADA` | La llave ya validó esta mesa con otro cuerpo (desde el PR 9 el cuerpo no tiene campos) |
+| 409  | `ALMUERZO_SIN_PRECIO`         | Un almuerzo va a caja y el local no tiene precio de almuerzo (I-12)                    |
 
 #### `GET /v1/caja/ventas`
 
@@ -5048,6 +5071,7 @@ Response `201`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5098,6 +5122,7 @@ Response `200`:
     "validadaEn": null,
     "miembros": [
       {
+        "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
         "nombre": "Ana Mora",
         "esAnfitrion": true,
         "paraLlevar": false,
@@ -5140,6 +5165,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5266,6 +5292,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,
@@ -5364,6 +5391,7 @@ Response `200`:
   "validadaEn": null,
   "miembros": [
     {
+      "ref": "q2Zk8f0sXn1Yb7RtLm4wPa",
       "nombre": "Ana Mora",
       "esAnfitrion": true,
       "paraLlevar": false,

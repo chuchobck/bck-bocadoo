@@ -5,11 +5,21 @@ import { ApiProperty } from '@nestjs/swagger';
 class LineaCotizacionResponse {
   @ApiProperty({
     example: 'almuerzo#1',
-    description: 'Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`.',
+    description:
+      'Id estable de la línea. Cada unidad cubierta por el plan es su propia línea `ref#k`. En una mesa empieza por el `ref` opaco del ' +
+      'miembro (`<ref>:almuerzo#1`).',
   })
   ref!: string;
-  @ApiProperty({ example: '0' }) personaRef!: string;
-  @ApiProperty({ example: '0', description: 'Quien paga la línea (el anfitrión en una mesa INVITO_YO)' }) pagadorRef!: string;
+  @ApiProperty({
+    example: '0',
+    description: 'De quién es la línea: `"0"` en pedidos y QR; en una mesa, el `ref` opaco del miembro (`miembros[].ref`)',
+  })
+  personaRef!: string;
+  @ApiProperty({
+    example: '0',
+    description: 'Quien paga la línea (el anfitrión en una mesa INVITO_YO). Mismo formato que `personaRef`',
+  })
+  pagadorRef!: string;
   @ApiProperty({ enum: ['ALMUERZO', 'A_LA_CARTA', 'EXTRA', 'BEBIDA', 'OFERTA', 'LIBRE'] }) tipo!: string;
   @ApiProperty({ type: String, nullable: true }) nombre!: string | null;
   @ApiProperty({ type: String, nullable: true, format: 'uuid', description: 'public_id del plato' }) platoId!: string | null;
@@ -28,7 +38,7 @@ class LineaCotizacionResponse {
 }
 
 class TotalPagadorResponse {
-  @ApiProperty({ example: '0' }) pagadorRef!: string;
+  @ApiProperty({ example: '0', description: 'Mismo formato que `lineas[].pagadorRef`' }) pagadorRef!: string;
   @ApiProperty() subtotal!: number;
   @ApiProperty() recargo!: number;
   @ApiProperty() total!: number;
@@ -39,7 +49,8 @@ class TotalPagadorResponse {
 export class AvisoCotizacionResponse {
   @ApiProperty({ enum: ['OFERTA_AGOTADA', 'OFERTA_EXPIRADA', 'PLATO_AGOTADO', 'DUPLICADO', 'LIMITE_SAAS', 'PLAN_NO_ALCANZA'] })
   codigo!: string;
-  @ApiProperty({ type: String, nullable: true }) lineaRef!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'El `ref` de la línea (en una mesa, con el `ref` opaco del miembro)' })
+  lineaRef!: string | null;
 }
 
 export class CotizacionResponse {

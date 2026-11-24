@@ -455,17 +455,19 @@ describe('Fase 7: caja', () => {
       const sinPrecio = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, randomUUID());
       expect([sinPrecio.statusCode, sinPrecio.json().code]).toEqual([409, 'ALMUERZO_SIN_PRECIO']);
       expect(await saldo(o, ana.clienteId)).toBe(5);
-      // Lo de antes, con aplicarSeleccion: false (1 almuerzo por miembro, sin cuentas).
-      const legacy = { aplicarSeleccion: false };
+      // Con precio de almuerzo (PR 9 retiró `aplicarSeleccion: false`): sin selección, 1 almuerzo por miembro; los dos sin plan
+      // quedan a precio suelto, cada uno en su cuenta.
+      await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300, recargoParaLlevarCentavos: 0 });
       const key = randomUUID();
-      const res = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, legacy, key);
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 2, estado: 'EN_MESA', cuentas: [] });
+      const res = await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, key);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ yaValidada: false, descontados: 2, porCobrar: 2, estado: 'EN_MESA' });
+      expect(res.json().cuentas.map((c: { saldoCentavos: number }) => c.saldoCentavos)).toEqual([300, 300]);
       expect(res.json().resultados.map((r: { resultado: string }) => r.resultado)).toEqual(['OK', 'OK', 'SIN_PLAN', 'SIN_PLAN']);
       expect(await saldo(o, ana.clienteId)).toBe(4);
       expect(await saldo(o, beto.clienteId)).toBe(4);
       for (const k of [key, randomUUID()]) {
-        expect((await as(o).post(`/v1/caja/mesas/${mesa}/validar`, legacy, k)).json().yaValidada).toBe(true);
+        expect((await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, k)).json().yaValidada).toBe(true);
       }
       expect(await saldo(o, ana.clienteId)).toBe(4);
       const other = await h.owner('Mesa Ajena');
@@ -484,9 +486,11 @@ describe('Fase 7: caja', () => {
         { nombre: 'Invitado 2' },
       ]);
       expect((await as(o).get(`/v1/caja/mesas/${mesa}`)).json()).toMatchObject({ modo: 'INVITO_YO', personas: 3, cubiertos: 2 });
-      const res = (await as(o).post(`/v1/caja/mesas/${mesa}/validar`, { aplicarSeleccion: false }, randomUUID())).json();
+      await as(o).patch('/v1/restaurante', { precioSueltoCentavos: 300, recargoParaLlevarCentavos: 0 });
+      const res = (await as(o).post(`/v1/caja/mesas/${mesa}/validar`, undefined, randomUUID())).json();
       expect(res.resultados.map((r: { resultado: string }) => r.resultado)).toEqual(['OK', 'OK_ADVERTENCIA', 'SIN_SALDO']);
       expect(res).toMatchObject({ descontados: 2, porCobrar: 1 });
+      expect(res.cuentas.map((c: { saldoCentavos: number }) => c.saldoCentavos)).toEqual([300]);
       expect(await saldo(o, host.clienteId)).toBe(0);
     });
 

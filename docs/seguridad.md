@@ -68,6 +68,14 @@ Los endpoints del personal llevan `@Roles('DUENO', 'CAJERO')` y exigen el encabe
 - Una captura de pantalla sirve como máximo 90 segundos, y la regla de doble escaneo (60 s) impide usarla dos veces seguidas. `POST /v1/pase/rotar` invalida todo lo anterior.
 - Cada intento, válido o no, queda en `intento_escaneo` con el personal que escaneó.
 
+## Ids opacos de los miembros de una mesa (PR 9)
+
+- Ninguna respuesta expone el `miembro_id` interno. Cada miembro sale con `ref = base64url(HMAC-SHA256(subclave, "mesa-ref:v1|" + mesaId + "|" + miembroId))` truncado a 22 caracteres (132 bits), con `subclave = HMAC-SHA256(claveBase, "bocadoo:ref:v1")`. Determinista y sin tabla (`src/cobro/refs-mesa.ts`).
+- `claveBase` es **`QR_SECRET_KEY`** (no hay variable nueva): ya es obligatoria en producción y se valida al arrancar. La subclave separa este uso del cifrado de los secretos del QR. Sin `QR_SECRET_KEY` (desarrollo y pruebas) se usa la misma llave de desarrollo que el QR.
+- **Rotar `QR_SECRET_KEY` cambia todos los refs de mesa** (además de invalidar los QR guardados). El frontend no los persiste, así que solo afecta a pantallas abiertas en ese momento.
+- El ref se calcula solo al serializar la respuesta (vista de mesa del comensal y de la caja, validar y `renderCuentas`); `src/billing` y el cobro trabajan con el id interno. Si la subclave no está configurada, el cálculo falla en vez de devolver el id real.
+- Prueba: `test/integration/mesa-refs-opacos.int.ts` recorre todas las respuestas de mesa y falla si algún string es un `miembro_id` real o empieza por `<id>:`.
+
 | Amenaza                          | Mitigación                                                                 | Prueba                                 |
 | -------------------------------- | -------------------------------------------------------------------------- | -------------------------------------- |
 | QR falsificado o alterado        | HMAC con secreto por usuario; comparación en tiempo constante              | `pass-code.spec.ts`, `checkout.int.ts` |

@@ -10,6 +10,16 @@ export class ConsumoRevertidoResponse {
 }
 
 class MiembroMesaResponse {
+  @ApiProperty({
+    example: 'q2Zk8f0sXn1Yb7RtLm4wPa',
+    minLength: 22,
+    maxLength: 22,
+    description:
+      'Id opaco y estable del miembro en esta mesa (PR 9). Es el mismo valor que `personaRef` y `pagadorRef` de las cotizaciones y ' +
+      'cuentas de la mesa, y el prefijo de sus `lineas[].ref` y `avisos[].lineaRef`. Igual para el comensal, el anfitrión y la caja; ' +
+      'distinto entre miembros y entre mesas. No es un id de base de datos ni se puede usar en otro endpoint.',
+  })
+  ref!: string;
   @ApiProperty({ example: 'Ana Pérez' }) nombre!: string;
   @ApiProperty() esAnfitrion!: boolean;
   @ApiProperty() paraLlevar!: boolean;
@@ -29,8 +39,8 @@ class MiembroMesaResponse {
     nullable: true,
     description:
       'Cotización estimada de lo que pide este miembro con su plan de hoy (sin selección cuenta 1 almuerzo; en INVITO_YO paga el anfitrión). ' +
-      'En `POST /v1/caja/mesas/{id}/validar` es la final (`estimada: false`) de lo que se le cobró; con `aplicarSeleccion: false`, la informativa de E.5 ' +
-      '(1 almuerzo y su `paraLlevar`, con el plan de antes de descontar). `null` si el miembro salió o si el local no tiene precio de almuerzo.',
+      'En `POST /v1/caja/mesas/{id}/validar` es la final (`estimada: false`) de lo que se le cobró. `null` si el miembro salió o si el local ' +
+      'no tiene precio de almuerzo.',
   })
   cotizacion!: CotizacionRespuesta | null;
 }
@@ -48,7 +58,7 @@ export class MesaVistaResponse {
     nullable: true,
     description:
       'Cotización de toda la mesa con la selección de cada miembro (sin los que salieron). Estimada en la vista previa; en `validar`, la final ' +
-      '(`estimada: false`); con `aplicarSeleccion: false`, la informativa de 1 almuerzo por miembro.',
+      '(`estimada: false`).',
   })
   cotizacion!: CotizacionRespuesta | null;
 }
@@ -59,7 +69,7 @@ class ResultadoMiembroResponse {
     example: 'OK',
     description:
       'El del escáner (OK, OK_ADVERTENCIA, SIN_PLAN, SIN_SALDO, VENCIDO, DIA_NO_VALIDO, DUPLICADO, LIMITE_SAAS) para el almuerzo de este miembro, ' +
-      'o `SIN_ALMUERZO` si su selección no lleva almuerzo (solo con `aplicarSeleccion`).',
+      'o `SIN_ALMUERZO` si su selección no lleva almuerzo.',
   })
   resultado!: string;
   @ApiProperty() descontado!: boolean;
@@ -82,15 +92,15 @@ export class MesaValidadaResponse extends MesaVistaResponse {
   @ApiProperty({
     example: 1,
     description:
-      'Almuerzos a cobrar aparte. Con `aplicarSeleccion`: los almuerzos que van a una cuenta a precio suelto (no cuenta los omitidos por ' +
-      'DUPLICADO o LIMITE_SAAS ni a quien no pidió almuerzo). Con `aplicarSeleccion: false`: miembros no descontados, como antes.',
+      'Almuerzos a cobrar aparte: los que van a una cuenta a precio suelto (no cuenta los omitidos por DUPLICADO o LIMITE_SAAS ni a quien no ' +
+      'pidió almuerzo).',
   })
   porCobrar!: number;
   @ApiProperty({
     type: [CuentaResponse],
     description:
-      'Cuentas de cobro de la mesa: una ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). Vacío con `aplicarSeleccion: false` ' +
-      'o si nadie debe nada. En un reintento (`yaValidada`), las que la mesa ya tiene.',
+      'Cuentas de cobro de la mesa: una ABIERTA por pagador con algo por cobrar (una sola en INVITO_YO). Vacío si nadie debe nada. En un ' +
+      'reintento (`yaValidada`), las que la mesa ya tiene.',
   })
   cuentas!: CuentaResponse[];
   @ApiProperty({
